@@ -1,0 +1,499 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Nashville TN — Tax Delinquency & Pre-Foreclosure Admin</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: 'Segoe UI', Arial, sans-serif;
+      background: #0f1117;
+      color: #e0e0e0;
+      min-height: 100vh;
+    }
+
+    /* ---- Header ---- */
+    .header {
+      background: linear-gradient(135deg, #1a1f2e 0%, #0d1226 100%);
+      border-bottom: 2px solid #2563eb;
+      padding: 18px 28px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 12px;
+    }
+    .header h1 {
+      font-size: 1.35rem;
+      font-weight: 700;
+      color: #fff;
+      letter-spacing: 0.5px;
+    }
+    .header h1 span { color: #3b82f6; }
+    .badge {
+      background: #1e3a8a;
+      color: #93c5fd;
+      font-size: 0.75rem;
+      padding: 3px 10px;
+      border-radius: 12px;
+      font-weight: 600;
+    }
+    .badge.green { background: #14532d; color: #86efac; }
+    .badge.red   { background: #7f1d1d; color: #fca5a5; }
+
+    /* ---- Flash messages ---- */
+    .flash-bar {
+      padding: 10px 28px;
+      font-size: 0.875rem;
+      font-weight: 500;
+    }
+    .flash-bar.success { background: #14532d; color: #86efac; }
+    .flash-bar.error   { background: #7f1d1d; color: #fca5a5; }
+    .flash-bar.warning { background: #78350f; color: #fcd34d; }
+
+    /* ---- Controls bar ---- */
+    .controls {
+      background: #161b2b;
+      border-bottom: 1px solid #1e293b;
+      padding: 14px 28px;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      align-items: flex-end;
+    }
+    .ctrl-group { display: flex; flex-direction: column; gap: 4px; }
+    .ctrl-group label { font-size: 0.7rem; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.6px; }
+    .controls select, .controls input[type=text] {
+      background: #0f1117;
+      border: 1px solid #334155;
+      color: #e0e0e0;
+      padding: 6px 10px;
+      border-radius: 6px;
+      font-size: 0.85rem;
+      min-width: 150px;
+    }
+    .controls select:focus, .controls input:focus {
+      outline: none;
+      border-color: #3b82f6;
+    }
+    .btn {
+      padding: 7px 16px;
+      border-radius: 6px;
+      border: none;
+      cursor: pointer;
+      font-size: 0.85rem;
+      font-weight: 600;
+      transition: opacity 0.15s;
+    }
+    .btn:hover { opacity: 0.85; }
+    .btn-primary { background: #2563eb; color: #fff; }
+    .btn-success { background: #16a34a; color: #fff; }
+    .btn-secondary { background: #334155; color: #e0e0e0; }
+    .btn-outline { background: transparent; color: #3b82f6; border: 1px solid #2563eb; }
+    .btn:disabled { opacity: 0.4; cursor: not-allowed; }
+    .align-bottom { align-self: flex-end; }
+
+    /* ---- Stats bar ---- */
+    .stats-bar {
+      background: #0f1117;
+      padding: 8px 28px;
+      border-bottom: 1px solid #1e293b;
+      display: flex;
+      gap: 18px;
+      font-size: 0.8rem;
+      color: #64748b;
+      flex-wrap: wrap;
+    }
+    .stats-bar strong { color: #94a3b8; }
+
+    /* ---- Table ---- */
+    .table-wrap {
+      overflow-x: auto;
+      padding: 0 10px 40px;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.8rem;
+      margin-top: 10px;
+      min-width: 1100px;
+      table-layout: fixed;
+    }
+    thead th {
+      background: #1a1f2e;
+      color: #94a3b8;
+      text-transform: uppercase;
+      font-size: 0.68rem;
+      letter-spacing: 0.7px;
+      padding: 4px 6px;
+      border-bottom: 2px solid #1e293b;
+      border-right: 1px solid #263045;
+      white-space: nowrap;
+      position: sticky;
+      top: 0;
+      z-index: 2;
+      /* resizable columns */
+      overflow: hidden;
+      resize: horizontal;
+      min-width: 40px;
+    }
+    thead th a {
+      color: inherit;
+      text-decoration: none;
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      overflow: hidden;
+      white-space: nowrap;
+    }
+    thead th a:hover { color: #e0e0e0; }
+    thead th.active { color: #3b82f6; }
+    .sort-arrow { font-size: 0.65rem; flex-shrink: 0; }
+    tbody tr { border-bottom: 1px solid #1a1f2e; height: 22px; }
+    tbody tr:hover { background: #161b2b; }
+    tbody td {
+      padding: 2px 6px;
+      vertical-align: middle;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      max-width: 0;        /* forces ellipsis to respect column width */
+      border-right: 1px solid #1a2030;
+    }
+
+    /* Type badges */
+    .type-badge {
+      display: inline-block;
+      padding: 2px 8px;
+      border-radius: 10px;
+      font-size: 0.7rem;
+      font-weight: 700;
+      white-space: nowrap;
+    }
+    .type-tax { background: #7c2d12; color: #fed7aa; }
+    .type-pre { background: #1e1b4b; color: #c7d2fe; }
+
+    /* County badge */
+    .county-badge {
+      display: inline-block;
+      padding: 2px 8px;
+      border-radius: 10px;
+      font-size: 0.7rem;
+      font-weight: 600;
+      background: #1e293b;
+      color: #7dd3fc;
+    }
+
+    /* Source link */
+    .src-link { color: #3b82f6; font-size: 0.72rem; }
+    .src-link:hover { text-decoration: underline; }
+
+    /* Notes cell */
+    .notes-cell { color: #94a3b8; font-size: 0.75rem; }
+
+    /* Empty state */
+    .empty-state {
+      text-align: center;
+      padding: 60px 20px;
+      color: #475569;
+    }
+    .empty-state h2 { font-size: 1.1rem; margin-bottom: 8px; color: #64748b; }
+
+    /* Scrape modal trigger */
+    .modal-overlay {
+      display: none;
+      position: fixed; inset: 0;
+      background: rgba(0,0,0,0.7);
+      z-index: 100;
+      align-items: center;
+      justify-content: center;
+    }
+    .modal-overlay.open { display: flex; }
+    .modal {
+      background: #1a1f2e;
+      border: 1px solid #334155;
+      border-radius: 12px;
+      padding: 28px;
+      min-width: 360px;
+      max-width: 480px;
+      width: 90%;
+    }
+    .modal h2 { font-size: 1rem; margin-bottom: 16px; color: #e0e0e0; }
+    .county-checkboxes {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+      margin-bottom: 18px;
+    }
+    .county-checkboxes label {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      font-size: 0.85rem;
+      cursor: pointer;
+      color: #cbd5e1;
+    }
+    .modal-actions { display: flex; gap: 10px; justify-content: flex-end; }
+
+    /* Spinner */
+    .spinner {
+      display: inline-block;
+      width: 14px; height: 14px;
+      border: 2px solid #334155;
+      border-top-color: #3b82f6;
+      border-radius: 50%;
+      animation: spin 0.7s linear infinite;
+      margin-right: 6px;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* Scrollbar */
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: #0f1117; }
+    ::-webkit-scrollbar-thumb { background: #334155; border-radius: 4px; }
+  </style>
+</head>
+<body>
+
+<!-- HEADER -->
+<div class="header">
+  <h1>Nashville TN &mdash; <span>Tax Delinquency</span> &amp; Pre-Foreclosure Admin</h1>
+  <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+    {% if scrape_running %}
+      <span class="badge"><span class="spinner"></span> Scraping...</span>
+    {% elif scrape_message %}
+      <span class="badge green" title="{{ scrape_message }}">Last scrape: {{ scrape_message[:60] }}</span>
+    {% endif %}
+    <span class="badge">{{ filtered }} / {{ total }} records</span>
+    <button class="btn btn-success" onclick="document.getElementById('scrapeModal').classList.add('open')">
+      &#9654; Run Scraper
+    </button>
+  </div>
+</div>
+
+<!-- FLASH MESSAGES -->
+{% with messages = get_flashed_messages(with_categories=true) %}
+  {% for category, message in messages %}
+    <div class="flash-bar {{ category }}">{{ message }}</div>
+  {% endfor %}
+{% endwith %}
+
+<!-- CONTROLS -->
+<form method="get" action="/">
+  <input type="hidden" name="sort" value="{{ sort_col }}"/>
+  <input type="hidden" name="dir" value="{{ sort_dir }}"/>
+  <div class="controls">
+    <div class="ctrl-group">
+      <label>CSV File</label>
+      <select name="file" onchange="this.form.submit()">
+        {% for f in files %}
+          <option value="{{ f }}" {% if f == selected %}selected{% endif %}>{{ f }}</option>
+        {% endfor %}
+        {% if not files %}
+          <option value="">No CSV files — run scraper first</option>
+        {% endif %}
+      </select>
+    </div>
+    <div class="ctrl-group">
+      <label>County</label>
+      <select name="filter_county">
+        <option value="">All Counties</option>
+        {% for c in counties %}
+          <option value="{{ c }}" {% if filter_county == c %}selected{% endif %}>{{ c }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="ctrl-group">
+      <label>Record Type</label>
+      <select name="filter_type">
+        <option value="">All Types</option>
+        {% for t in types %}
+          <option value="{{ t }}" {% if filter_type == t %}selected{% endif %}>{{ t }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="ctrl-group">
+      <label>Search</label>
+      <input type="text" name="q" value="{{ filter_q }}" placeholder="Owner, address, parcel..."/>
+    </div>
+    <div class="align-bottom">
+      <button type="submit" class="btn btn-primary">Filter</button>
+    </div>
+    <div class="align-bottom">
+      <a href="/" class="btn btn-secondary">Clear</a>
+    </div>
+    <div class="align-bottom" style="margin-left:auto;">
+      <a href="/download?file={{ selected }}" class="btn btn-outline">&#8659; Download CSV</a>
+    </div>
+  </div>
+</form>
+
+<!-- STATS BAR -->
+<div class="stats-bar">
+  <span>Showing <strong>{{ filtered }}</strong> of <strong>{{ total }}</strong> records</span>
+  {% if filter_county or filter_type or filter_q %}
+    <span style="color:#3b82f6;">Filters active</span>
+  {% endif %}
+  <span style="margin-left:auto;">Sort: <strong>{{ column_labels.get(sort_col, sort_col) }}</strong> ({{ sort_dir }})</span>
+</div>
+
+<!-- TABLE -->
+<div class="table-wrap">
+  {% if rows %}
+  <table id="main-table">
+    <colgroup>
+      <col style="width:90px">   <!-- county -->
+      <col style="width:110px">  <!-- type -->
+      <col style="width:140px">  <!-- owner -->
+      <col style="width:160px">  <!-- address -->
+      <col style="width:90px">   <!-- city -->
+      <col style="width:40px">   <!-- state -->
+      <col style="width:60px">   <!-- zip -->
+      <col style="width:110px">  <!-- parcel -->
+      <col style="width:70px">   <!-- tax year -->
+      <col style="width:90px">   <!-- amount -->
+      <col style="width:90px">   <!-- sale date -->
+      <col style="width:80px">   <!-- case # -->
+      <col style="width:55px">   <!-- url -->
+      <col style="width:90px">   <!-- scraped date -->
+      <col style="width:200px">  <!-- notes -->
+    </colgroup>
+    <thead>
+      <tr>
+        {% for col in fieldnames %}
+          {% set next_dir = 'desc' if sort_col == col and sort_dir == 'asc' else 'asc' %}
+          {% set arrow = '▲' if (sort_col == col and sort_dir == 'asc') else ('▼' if (sort_col == col and sort_dir == 'desc') else '') %}
+          <th class="{{ 'active' if sort_col == col else '' }}">
+            <a href="/?file={{ selected }}&filter_county={{ filter_county }}&filter_type={{ filter_type }}&q={{ filter_q }}&sort={{ col }}&dir={{ next_dir }}">
+              {{ column_labels[col] }}
+              {% if arrow %}<span class="sort-arrow">{{ arrow }}</span>{% endif %}
+            </a>
+          </th>
+        {% endfor %}
+      </tr>
+    </thead>
+    <tbody>
+      {% for row in rows %}
+      <tr>
+        <td title="{{ row.county }}"><span class="county-badge">{{ row.county }}</span></td>
+        <td title="{{ row.record_type }}">
+          {% if row.record_type == 'Tax Delinquent' %}
+            <span class="type-badge type-tax">Tax Delinquent</span>
+          {% elif row.record_type == 'Pre-Foreclosure' %}
+            <span class="type-badge type-pre">Pre-Foreclosure</span>
+          {% else %}
+            {{ row.record_type }}
+          {% endif %}
+        </td>
+        <td title="{{ row.owner_name }}">{{ row.owner_name }}</td>
+        <td title="{{ row.property_address }}">{{ row.property_address }}</td>
+        <td title="{{ row.city }}">{{ row.city }}</td>
+        <td title="{{ row.state }}">{{ row.state }}</td>
+        <td title="{{ row.zip_code }}">{{ row.zip_code }}</td>
+        <td title="{{ row.parcel_id }}">{{ row.parcel_id }}</td>
+        <td title="{{ row.tax_year }}">{{ row.tax_year }}</td>
+        <td title="{{ row.amount_owed }}">{{ row.amount_owed }}</td>
+        <td title="{{ row.sale_date }}">{{ row.sale_date }}</td>
+        <td title="{{ row.case_number }}">{{ row.case_number }}</td>
+        <td title="{{ row.source_url }}">
+          {% if row.source_url %}
+            <a class="src-link" href="{{ row.source_url }}" target="_blank" rel="noopener">link ↗</a>
+          {% endif %}
+        </td>
+        <td title="{{ row.scraped_date }}">{{ row.scraped_date }}</td>
+        <td class="notes-cell" title="{{ row.notes }}">{{ row.notes }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+    <div class="empty-state">
+      <h2>No records found</h2>
+      <p>Run the scraper to populate data, or adjust your filters.</p>
+    </div>
+  {% endif %}
+</div>
+
+<!-- SCRAPE MODAL -->
+<div class="modal-overlay" id="scrapeModal">
+  <div class="modal">
+    <h2>Run Scraper</h2>
+    <form method="post" action="/scrape">
+      <p style="font-size:0.82rem;color:#94a3b8;margin-bottom:14px;">
+        Select counties to scrape (leave all checked for full run):
+      </p>
+      <div class="county-checkboxes">
+        {% for name in ['davidson','williamson','rutherford','wilson','sumner','robertson','cheatham'] %}
+        <label>
+          <input type="checkbox" name="counties" value="{{ name }}" checked/>
+          {{ name.title() }}
+        </label>
+        {% endfor %}
+      </div>
+      <div class="modal-actions">
+        <button type="button" class="btn btn-secondary" onclick="document.getElementById('scrapeModal').classList.remove('open')">
+          Cancel
+        </button>
+        <button type="submit" class="btn btn-success">Start Scrape</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Auto-refresh + column resize -->
+<script>
+  (function() {
+    {% if scrape_running %}
+    const poll = setInterval(() => {
+      fetch('/api/status')
+        .then(r => r.json())
+        .then(d => { if (!d.running) { clearInterval(poll); location.reload(); } });
+    }, 3000);
+    {% endif %}
+
+    document.getElementById('scrapeModal').addEventListener('click', function(e) {
+      if (e.target === this) this.classList.remove('open');
+    });
+
+    // ---- Drag-to-resize columns ----
+    const table = document.getElementById('main-table');
+    if (!table) return;
+
+    const cols = table.querySelectorAll('col');
+    const ths  = table.querySelectorAll('thead th');
+
+    ths.forEach((th, i) => {
+      // resize handle
+      const handle = document.createElement('div');
+      handle.style.cssText = [
+        'position:absolute','right:0','top:0','bottom:0',
+        'width:5px','cursor:col-resize','z-index:10',
+        'background:transparent'
+      ].join(';');
+      th.style.position = 'relative';
+      th.appendChild(handle);
+
+      let startX, startW;
+      handle.addEventListener('mousedown', e => {
+        e.preventDefault();
+        startX = e.clientX;
+        startW = th.offsetWidth;
+        const onMove = ev => {
+          const newW = Math.max(40, startW + (ev.clientX - startX));
+          cols[i].style.width = newW + 'px';
+        };
+        const onUp = () => {
+          document.removeEventListener('mousemove', onMove);
+          document.removeEventListener('mouseup', onUp);
+        };
+        document.addEventListener('mousemove', onMove);
+        document.addEventListener('mouseup', onUp);
+      });
+    });
+  })();
+</script>
+
+</body>
+</html>
