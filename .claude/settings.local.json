@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "WebFetch(domain:www.hudhomestore.gov)",
+      "WebFetch(domain:homepath.fanniemae.com)",
+      "WebFetch(domain:chanceryclerkandmaster.nashville.gov)",
+      "WebFetch(domain:wilcoclerkandmaster.com)"
+    ]
+  }
+}

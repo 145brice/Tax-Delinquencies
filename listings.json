@@ -1,0 +1,243 @@
+[
+    {
+        "id": 1,
+        "address": "18601 SW 128th Ave, Miami, FL",
+        "status": "Auction",
+        "price": 5,
+        "date": "2023-11-20"
+    },
+    {
+        "id": 2,
+        "address": "4400 Memorial Dr, Houston, TX",
+        "status": "Pre-foreclosure",
+        "price": 5,
+        "date": "2023-11-21"
+    },
+    {
+        "id": 3,
+        "address": "141 Pryor St SW, Atlanta, GA",
+        "status": "Tax Lien",
+        "price": 5,
+        "date": "2023-11-22"
+    },
+    {
+        "id": "4fd267c2",
+        "address": "620 Casey Pl Hermitage, TN, 37076",
+        "status": "Auction",
+        "price": 5,
+        "bid": 0,
+        "date": "2026-05-19",
+        "county": "davidson",
+        "link": "https://www.hudhomestore.govjavascript:void(0)",
+        "source": "HUD"
+    },
+    {
+        "id": "c6e09395",
+        "address": "Sevierville, TN",
+        "status": "Auction",
+        "price": 5,
+        "bid": 3750000,
+        "date": "2026-05-19",
+        "county": "davidson",
+        "link": "https://www.homepath.fanniemae.com",
+        "source": "HomePath"
+    },
+    {
+        "id": "d33d30ab",
+        "address": "Murfreesboro, TN",
+        "status": "Auction",
+        "price": 5,
+        "bid": 4800000,
+        "date": "2026-05-19",
+        "county": "davidson",
+        "link": "https://www.homepath.fanniemae.com",
+        "source": "HomePath"
+    },
+    {
+        "id": "f9ffcdff",
+        "address": "2320 Swindell Hollow Road, Lebanon, TN",
+        "status": "Tax Lien",
+        "price": 5,
+        "bid": 0,
+        "date": "2026-05-09",
+        "county": "wilson-tn",
+        "link": "https://wilcoclerkandmaster.com/court-sales/",
+        "source": "Wilson Co."
+    },
+    {
+        "id": "9eb093ae",
+        "address": "Hendersonville, TN",
+        "status": "Auction",
+        "price": 5,
+        "bid": 5500000,
+        "date": "2026-05-19",
+        "county": "davidson",
+        "link": "https://www.homepath.fanniemae.com",
+        "source": "HomePath"
+    },
+    {
+        "id": "8963ea20",
+        "address": "Gallatin, TN",
+        "status": "Auction",
+        "price": 5,
+        "bid": 8500000,
+        "date": "2026-05-19",
+        "county": "davidson",
+        "link": "https://www.homepath.fanniemae.com",
+        "source": "HomePath"
+    },
+    {
+        "id": "3aa652dd",
+        "address": "La Vergne, TN",
+        "status": "Auction",
+        "price": 5,
+        "bid": 3990000,
+        "date": "2026-05-19",
+        "county": "davidson",
+        "link": "https://www.homepath.fanniemae.com",
+        "source": "HomePath"
+    },
+    {
+        "id": "09aded4d",
+        "address": "Nashville, TN",
+        "status": "Auction",
+        "price": 5,
+        "bid": 2000000,
+        "date": "2026-05-19",
+        "county": "davidson",
+        "link": "https://www.homepath.fanniemae.com",
+        "source": "HomePath"
+    },
+    {
+        "id": "6872ac6b",
+        "address": "CARTHAGE, TN",
+        "status": "Auction",
+        "price": 5,
+        "bid": 999000,
+        "date": "2026-05-19",
+        "county": "davidson",
+        "link": "https://www.homepath.fanniemae.com",
+        "source": "HomePath"
+    },
+    {
+        "id": "dc578eff",
+        "address": "Old Hickory, TN",
+        "status": "Auction",
+        "price": 5,
+        "bid": 9999990,
+        "date": "2026-05-19",
+        "county": "davidson",
+        "link": "https://www.homepath.fanniemae.com",
+        "source": "HomePath"
+    },
+    {
+        "id": "1febf493",
+        "address": "Mount Juliet, TN",
+        "status": "Auction",
+        "price": 5,
+        "bid": 1649000,
+        "date": "2026-05-19",
+        "county": "davidson",
+        "link": "https://www.homepath.fanniemae.com",
+        "source": "HomePath"
+    },
+    {
+        "id": "790a7671",
+        "address": "Hermitage, TN",
+        "status": "Auction",
+        "price": 5,
+        "bid": 2250000,
+        "date": "2026-05-19",
+        "county": "davidson",
+        "link": "https://www.homepath.fanniemae.com",
+        "source": "HomePath"
+    },
+    {
+        "id": "3cb7ac37",
+        "address": "Antioch, TN",
+        "status": "Auction",
+        "price": 5,
+        "bid": 5250000,
+        "date": "2026-05-19",
+        "county": "davidson",
+        "link": "https://www.homepath.fanniemae.com",
+        "source": "HomePath"
+    },
+    {
+        "id": "37e5cf2d",
+        "address": "Franklin, TN",
+        "status": "Auction",
+        "price": 5,
+        "bid": 11500000,
+        "date": "2026-05-19",
+        "county": "davidson",
+        "link": "https://www.homepath.fanniemae.com",
+        "source": "HomePath"
+    },
+    {
+        "id": "3a9a708c",
+        "address": "Outside Area (Outside Ca), TN",
+        "status": "Auction",
+        "price": 5,
+        "bid": 37999990,
+        "date": "2026-05-19",
+        "county": "davidson",
+        "link": "https://www.homepath.fanniemae.com",
+        "source": "HomePath"
+    },
+    {
+        "id": "9c3af343",
+        "address": "Lebanon, TN",
+        "status": "Auction",
+        "price": 5,
+        "bid": 7990000,
+        "date": "2026-05-19",
+        "county": "wilson",
+        "link": "https://www.homepath.fanniemae.com",
+        "source": "HomePath"
+    },
+    {
+        "id": "99c44cc4",
+        "address": "Riddleton, TN",
+        "status": "Auction",
+        "price": 5,
+        "bid": 3499000,
+        "date": "2026-05-19",
+        "county": "wilson",
+        "link": "https://www.homepath.fanniemae.com",
+        "source": "HomePath"
+    },
+    {
+        "id": "53c97a56",
+        "address": "Watertown, TN",
+        "status": "Auction",
+        "price": 5,
+        "bid": 5749990,
+        "date": "2026-05-19",
+        "county": "wilson",
+        "link": "https://www.homepath.fanniemae.com",
+        "source": "HomePath"
+    },
+    {
+        "id": "d1bca85d",
+        "address": "Alexandria, TN",
+        "status": "Auction",
+        "price": 5,
+        "bid": 4200000,
+        "date": "2026-05-19",
+        "county": "wilson",
+        "link": "https://www.homepath.fanniemae.com",
+        "source": "HomePath"
+    },
+    {
+        "id": "4a628cdf",
+        "address": "Gordonsville, TN",
+        "status": "Auction",
+        "price": 5,
+        "bid": 1799000,
+        "date": "2026-05-19",
+        "county": "wilson",
+        "link": "https://www.homepath.fanniemae.com",
+        "source": "HomePath"
+    }
+]

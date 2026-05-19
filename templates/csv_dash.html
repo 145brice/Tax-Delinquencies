@@ -1,0 +1,288 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CSV Dashboard - Foreclosure Scraper</title>
+    <style>
+        :root {
+            --bg: #10120f;
+            --panel: #171a16;
+            --panel-2: #1f241d;
+            --line: #343c31;
+            --text: #eef2e8;
+            --muted: #aab6a2;
+            --green: #5bbf72;
+            --red: #d45f54;
+            --gold: #d3a84f;
+            --blue: #6ba6d9;
+        }
+        * { box-sizing: border-box; }
+        body {
+            font-family: "Segoe UI", Arial, sans-serif;
+            margin: 0;
+            background:
+                linear-gradient(135deg, rgba(91, 191, 114, 0.12), transparent 34%),
+                linear-gradient(315deg, rgba(211, 168, 79, 0.12), transparent 32%),
+                var(--bg);
+            color: var(--text);
+        }
+        .wrap { max-width: 1180px; margin: 0 auto; padding: 24px; }
+        header { display: flex; justify-content: space-between; gap: 16px; align-items: flex-end; margin-bottom: 18px; }
+        h1 { margin: 0 0 6px; font-size: 1.7rem; letter-spacing: 0; }
+        h2 { margin: 0 0 14px; font-size: 1.05rem; }
+        .muted { color: var(--muted); margin: 0; }
+        .panel {
+            background: rgba(23, 26, 22, 0.96);
+            border: 1px solid var(--line);
+            border-radius: 8px;
+            padding: 16px;
+            margin-bottom: 16px;
+            box-shadow: 0 16px 40px rgba(0, 0, 0, 0.22);
+        }
+        .grid { display: grid; grid-template-columns: 1.1fr 0.9fr; gap: 16px; align-items: start; }
+        .row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+        .field { margin-bottom: 16px; }
+        label, .label { font-size: 0.92rem; color: #d9e1d3; }
+        .range-head { display: flex; justify-content: space-between; gap: 12px; align-items: center; margin-bottom: 8px; }
+        .days-value { color: var(--gold); font-size: 1.8rem; font-weight: 800; }
+        input[type="range"] { width: 100%; accent-color: var(--green); }
+        .preset, button, a.btn {
+            border: 1px solid var(--line);
+            background: #111510;
+            color: var(--text);
+            border-radius: 7px;
+            padding: 9px 12px;
+            text-decoration: none;
+            cursor: pointer;
+            min-height: 38px;
+        }
+        .preset.active { border-color: var(--gold); color: #ffe0a3; background: #2a2313; }
+        button.run { background: #174624; border-color: #2d7a3f; }
+        button.kill { background: #55201d; border-color: #8a312b; }
+        button:disabled { opacity: 0.45; cursor: not-allowed; }
+        .check-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 8px; }
+        .check, .toggle {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            border: 1px solid var(--line);
+            background: var(--panel-2);
+            border-radius: 7px;
+            padding: 9px 10px;
+        }
+        .toggle { justify-content: space-between; }
+        .toggle input, .check input { accent-color: var(--green); }
+        .status {
+            border-top: 1px solid var(--line);
+            margin-top: 14px;
+            padding-top: 12px;
+            color: #dfe8d9;
+            font-weight: 700;
+        }
+        table { width: 100%; border-collapse: collapse; }
+        th, td { text-align: left; border-bottom: 1px solid var(--line); padding: 8px; font-size: 0.9rem; }
+        th { color: #aad0f2; font-weight: 700; }
+        .actions { display: flex; gap: 10px; flex-wrap: wrap; }
+        @media (max-width: 780px) {
+            .wrap { padding: 16px; }
+            header, .grid { display: block; }
+            .actions { margin-top: 14px; }
+        }
+    </style>
+</head>
+<body>
+    <div class="wrap">
+        <header>
+            <div>
+                <h1>CSV Dashboard</h1>
+                <p class="muted">Tune the scrape window, choose sources, run, stop, and export.</p>
+            </div>
+            <div class="actions">
+                <a class="btn" href="/api/listings.csv">Download CSV</a>
+                <a class="btn" href="/">View Listings</a>
+            </div>
+        </header>
+
+        <div class="grid">
+            <section class="panel">
+                <h2>Run Controls</h2>
+                <div class="field">
+                    <div class="range-head">
+                        <label for="durationRange">Lookback days</label>
+                        <span><span id="daysValue" class="days-value">{{ settings.lookback_days }}</span> days</span>
+                    </div>
+                    <input id="durationRange" type="range" min="1" max="365" step="1" value="{{ settings.lookback_days }}">
+                    <div class="row" style="margin-top: 10px;">
+                        <button class="preset" data-days="7" type="button">7</button>
+                        <button class="preset" data-days="14" type="button">14</button>
+                        <button class="preset" data-days="30" type="button">30</button>
+                        <button class="preset" data-days="60" type="button">60</button>
+                        <button class="preset" data-days="90" type="button">90</button>
+                        <button class="preset" data-days="180" type="button">180</button>
+                    </div>
+                </div>
+
+                <div class="field">
+                    <div class="label" style="margin-bottom: 8px;">Sources</div>
+                    <div class="check-grid">
+                        <label class="toggle">TN tax records <input type="checkbox" id="srcTax" {% if settings.sources.include_tax_records %}checked{% endif %}></label>
+                        <label class="toggle">HUD auctions <input type="checkbox" id="srcHud" {% if settings.sources.include_hud %}checked{% endif %}></label>
+                        <label class="toggle">HomePath REO <input type="checkbox" id="srcHomepath" {% if settings.sources.include_homepath %}checked{% endif %}></label>
+                    </div>
+                </div>
+
+                <div class="field">
+                    <label class="toggle">Save this setup as default <input type="checkbox" id="saveDefaults" checked></label>
+                </div>
+
+                <div class="row">
+                    <button class="run" id="runBtn" onclick="runScraper()">Run Scraper</button>
+                    <button class="kill" id="killBtn" onclick="killScraper()">Kill Scraper</button>
+                </div>
+                <div id="statusText" class="status">Status: idle</div>
+            </section>
+
+            <section class="panel">
+                <h2>Counties</h2>
+                <div class="check-grid">
+                    <label class="check"><input type="checkbox" class="county" value="miami-dade" {% if 'miami-dade' in settings.counties %}checked{% endif %}> Miami-Dade</label>
+                    <label class="check"><input type="checkbox" class="county" value="harris" {% if 'harris' in settings.counties %}checked{% endif %}> Harris</label>
+                    <label class="check"><input type="checkbox" class="county" value="fulton" {% if 'fulton' in settings.counties %}checked{% endif %}> Fulton</label>
+                    <label class="check"><input type="checkbox" class="county" value="cook" {% if 'cook' in settings.counties %}checked{% endif %}> Cook</label>
+                    <label class="check"><input type="checkbox" class="county" value="maricopa" {% if 'maricopa' in settings.counties %}checked{% endif %}> Maricopa</label>
+                    <label class="check"><input type="checkbox" class="county" value="los-angeles" {% if 'los-angeles' in settings.counties %}checked{% endif %}> Los Angeles</label>
+                    <label class="check"><input type="checkbox" class="county" value="davidson" {% if 'davidson' in settings.counties %}checked{% endif %}> Davidson TN</label>
+                    <label class="check"><input type="checkbox" class="county" value="wilson-tn" {% if 'wilson-tn' in settings.counties %}checked{% endif %}> Wilson TN</label>
+                </div>
+            </section>
+        </div>
+
+        <section class="panel">
+            <h2>Current Listings (<span id="listingCount">{{ listings|length }}</span>)</h2>
+            <table>
+                <thead>
+                    <tr>
+                        <th>ID</th>
+                        <th>Address</th>
+                        <th>Status</th>
+                        <th>County</th>
+                        <th>Date</th>
+                    </tr>
+                </thead>
+                <tbody id="listingsBody">
+                    {% for row in listings %}
+                    <tr>
+                        <td>{{ row.id }}</td>
+                        <td>{{ row.address }}</td>
+                        <td>{{ row.status }}</td>
+                        <td>{{ row.county or '' }}</td>
+                        <td>{{ row.date }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </section>
+    </div>
+
+<script>
+const range = document.getElementById('durationRange');
+const daysValue = document.getElementById('daysValue');
+const presets = [...document.querySelectorAll('.preset')];
+
+function updateDuration(value) {
+    range.value = value;
+    daysValue.innerText = value;
+    presets.forEach(btn => btn.classList.toggle('active', btn.dataset.days === String(value)));
+}
+
+presets.forEach(btn => btn.addEventListener('click', () => updateDuration(btn.dataset.days)));
+range.addEventListener('input', () => updateDuration(range.value));
+updateDuration(range.value);
+
+async function runScraper() {
+    const counties = [...document.querySelectorAll('.county:checked')].map(c => c.value);
+    const include_tax_records = document.getElementById('srcTax').checked;
+    const include_hud = document.getElementById('srcHud').checked;
+    const include_homepath = document.getElementById('srcHomepath').checked;
+    if (!counties.length) {
+        document.getElementById('statusText').innerText = 'Status: select at least one county';
+        return;
+    }
+    if (!include_tax_records && !include_hud && !include_homepath) {
+        document.getElementById('statusText').innerText = 'Status: select at least one source';
+        return;
+    }
+    document.getElementById('statusText').innerText = 'Status: starting scrape...';
+    await fetch('/api/scrape', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            counties,
+            lookback_days: parseInt(range.value, 10),
+            include_tax_records,
+            include_hud,
+            include_homepath,
+            save_defaults: document.getElementById('saveDefaults').checked
+        })
+    });
+}
+
+async function killScraper() {
+    document.getElementById('statusText').innerText = 'Status: requesting stop...';
+    await fetch('/api/scrape/stop', { method: 'POST' });
+}
+
+async function pollStatus() {
+    try {
+        const r = await fetch('/api/scrape/status');
+        const s = await r.json();
+        let text = `Status: ${s.last || 'idle'} | running=${s.running} | leads=${s.count}`;
+        if (s.current_step) text += ` | step=${s.current_step}`;
+        if (s.stopping) text += ' | stopping...';
+        if (s.started_at) text += ` | started=${s.started_at}`;
+        document.getElementById('statusText').innerText = text;
+        document.getElementById('runBtn').disabled = !!s.running;
+        document.getElementById('killBtn').disabled = !s.running;
+    } catch (e) {
+        document.getElementById('statusText').innerText = 'Status: failed to fetch status';
+    }
+}
+
+setInterval(pollStatus, 1500);
+pollStatus();
+
+function escapeHtml(value) {
+    return String(value ?? '').replace(/[&<>"']/g, char => ({
+        '&': '&amp;',
+        '<': '&lt;',
+        '>': '&gt;',
+        '"': '&quot;',
+        "'": '&#39;'
+    })[char]);
+}
+
+async function pollListings() {
+    try {
+        const r = await fetch('/api/listings');
+        const data = await r.json();
+        document.getElementById('listingCount').innerText = data.count;
+        document.getElementById('listingsBody').innerHTML = data.listings.map(row => `
+            <tr>
+                <td>${escapeHtml(row.id)}</td>
+                <td>${escapeHtml(row.address)}</td>
+                <td>${escapeHtml(row.status)}</td>
+                <td>${escapeHtml(row.county)}</td>
+                <td>${escapeHtml(row.date)}</td>
+            </tr>
+        `).join('');
+    } catch (e) {
+        // Keep the current table visible if a poll misses while the server is busy.
+    }
+}
+
+setInterval(pollListings, 2000);
+pollListings();
+</script>
+</body>
+</html>

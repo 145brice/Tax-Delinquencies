@@ -1,0 +1,253 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ForeclosureLeads Pro</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: 'Segoe UI', sans-serif; background: #0f1117; color: #e0e0e0; min-height: 100vh; }
+
+        /* TOP NAV */
+        .navbar {
+            background: #16181f;
+            border-bottom: 1px solid #2a2d3a;
+            padding: 0 32px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            height: 64px;
+            position: sticky;
+            top: 0;
+            z-index: 100;
+        }
+        .logo { font-size: 1.4rem; font-weight: 700; color: #fff; }
+        .logo span { color: #3b82f6; }
+        .nav-right { display: flex; align-items: center; gap: 20px; }
+        .admin-link { color: #9ca3af; text-decoration: none; font-size: 0.9rem; }
+        .admin-link:hover { color: #fff; }
+
+        /* CART BAR */
+        .cart-bar {
+            background: linear-gradient(90deg, #1e3a5f, #1a3a6b);
+            border-bottom: 1px solid #2563eb;
+            padding: 12px 32px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+        .cart-info { font-size: 0.95rem; color: #93c5fd; }
+        .cart-info strong { color: #fff; font-size: 1.1rem; }
+        .btn-checkout {
+            background: #2563eb;
+            color: #fff;
+            border: none;
+            padding: 10px 28px;
+            border-radius: 8px;
+            font-size: 0.95rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+        .btn-checkout:hover { background: #1d4ed8; }
+
+        /* HERO */
+        .hero {
+            background: linear-gradient(135deg, #16181f 0%, #1a1f2e 100%);
+            padding: 48px 32px 32px;
+            border-bottom: 1px solid #1e2130;
+        }
+        .hero h1 { font-size: 2rem; font-weight: 700; margin-bottom: 8px; }
+        .hero h1 span { color: #3b82f6; }
+        .hero p { color: #9ca3af; font-size: 1rem; max-width: 560px; }
+        .stats { display: flex; gap: 32px; margin-top: 24px; }
+        .stat { text-align: center; }
+        .stat-num { font-size: 1.6rem; font-weight: 700; color: #3b82f6; }
+        .stat-label { font-size: 0.78rem; color: #6b7280; text-transform: uppercase; letter-spacing: 0.05em; }
+
+        /* FILTERS */
+        .filters {
+            padding: 20px 32px;
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+            border-bottom: 1px solid #1e2130;
+            background: #13151c;
+        }
+        .filter-btn {
+            background: #1e2130;
+            border: 1px solid #2a2d3a;
+            color: #9ca3af;
+            padding: 6px 16px;
+            border-radius: 20px;
+            font-size: 0.85rem;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        .filter-btn:hover, .filter-btn.active { background: #2563eb; border-color: #2563eb; color: #fff; }
+
+        /* LISTINGS GRID */
+        .listings-wrap { padding: 28px 32px; }
+        .listings-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+            gap: 18px;
+        }
+
+        .card {
+            background: #16181f;
+            border: 1px solid #22253a;
+            border-radius: 12px;
+            padding: 20px;
+            transition: border-color 0.2s, transform 0.15s;
+            position: relative;
+        }
+        .card:hover { border-color: #3b82f6; transform: translateY(-2px); }
+        .card.selected { border-color: #2563eb; background: #16202f; }
+
+        .card-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 12px; }
+        .status-badge {
+            font-size: 0.72rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.06em;
+            padding: 3px 10px;
+            border-radius: 20px;
+        }
+        .badge-auction { background: #7f1d1d; color: #fca5a5; }
+        .badge-pre-foreclosure { background: #78350f; color: #fcd34d; }
+        .badge-tax-lien { background: #1e3a5f; color: #93c5fd; }
+
+        .card-checkbox {
+            width: 20px; height: 20px;
+            accent-color: #2563eb;
+            cursor: pointer;
+            flex-shrink: 0;
+        }
+
+        .card-address {
+            font-size: 1.05rem;
+            font-weight: 600;
+            color: #f0f0f0;
+            margin-bottom: 4px;
+        }
+        .card-sub { font-size: 0.82rem; color: #6b7280; margin-bottom: 14px; }
+
+        .card-footer { display: flex; justify-content: space-between; align-items: center; border-top: 1px solid #1e2130; padding-top: 12px; }
+        .price { font-size: 1.3rem; font-weight: 700; color: #22c55e; }
+        .price-sub { font-size: 0.72rem; color: #6b7280; }
+        .filed-date { font-size: 0.8rem; color: #6b7280; }
+
+        .empty-state { text-align: center; padding: 80px 32px; color: #4b5563; }
+        .empty-state h2 { font-size: 1.4rem; margin-bottom: 8px; }
+        .empty-state p { font-size: 0.9rem; }
+        .empty-state a { color: #3b82f6; text-decoration: none; }
+    </style>
+</head>
+<body>
+
+<nav class="navbar">
+    <div class="logo">Foreclosure<span>Leads</span> Pro</div>
+    <div class="nav-right">
+        <a href="/admin" class="admin-link">⚙ Admin</a>
+    </div>
+</nav>
+
+<div class="cart-bar">
+    <div class="cart-info">
+        🛒 <strong id="cart-count">0</strong> leads selected &nbsp;|&nbsp; Total: <strong>$<span id="cart-total">0</span></strong>
+    </div>
+    <button class="btn-checkout" onclick="checkout()">Checkout →</button>
+</div>
+
+<div class="hero">
+    <h1>Distressed Property <span>Lead Database</span></h1>
+    <p>Pre-foreclosures, tax liens, and auction properties — sourced directly from county records. Each lead $5.00.</p>
+    <div class="stats">
+        <div class="stat">
+            <div class="stat-num" id="total-count">0</div>
+            <div class="stat-label">Available Leads</div>
+        </div>
+        <div class="stat">
+            <div class="stat-num">$5</div>
+            <div class="stat-label">Per Lead</div>
+        </div>
+        <div class="stat">
+            <div class="stat-num">3</div>
+            <div class="stat-label">Counties</div>
+        </div>
+    </div>
+</div>
+
+<div class="filters">
+    <button class="filter-btn active" onclick="filterCards('all', this)">All</button>
+    <button class="filter-btn" onclick="filterCards('Auction', this)">Auction</button>
+    <button class="filter-btn" onclick="filterCards('Pre-foreclosure', this)">Pre-Foreclosure</button>
+    <button class="filter-btn" onclick="filterCards('Tax Lien', this)">Tax Lien</button>
+</div>
+
+<div class="listings-wrap">
+    <div class="listings-grid" id="listings-grid">
+        {% if listings %}
+            {% for item in listings %}
+            <div class="card" data-status="{{ item.status }}" id="card-{{ item.id }}">
+                <div class="card-header">
+                    <span class="status-badge
+                        {% if item.status == 'Auction' %}badge-auction
+                        {% elif item.status == 'Pre-foreclosure' %}badge-pre-foreclosure
+                        {% else %}badge-tax-lien{% endif %}">
+                        {{ item.status }}
+                    </span>
+                    <input type="checkbox" class="card-checkbox lead-checkbox"
+                           data-id="{{ item.id }}" data-price="{{ item.price }}"
+                           onchange="updateCart(this)">
+                </div>
+                <div class="card-address">{{ item.display_address }}</div>
+                <div class="card-sub">Full address revealed after purchase</div>
+                <div class="card-footer">
+                    <div>
+                        <div class="price">$5.00</div>
+                        <div class="price-sub">one-time</div>
+                    </div>
+                    <div class="filed-date">Filed: {{ item.date }}</div>
+                </div>
+            </div>
+            {% endfor %}
+        {% else %}
+            <div class="empty-state" style="grid-column: 1/-1;">
+                <h2>No leads loaded yet</h2>
+                <p>Go to <a href="/admin">Admin → Launch Scraper</a> to pull the latest listings.</p>
+            </div>
+        {% endif %}
+    </div>
+</div>
+
+<script>
+    document.getElementById('total-count').innerText = document.querySelectorAll('.card').length;
+
+    function updateCart(cb) {
+        const card = document.getElementById('card-' + cb.getAttribute('data-id'));
+        card.classList.toggle('selected', cb.checked);
+        const checked = document.querySelectorAll('.lead-checkbox:checked');
+        let total = 0;
+        checked.forEach(c => total += parseFloat(c.getAttribute('data-price')));
+        document.getElementById('cart-count').innerText = checked.length;
+        document.getElementById('cart-total').innerText = total;
+    }
+
+    function filterCards(status, btn) {
+        document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        document.querySelectorAll('.card').forEach(card => {
+            card.style.display = (status === 'all' || card.dataset.status === status) ? '' : 'none';
+        });
+    }
+
+    function checkout() {
+        const count = parseInt(document.getElementById('cart-count').innerText);
+        if (count === 0) return alert("Select at least one lead first.");
+        alert("Proceeding to checkout for " + count + " lead(s) — $" + (count * 5) + " total.");
+    }
+</script>
+</body>
+</html>

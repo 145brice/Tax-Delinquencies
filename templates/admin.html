@@ -1,0 +1,253 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Admin — ForeclosureLeads Pro</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: 'Segoe UI', sans-serif; background: #0f1117; color: #e0e0e0; min-height: 100vh; }
+
+        .navbar {
+            background: #16181f;
+            border-bottom: 1px solid #2a2d3a;
+            padding: 0 32px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            height: 64px;
+        }
+        .logo { font-size: 1.4rem; font-weight: 700; color: #fff; }
+        .logo span { color: #3b82f6; }
+        .back-link { color: #9ca3af; text-decoration: none; font-size: 0.9rem; }
+        .back-link:hover { color: #fff; }
+
+        .page { max-width: 860px; margin: 40px auto; padding: 0 24px; }
+        h1 { font-size: 1.6rem; margin-bottom: 6px; }
+        .subtitle { color: #6b7280; font-size: 0.9rem; margin-bottom: 36px; }
+
+        .card {
+            background: #16181f;
+            border: 1px solid #22253a;
+            border-radius: 12px;
+            padding: 28px;
+            margin-bottom: 20px;
+        }
+        .card h2 { font-size: 1rem; font-weight: 600; color: #9ca3af; text-transform: uppercase; letter-spacing: 0.07em; margin-bottom: 20px; }
+
+        .county-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 12px; }
+        .county-item {
+            background: #1e2130;
+            border: 1px solid #2a2d3a;
+            border-radius: 8px;
+            padding: 14px 16px;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            cursor: pointer;
+            transition: border-color 0.2s;
+        }
+        .county-item:hover { border-color: #3b82f6; }
+        .county-item input[type="checkbox"] { width: 17px; height: 17px; accent-color: #2563eb; cursor: pointer; }
+        .county-name { font-size: 0.9rem; font-weight: 500; }
+        .county-state { font-size: 0.75rem; color: #6b7280; }
+
+        .range-wrap { display: flex; align-items: center; gap: 20px; flex-wrap: wrap; }
+        input[type="range"] { flex: 1; min-width: 200px; accent-color: #2563eb; }
+        .range-val { font-size: 1.8rem; font-weight: 700; color: #3b82f6; min-width: 60px; }
+        .range-label { color: #6b7280; font-size: 0.85rem; margin-top: 8px; }
+
+        .toggle-row { display: flex; justify-content: space-between; align-items: center; padding: 14px 0; border-bottom: 1px solid #1e2130; }
+        .toggle-row:last-child { border-bottom: none; }
+        .toggle-info h3 { font-size: 0.95rem; font-weight: 500; }
+        .toggle-info p { font-size: 0.8rem; color: #6b7280; margin-top: 2px; }
+        .toggle { position: relative; width: 44px; height: 24px; }
+        .toggle input { opacity: 0; width: 0; height: 0; }
+        .slider {
+            position: absolute; inset: 0;
+            background: #2a2d3a; border-radius: 24px; cursor: pointer;
+            transition: background 0.2s;
+        }
+        .slider:before {
+            content: ''; position: absolute;
+            width: 18px; height: 18px; left: 3px; top: 3px;
+            background: #fff; border-radius: 50%;
+            transition: transform 0.2s;
+        }
+        .toggle input:checked + .slider { background: #2563eb; }
+        .toggle input:checked + .slider:before { transform: translateX(20px); }
+
+        .btn-row { display: flex; gap: 12px; flex-wrap: wrap; margin-top: 8px; }
+        .btn {
+            padding: 11px 28px; border-radius: 8px; font-size: 0.95rem;
+            font-weight: 600; cursor: pointer; border: none; transition: background 0.2s;
+        }
+        .btn-save { background: #1e3a5f; color: #93c5fd; }
+        .btn-save:hover { background: #1d4ed8; color: #fff; }
+        .btn-run { background: #2563eb; color: #fff; }
+        .btn-run:hover { background: #1d4ed8; }
+        .btn-run:disabled { background: #1e2130; color: #4b5563; cursor: not-allowed; }
+
+        .status-msg { font-size: 0.85rem; color: #22c55e; margin-top: 10px; display: none; }
+    </style>
+</head>
+<body>
+
+<nav class="navbar">
+    <div class="logo">Foreclosure<span>Leads</span> Pro</div>
+    <a href="/" class="back-link">← Back to Store</a>
+</nav>
+
+<div class="page">
+    <h1>Scraper Control Panel</h1>
+    <p class="subtitle">Configure which counties to scrape and how far back to search.</p>
+
+    <!-- COUNTIES -->
+    <div class="card">
+        <h2>Target Counties</h2>
+        <div class="county-grid">
+            <label class="county-item">
+                <input type="checkbox" name="county" value="miami-dade" {% if 'miami-dade' in settings.counties %}checked{% endif %}>
+                <div><div class="county-name">Miami-Dade</div><div class="county-state">Florida</div></div>
+            </label>
+            <label class="county-item">
+                <input type="checkbox" name="county" value="harris" {% if 'harris' in settings.counties %}checked{% endif %}>
+                <div><div class="county-name">Harris</div><div class="county-state">Texas</div></div>
+            </label>
+            <label class="county-item">
+                <input type="checkbox" name="county" value="fulton" {% if 'fulton' in settings.counties %}checked{% endif %}>
+                <div><div class="county-name">Fulton</div><div class="county-state">Georgia</div></div>
+            </label>
+            <label class="county-item">
+                <input type="checkbox" name="county" value="cook" {% if 'cook' in settings.counties %}checked{% endif %}>
+                <div><div class="county-name">Cook</div><div class="county-state">Illinois</div></div>
+            </label>
+            <label class="county-item">
+                <input type="checkbox" name="county" value="maricopa" {% if 'maricopa' in settings.counties %}checked{% endif %}>
+                <div><div class="county-name">Maricopa</div><div class="county-state">Arizona</div></div>
+            </label>
+            <label class="county-item">
+                <input type="checkbox" name="county" value="los-angeles" {% if 'los-angeles' in settings.counties %}checked{% endif %}>
+                <div><div class="county-name">Los Angeles</div><div class="county-state">California</div></div>
+            </label>
+            <label class="county-item">
+                <input type="checkbox" name="county" value="davidson" {% if 'davidson' in settings.counties %}checked{% endif %}>
+                <div><div class="county-name">Davidson (Nashville)</div><div class="county-state">Tennessee</div></div>
+            </label>
+            <label class="county-item">
+                <input type="checkbox" name="county" value="wilson-tn" {% if 'wilson-tn' in settings.counties %}checked{% endif %}>
+                <div><div class="county-name">Wilson (Lebanon)</div><div class="county-state">Tennessee</div></div>
+            </label>
+        </div>
+    </div>
+
+    <!-- LOOKBACK -->
+    <div class="card">
+        <h2>Search Depth</h2>
+        <div class="range-wrap">
+            <div class="range-val" id="range-display">{{ settings.lookback_days }}</div>
+            <div style="flex:1">
+                <input type="range" id="lookback" min="1" max="90" value="{{ settings.lookback_days }}"
+                       oninput="document.getElementById('range-display').innerText = this.value">
+                <div class="range-label">Days back to search (1 – 90 days)</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- TOGGLES -->
+    <div class="card">
+        <h2>Filters</h2>
+        <div class="toggle-row">
+            <div class="toggle-info">
+                <h3>Include Auctions</h3>
+                <p>Pull properties scheduled for courthouse auction</p>
+            </div>
+            <label class="toggle"><input type="checkbox" id="tog-auction" checked><span class="slider"></span></label>
+        </div>
+        <div class="toggle-row">
+            <div class="toggle-info">
+                <h3>Include Pre-Foreclosures</h3>
+                <p>Notice of Default and Lis Pendens filings</p>
+            </div>
+            <label class="toggle"><input type="checkbox" id="tog-preforeclosure" checked><span class="slider"></span></label>
+        </div>
+        <div class="toggle-row">
+            <div class="toggle-info">
+                <h3>Include Tax Liens</h3>
+                <p>Properties with outstanding tax delinquency</p>
+            </div>
+            <label class="toggle"><input type="checkbox" id="tog-taxlien" checked><span class="slider"></span></label>
+        </div>
+        <div class="toggle-row">
+            <div class="toggle-info">
+                <h3>Deduplicate Listings</h3>
+                <p>Skip addresses already in the database</p>
+            </div>
+            <label class="toggle"><input type="checkbox" id="tog-dedup" checked><span class="slider"></span></label>
+        </div>
+    </div>
+
+    <!-- ACTIONS -->
+    <div class="card">
+        <h2>Run</h2>
+        <div class="btn-row">
+            <button class="btn btn-save" onclick="saveSettings()">Save Settings</button>
+            <button class="btn btn-run" id="run-btn" onclick="triggerScrape()">🚀 Launch Scraper</button>
+        </div>
+        <div class="status-msg" id="status-msg">✓ Done! Listings updated.</div>
+    </div>
+</div>
+
+<script>
+    async function saveSettings() {
+        const counties = Array.from(document.querySelectorAll('input[name="county"]:checked')).map(cb => cb.value);
+        const lookback = document.getElementById('lookback').value;
+        await fetch('/api/settings', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ counties, lookback_days: parseInt(lookback) })
+        });
+        const msg = document.getElementById('status-msg');
+        msg.innerText = '✓ Settings saved.';
+        msg.style.display = 'block';
+        setTimeout(() => msg.style.display = 'none', 3000);
+    }
+
+    async function triggerScrape() {
+        const btn = document.getElementById('run-btn');
+        const msg = document.getElementById('status-msg');
+        btn.innerText = '⏳ Running...';
+        btn.disabled = true;
+        msg.style.color = '#facc15';
+        msg.innerText = '⏳ Scraper running — fetching county data...';
+        msg.style.display = 'block';
+        await saveSettings();
+        try {
+            await fetch('/api/scrape', { method: 'POST' });
+            const poll = setInterval(async () => {
+                const r = await fetch('/api/scrape/status');
+                const s = await r.json();
+                if (!s.running) {
+                    clearInterval(poll);
+                    if (s.last === 'success') {
+                        msg.style.color = '#22c55e';
+                        msg.innerText = '✓ Done! Pulled ' + s.count + ' leads. Redirecting...';
+                        setTimeout(() => window.location.href = '/', 1500);
+                    } else {
+                        msg.style.color = '#f87171';
+                        msg.innerText = 'Error: ' + s.last;
+                        btn.disabled = false;
+                        btn.innerText = '🚀 Launch Scraper';
+                    }
+                }
+            }, 2000);
+        } catch(e) {
+            msg.style.color = '#f87171';
+            msg.innerText = 'Network error.';
+            btn.disabled = false;
+            btn.innerText = '🚀 Launch Scraper';
+        }
+    }
+</script>
+</body>
+</html>

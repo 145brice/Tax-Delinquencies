@@ -1,0 +1,13 @@
+{
+    "counties": [
+        "davidson",
+        "wilson-tn",
+        "miami-dade"
+    ],
+    "lookback_days": 30,
+    "sources": {
+        "include_tax_records": true,
+        "include_hud": true,
+        "include_homepath": true
+    }
+}
