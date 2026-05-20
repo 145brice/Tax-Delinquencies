@@ -1,11 +1,75 @@
 import os
+import re
 import json
+import hashlib
 import threading
 import csv
 import io
 from datetime import datetime
 from flask import Flask, render_template, request, jsonify, Response
 from scraper import scrape_sync
+from scraper_runner import run_scrapers
+
+# Maps Flask county keys → scraper_runner county names
+COUNTY_SCRAPER_MAP = {
+    "davidson":    "davidson",
+    "wilson-tn":   "wilson",
+    "williamson":  "williamson",
+    "rutherford":  "rutherford",
+    "sumner":      "sumner",
+    "robertson":   "robertson",
+    "cheatham":    "cheatham",
+}
+
+
+def property_records_to_listings(records: list[dict]) -> list[dict]:
+    """Convert PropertyRecord dicts (from scrapers/) to the Flask listing format."""
+    listings = []
+    seen = set()
+    for r in records:
+        addr_parts = [
+            r.get("property_address", "").strip(),
+            r.get("city", "").strip(),
+            r.get("state", "").strip(),
+            r.get("zip_code", "").strip(),
+        ]
+        address = ", ".join(p for p in addr_parts if p)
+        if len(address) < 8:
+            continue
+
+        date_str = (r.get("sale_date") or r.get("scraped_date") or
+                    datetime.now().strftime('%Y-%m-%d'))
+        key = hashlib.md5(f"{address.lower().strip()}-{date_str}".encode()).hexdigest()[:8]
+        if key in seen:
+            continue
+        seen.add(key)
+
+        amount_str = r.get("amount_owed") or ""
+        bid = int(re.sub(r'[^\d]', '', amount_str)) if amount_str else 0
+
+        record_type = (r.get("record_type") or "").lower()
+        if "delinquent" in record_type or "tax" in record_type:
+            status = "Tax Lien"
+        elif "foreclos" in record_type:
+            status = "Pre-foreclosure"
+        else:
+            status = r.get("record_type") or "Tax Lien"
+
+        county_raw = r.get("county") or ""
+        listings.append({
+            "id":        key,
+            "address":   address,
+            "owner":     r.get("owner_name", ""),
+            "parcel_id": r.get("parcel_id", ""),
+            "status":    status,
+            "price":     5,
+            "bid":       bid,
+            "date":      date_str,
+            "county":    county_raw.lower(),
+            "link":      r.get("source_url", ""),
+            "source":    county_raw.title() + " Co.",
+        })
+    return listings
 
 app = Flask(__name__)
 scrape_status = {
@@ -143,20 +207,37 @@ def run_scraper():
             scrape_status["last"] = message
 
         try:
-            results = scrape_sync(
-                counties,
-                lookback,
-                stop_event=stop_event,
-                options=sources,
-                on_results=save_batch,
-                on_progress=update_progress,
-            )
-            if results:
-                with listing_lock:
-                    current = load_json(DATA_FILE, [])
-                    merged = merge_listings(current, results)
-                    save_json(DATA_FILE, merged)
-                    scrape_status["count"] = len(merged)
+            # ── Phase 1: Tax delinquency PDFs via scrapers/ ──────────────────
+            if sources.get("include_tax_records") and not stop_event.is_set():
+                scraper_counties = [COUNTY_SCRAPER_MAP[c] for c in counties if c in COUNTY_SCRAPER_MAP]
+                if scraper_counties:
+                    update_progress(f"Tax delinquency scrapers: {', '.join(scraper_counties)}")
+                    try:
+                        tax_records = run_scrapers(scraper_counties)
+                        tax_listings = property_records_to_listings(tax_records)
+                        if tax_listings:
+                            save_batch(tax_listings)
+                        update_progress(f"Tax delinquency scrapers complete ({len(tax_listings)} found)")
+                    except Exception as e:
+                        update_progress(f"Tax scraper error: {e}")
+
+            # ── Phase 2: HUD + HomePath REO via scraper.py ───────────────────
+            if not stop_event.is_set():
+                results = scrape_sync(
+                    counties,
+                    lookback,
+                    stop_event=stop_event,
+                    options=sources,
+                    on_results=save_batch,
+                    on_progress=update_progress,
+                )
+                if results:
+                    with listing_lock:
+                        current = load_json(DATA_FILE, [])
+                        merged = merge_listings(current, results)
+                        save_json(DATA_FILE, merged)
+                        scrape_status["count"] = len(merged)
+
             scrape_status["last"] = "stopped" if stop_event.is_set() else "success"
         except Exception as e:
             scrape_status["last"] = f"error: {e}"

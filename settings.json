@@ -2,6 +2,11 @@
     "counties": [
         "davidson",
         "wilson-tn",
+        "williamson",
+        "rutherford",
+        "sumner",
+        "robertson",
+        "cheatham",
         "miami-dade"
     ],
     "lookback_days": 30,
