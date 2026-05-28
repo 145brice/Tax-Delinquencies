@@ -72,16 +72,25 @@ def property_records_to_listings(records: list[dict]) -> list[dict]:
 
         county_raw = r.get("county") or ""
         listings.append({
-            "id":        key,
-            "address":   address,
-            "owner":     r.get("owner_name", ""),
-            "parcel_id": r.get("parcel_id", ""),
-            "status":    status,
-            "price":     5,
-            "bid":       bid,
-            "date":      date_str,
-            "county":    county_raw.lower(),
-            "link":      r.get("source_url", ""),
+            "id":           key,
+            "address":      address,
+            "street":       street,
+            "city":         city,
+            "state":        state,
+            "zip":          zip_code,
+            "owner":        r.get("owner_name", ""),
+            "parcel_id":    r.get("parcel_id", ""),
+            "case_number":  r.get("case_number", ""),
+            "status":       status,
+            "record_type":  r.get("record_type", ""),
+            "price":        5,
+            "bid":          bid,
+            "amount_owed":  r.get("amount_owed", ""),
+            "date":         date_str,
+            "sale_date":    r.get("sale_date", ""),
+            "scraped_date": r.get("scraped_date", ""),
+            "county":       county_raw.lower(),
+            "link":         r.get("source_url", ""),
             "source":    county_raw.title() + " Co.",
         })
     return listings
@@ -149,12 +158,33 @@ def obfuscate_address(address):
         return f"XXXX {parts[1]}"
     return "Address Hidden"
 
+_ADDR_PARSE_RE = re.compile(r'^(.*?),\s*([A-Za-z\.\- ]+),\s*([A-Z]{2})(?:\s+(\d{5}))?\s*$')
+
+def _backfill_fields(item):
+    """For old listings missing city/state/zip, parse from the address string."""
+    addr = item.get('address') or ''
+    if not item.get('city') or not item.get('state'):
+        m = _ADDR_PARSE_RE.match(addr.strip())
+        if m:
+            street, city, state, zip_code = m.groups()
+            item.setdefault('street', street.strip())
+            if not item.get('city'):  item['city']  = city.strip()
+            if not item.get('state'): item['state'] = state.strip()
+            if not item.get('zip'):   item['zip']   = (zip_code or '').strip()
+    # Ensure all keys exist (None → '') so template doesn't crash
+    for k in ['city','state','zip','owner','parcel_id','case_number',
+              'amount_owed','sale_date','scraped_date','county','link',
+              'bid','record_type','street']:
+        if item.get(k) is None:
+            item[k] = '' if k != 'bid' else 0
+    return item
+
 @app.route('/')
 def index():
     listings = load_json(DATA_FILE, [])
     display_listings = []
     for item in listings:
-        masked_item = item.copy()
+        masked_item = _backfill_fields(item.copy())
         masked_item['display_address'] = obfuscate_address(item['address'])
         display_listings.append(masked_item)
     return render_template('index.html', listings=display_listings)

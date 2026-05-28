@@ -6,142 +6,160 @@
     <title>ForeclosureLeads Pro</title>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
-        body { font-family: 'Segoe UI', sans-serif; background: #0f1117; color: #e0e0e0; min-height: 100vh; }
+        body { font-family: 'Segoe UI', sans-serif; background: #0f1117; color: #e0e0e0; min-height: 100vh; font-size: 13px; }
 
-        /* TOP NAV */
         .navbar {
             background: #16181f;
             border-bottom: 1px solid #2a2d3a;
-            padding: 0 32px;
+            padding: 0 24px;
             display: flex;
             align-items: center;
             justify-content: space-between;
-            height: 64px;
-            position: sticky;
-            top: 0;
-            z-index: 100;
+            height: 56px;
+            position: sticky; top: 0; z-index: 100;
         }
-        .logo { font-size: 1.4rem; font-weight: 700; color: #fff; }
+        .logo { font-size: 1.3rem; font-weight: 700; color: #fff; }
         .logo span { color: #3b82f6; }
-        .nav-right { display: flex; align-items: center; gap: 20px; }
+        .nav-right { display: flex; align-items: center; gap: 16px; }
         .admin-link { color: #9ca3af; text-decoration: none; font-size: 0.9rem; }
         .admin-link:hover { color: #fff; }
 
-        /* CART BAR */
         .cart-bar {
             background: linear-gradient(90deg, #1e3a5f, #1a3a6b);
             border-bottom: 1px solid #2563eb;
-            padding: 12px 32px;
+            padding: 10px 24px;
             display: flex;
             align-items: center;
             justify-content: space-between;
         }
-        .cart-info { font-size: 0.95rem; color: #93c5fd; }
-        .cart-info strong { color: #fff; font-size: 1.1rem; }
+        .cart-info { font-size: 0.9rem; color: #93c5fd; }
+        .cart-info strong { color: #fff; }
         .btn-checkout {
-            background: #2563eb;
-            color: #fff;
-            border: none;
-            padding: 10px 28px;
-            border-radius: 8px;
-            font-size: 0.95rem;
-            font-weight: 600;
-            cursor: pointer;
-            transition: background 0.2s;
+            background: #2563eb; color: #fff; border: none;
+            padding: 8px 22px; border-radius: 6px;
+            font-size: 0.9rem; font-weight: 600; cursor: pointer;
         }
         .btn-checkout:hover { background: #1d4ed8; }
 
-        /* HERO */
-        .hero {
-            background: linear-gradient(135deg, #16181f 0%, #1a1f2e 100%);
-            padding: 48px 32px 32px;
-            border-bottom: 1px solid #1e2130;
-        }
-        .hero h1 { font-size: 2rem; font-weight: 700; margin-bottom: 8px; }
-        .hero h1 span { color: #3b82f6; }
-        .hero p { color: #9ca3af; font-size: 1rem; max-width: 560px; }
-        .stats { display: flex; gap: 32px; margin-top: 24px; }
-        .stat { text-align: center; }
-        .stat-num { font-size: 1.6rem; font-weight: 700; color: #3b82f6; }
-        .stat-label { font-size: 0.78rem; color: #6b7280; text-transform: uppercase; letter-spacing: 0.05em; }
-
-        /* FILTERS */
-        .filters {
-            padding: 20px 32px;
-            display: flex;
-            gap: 10px;
-            flex-wrap: wrap;
-            border-bottom: 1px solid #1e2130;
+        /* Toolbar */
+        .toolbar {
             background: #13151c;
+            border-bottom: 1px solid #1e2130;
+            padding: 12px 24px;
+            display: flex; gap: 12px; flex-wrap: wrap; align-items: center;
         }
-        .filter-btn {
+        .toolbar input[type=text], .toolbar select {
             background: #1e2130;
             border: 1px solid #2a2d3a;
-            color: #9ca3af;
-            padding: 6px 16px;
-            border-radius: 20px;
+            color: #e0e0e0;
+            padding: 7px 12px;
+            border-radius: 6px;
             font-size: 0.85rem;
+            outline: none;
+        }
+        .toolbar input[type=text]:focus, .toolbar select:focus { border-color: #3b82f6; }
+        .toolbar input[type=text] { width: 280px; }
+        .stat-pill {
+            background: #1e2130;
+            border: 1px solid #2a2d3a;
+            color: #93c5fd;
+            padding: 6px 12px;
+            border-radius: 6px;
+            font-size: 0.8rem;
+            font-weight: 600;
+        }
+        .stat-pill strong { color: #fff; font-size: 0.95rem; }
+        .btn-clear {
+            background: transparent;
+            border: 1px solid #374151;
+            color: #9ca3af;
+            padding: 6px 14px;
+            border-radius: 6px;
+            font-size: 0.82rem;
             cursor: pointer;
-            transition: all 0.2s;
         }
-        .filter-btn:hover, .filter-btn.active { background: #2563eb; border-color: #2563eb; color: #fff; }
+        .btn-clear:hover { color: #fff; border-color: #6b7280; }
 
-        /* LISTINGS GRID */
-        .listings-wrap { padding: 28px 32px; }
-        .listings-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
-            gap: 18px;
+        /* Table */
+        .table-wrap {
+            overflow: auto;
+            max-height: calc(100vh - 180px);
+            border-bottom: 1px solid #1e2130;
         }
-
-        .card {
-            background: #16181f;
-            border: 1px solid #22253a;
-            border-radius: 12px;
-            padding: 20px;
-            transition: border-color 0.2s, transform 0.15s;
-            position: relative;
+        table.leads {
+            width: 100%;
+            border-collapse: separate;
+            border-spacing: 0;
+            font-size: 0.82rem;
+            min-width: 1400px;
         }
-        .card:hover { border-color: #3b82f6; transform: translateY(-2px); }
-        .card.selected { border-color: #2563eb; background: #16202f; }
+        table.leads thead th {
+            background: #1a1f2e;
+            color: #cbd5e1;
+            text-transform: uppercase;
+            font-size: 0.7rem;
+            letter-spacing: 0.06em;
+            padding: 10px 12px;
+            border-bottom: 2px solid #2563eb;
+            border-right: 1px solid #2a3148;
+            position: sticky; top: 0; z-index: 5;
+            white-space: nowrap;
+            cursor: pointer;
+            user-select: none;
+            text-align: left;
+        }
+        table.leads thead th:hover { background: #232a3f; }
+        table.leads thead th.sorted-asc::after  { content: ' ▲'; color: #3b82f6; }
+        table.leads thead th.sorted-desc::after { content: ' ▼'; color: #3b82f6; }
+        table.leads tbody td {
+            padding: 7px 12px;
+            border-bottom: 1px solid #1a1f2e;
+            border-right: 1px solid #1a2030;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            max-width: 280px;
+        }
+        table.leads tbody tr:hover { background: #161b2b; }
+        table.leads tbody tr.selected { background: #1e293b; }
+        table.leads tbody tr.selected:hover { background: #233148; }
 
-        .card-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 12px; }
-        .status-badge {
-            font-size: 0.72rem;
+        .col-cb { width: 32px; padding: 0 8px !important; text-align: center; }
+        .col-cb input { accent-color: #2563eb; cursor: pointer; }
+
+        .badge {
+            display: inline-block;
+            padding: 2px 8px;
+            border-radius: 10px;
+            font-size: 0.68rem;
             font-weight: 700;
             text-transform: uppercase;
-            letter-spacing: 0.06em;
-            padding: 3px 10px;
-            border-radius: 20px;
+            letter-spacing: 0.04em;
         }
         .badge-auction { background: #7f1d1d; color: #fca5a5; }
         .badge-pre-foreclosure { background: #78350f; color: #fcd34d; }
         .badge-tax-lien { background: #1e3a5f; color: #93c5fd; }
-
-        .card-checkbox {
-            width: 20px; height: 20px;
-            accent-color: #2563eb;
-            cursor: pointer;
-            flex-shrink: 0;
+        .badge-county {
+            background: #1e2130; color: #93c5fd;
+            padding: 2px 7px; border-radius: 8px;
+            font-size: 0.7rem; font-weight: 600;
         }
+        .price-tag { color: #22c55e; font-weight: 700; }
+        .src-link { color: #60a5fa; text-decoration: none; font-size: 0.75rem; }
+        .src-link:hover { text-decoration: underline; }
 
-        .card-address {
-            font-size: 1.05rem;
-            font-weight: 600;
-            color: #f0f0f0;
-            margin-bottom: 4px;
+        .empty {
+            text-align: center;
+            padding: 80px 24px;
+            color: #4b5563;
         }
-        .card-sub { font-size: 0.82rem; color: #6b7280; margin-bottom: 14px; }
+        .empty h2 { font-size: 1.2rem; color: #6b7280; margin-bottom: 8px; }
+        .empty a { color: #3b82f6; }
 
-        .card-footer { display: flex; justify-content: space-between; align-items: center; border-top: 1px solid #1e2130; padding-top: 12px; }
-        .price { font-size: 1.3rem; font-weight: 700; color: #22c55e; }
-        .price-sub { font-size: 0.72rem; color: #6b7280; }
-        .filed-date { font-size: 0.8rem; color: #6b7280; }
-
-        .empty-state { text-align: center; padding: 80px 32px; color: #4b5563; }
-        .empty-state h2 { font-size: 1.4rem; margin-bottom: 8px; }
-        .empty-state p { font-size: 0.9rem; }
-        .empty-state a { color: #3b82f6; text-decoration: none; }
+        ::-webkit-scrollbar { width: 8px; height: 8px; }
+        ::-webkit-scrollbar-track { background: #0f1117; }
+        ::-webkit-scrollbar-thumb { background: #2a3148; border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: #374151; }
     </style>
 </head>
 <body>
@@ -155,138 +173,225 @@
 
 <div class="cart-bar">
     <div class="cart-info">
-        🛒 <strong id="cart-count">0</strong> leads selected &nbsp;|&nbsp; Total: <strong>$<span id="cart-total">0</span></strong>
+        🛒 <strong id="cart-count">0</strong> leads selected
+        &nbsp;|&nbsp; Total: <strong>$<span id="cart-total">0</span></strong>
     </div>
     <button class="btn-checkout" onclick="checkout()">Checkout →</button>
 </div>
 
-<div class="hero">
-    <h1>Distressed Property <span>Lead Database</span></h1>
-    <p>Pre-foreclosures, tax liens, and auction properties — sourced directly from county records. Each lead $5.00.</p>
-    <div class="stats">
-        <div class="stat">
-            <div class="stat-num" id="total-count">0</div>
-            <div class="stat-label">Available Leads</div>
-        </div>
-        <div class="stat">
-            <div class="stat-num">$5</div>
-            <div class="stat-label">Per Lead</div>
-        </div>
-        <div class="stat">
-            <div class="stat-num" id="county-count">0</div>
-            <div class="stat-label">Counties</div>
-        </div>
+<div class="toolbar">
+    <input type="text" id="search-input" placeholder="🔎 Filter address, owner, parcel, city, county..." oninput="applyFilters()">
+    <select id="county-filter" onchange="applyFilters()">
+        <option value="">All counties</option>
+    </select>
+    <select id="status-filter" onchange="applyFilters()">
+        <option value="">All types</option>
+        <option value="Auction">Auction</option>
+        <option value="Pre-foreclosure">Pre-Foreclosure</option>
+        <option value="Tax Lien">Tax Lien</option>
+    </select>
+    <select id="state-filter" onchange="applyFilters()">
+        <option value="">All states</option>
+    </select>
+    <button class="btn-clear" onclick="clearFilters()">Clear</button>
+    <div style="margin-left:auto; display:flex; gap:10px;">
+        <span class="stat-pill">Showing <strong id="visible-count">0</strong> / <strong id="total-count">0</strong></span>
+        <span class="stat-pill"><strong id="county-count">0</strong> counties</span>
     </div>
 </div>
 
-<div class="filters" id="type-filters">
-    <button class="filter-btn active" onclick="filterCards('all', this)">All</button>
-    <button class="filter-btn" onclick="filterCards('Auction', this)">Auction</button>
-    <button class="filter-btn" onclick="filterCards('Pre-foreclosure', this)">Pre-Foreclosure</button>
-    <button class="filter-btn" onclick="filterCards('Tax Lien', this)">Tax Lien</button>
+<div class="table-wrap">
+{% if listings %}
+<table class="leads" id="leads-table">
+    <thead>
+        <tr>
+            <th class="col-cb"><input type="checkbox" id="select-all" onclick="toggleAll(this)"></th>
+            <th data-sort="status">Type</th>
+            <th data-sort="county">County</th>
+            <th data-sort="state">State</th>
+            <th data-sort="city">City</th>
+            <th data-sort="zip">ZIP</th>
+            <th data-sort="address">Address (masked)</th>
+            <th data-sort="owner">Owner</th>
+            <th data-sort="parcel_id">Parcel/APN</th>
+            <th data-sort="case_number">Case#</th>
+            <th data-sort="bid" data-numeric="true">Amount Owed</th>
+            <th data-sort="sale_date">Sale Date</th>
+            <th data-sort="scraped_date">Scraped</th>
+            <th data-sort="price" data-numeric="true">Price</th>
+            <th>Src</th>
+        </tr>
+    </thead>
+    <tbody id="leads-body">
+        {% for item in listings %}
+        <tr id="row-{{ item.id }}"
+            data-id="{{ item.id }}"
+            data-status="{{ item.status }}"
+            data-county="{{ item.county }}"
+            data-state="{{ item.state }}"
+            data-city="{{ item.city }}"
+            data-zip="{{ item.zip }}"
+            data-address="{{ item.display_address|lower }}"
+            data-owner="{{ item.owner|lower }}"
+            data-parcel_id="{{ item.parcel_id|lower }}"
+            data-case_number="{{ item.case_number|lower }}"
+            data-bid="{{ item.bid }}"
+            data-price="{{ item.price }}"
+            data-sale_date="{{ item.sale_date }}"
+            data-scraped_date="{{ item.scraped_date }}">
+            <td class="col-cb">
+                <input type="checkbox" class="lead-cb" data-id="{{ item.id }}" data-price="{{ item.price }}" onchange="toggleRow(this)">
+            </td>
+            <td>
+                {% if item.status == 'Auction' %}
+                    <span class="badge badge-auction">Auction</span>
+                {% elif item.status == 'Pre-foreclosure' %}
+                    <span class="badge badge-pre-foreclosure">Pre-Foreclosure</span>
+                {% else %}
+                    <span class="badge badge-tax-lien">Tax Lien</span>
+                {% endif %}
+            </td>
+            <td><span class="badge-county">{{ item.county or '—' }}</span></td>
+            <td>{{ item.state or '' }}</td>
+            <td>{{ item.city or '' }}</td>
+            <td>{{ item.zip or '' }}</td>
+            <td title="Full address revealed after purchase">{{ item.display_address }}</td>
+            <td>{{ item.owner or '—' }}</td>
+            <td>{{ item.parcel_id or '—' }}</td>
+            <td>{{ item.case_number or '—' }}</td>
+            <td>{{ item.amount_owed or '—' }}</td>
+            <td>{{ item.sale_date or '' }}</td>
+            <td>{{ item.scraped_date or '' }}</td>
+            <td><span class="price-tag">${{ item.price }}</span></td>
+            <td>
+                {% if item.link %}
+                  <a class="src-link" href="{{ item.link }}" target="_blank" rel="noopener">↗</a>
+                {% endif %}
+            </td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+{% else %}
+<div class="empty">
+    <h2>No leads loaded yet</h2>
+    <p>Go to <a href="/admin">Admin → Launch Scraper</a> to pull listings.</p>
 </div>
-<div class="filters" id="county-filters" style="border-top:1px solid #1e2130; padding-top:12px;">
-    <span style="font-size:0.75rem;color:#4b5563;text-transform:uppercase;letter-spacing:0.06em;margin-right:6px;">County:</span>
-    <button class="filter-btn active" onclick="filterCounty('all', this)">All</button>
-</div>
-
-<div class="listings-wrap">
-    <div class="listings-grid" id="listings-grid">
-        {% if listings %}
-            {% for item in listings %}
-            <div class="card" data-status="{{ item.status }}" data-county="{{ item.county }}" id="card-{{ item.id }}">
-                <div class="card-header">
-                    <span class="status-badge
-                        {% if item.status == 'Auction' %}badge-auction
-                        {% elif item.status == 'Pre-foreclosure' %}badge-pre-foreclosure
-                        {% else %}badge-tax-lien{% endif %}">
-                        {{ item.status }}
-                    </span>
-                    <input type="checkbox" class="card-checkbox lead-checkbox"
-                           data-id="{{ item.id }}" data-price="{{ item.price }}"
-                           onchange="updateCart(this)">
-                </div>
-                <div class="card-address">{{ item.display_address }}</div>
-                <div class="card-sub">Full address revealed after purchase</div>
-                <div class="card-footer">
-                    <div>
-                        <div class="price">$5.00</div>
-                        <div class="price-sub">one-time</div>
-                    </div>
-                    <div class="filed-date">Filed: {{ item.date }}</div>
-                </div>
-            </div>
-            {% endfor %}
-        {% else %}
-            <div class="empty-state" style="grid-column: 1/-1;">
-                <h2>No leads loaded yet</h2>
-                <p>Go to <a href="/admin">Admin → Launch Scraper</a> to pull the latest listings.</p>
-            </div>
-        {% endif %}
-    </div>
+{% endif %}
 </div>
 
 <script>
-    const allCards = [...document.querySelectorAll('.card')];
-    document.getElementById('total-count').innerText = allCards.length;
-    const uniqueCounties = new Set(allCards.map(c => c.dataset.county).filter(Boolean));
-    document.getElementById('county-count').innerText = uniqueCounties.size;
+    const allRows = [...document.querySelectorAll('#leads-body tr')];
+    const totalCount = allRows.length;
+    document.getElementById('total-count').innerText = totalCount;
+    document.getElementById('visible-count').innerText = totalCount;
 
-    // Build county filter buttons dynamically
-    const countyBar = document.getElementById('county-filters');
+    // Populate county + state dropdowns dynamically
+    const counties = new Set(allRows.map(r => r.dataset.county).filter(Boolean));
+    const states   = new Set(allRows.map(r => r.dataset.state).filter(Boolean));
+    document.getElementById('county-count').innerText = counties.size;
+
     const countyLabels = {
-        'davidson': 'Davidson TN', 'wilson': 'Wilson TN', 'williamson': 'Williamson TN',
-        'rutherford': 'Rutherford TN', 'sumner': 'Sumner TN', 'robertson': 'Robertson TN',
-        'cheatham': 'Cheatham TN', 'san diego': 'San Diego CA',
-        'miami-dade': 'Miami-Dade FL', 'harris': 'Harris TX', 'fulton': 'Fulton GA',
-        'cook': 'Cook IL', 'maricopa': 'Maricopa AZ',
+        'davidson':'Davidson TN','wilson':'Wilson TN','williamson':'Williamson TN',
+        'rutherford':'Rutherford TN','sumner':'Sumner TN','robertson':'Robertson TN',
+        'cheatham':'Cheatham TN','san diego':'San Diego CA','los angeles':'Los Angeles CA',
+        'orange':'Orange CA','riverside':'Riverside CA','miami-dade':'Miami-Dade FL',
+        'harris':'Harris TX','fulton':'Fulton GA','cook':'Cook IL','maricopa':'Maricopa AZ',
     };
-    [...uniqueCounties].sort().forEach(county => {
-        const btn = document.createElement('button');
-        btn.className = 'filter-btn';
-        btn.innerText = countyLabels[county] || county.replace(/(^\w|\s\w)/g, m => m.toUpperCase());
-        btn.onclick = function() { filterCounty(county, this); };
-        countyBar.appendChild(btn);
+    const countySel = document.getElementById('county-filter');
+    [...counties].sort().forEach(c => {
+        const opt = document.createElement('option');
+        opt.value = c;
+        opt.innerText = countyLabels[c] || c.replace(/\b\w/g, m => m.toUpperCase());
+        countySel.appendChild(opt);
+    });
+    const stateSel = document.getElementById('state-filter');
+    [...states].sort().forEach(s => {
+        const opt = document.createElement('option');
+        opt.value = s; opt.innerText = s;
+        stateSel.appendChild(opt);
     });
 
-    let activeStatus = 'all', activeCounty = 'all';
+    // ── Sorting ───────────────────────────────────────────────
+    let sortCol = null, sortDir = 'asc';
+    document.querySelectorAll('th[data-sort]').forEach(th => {
+        th.addEventListener('click', () => {
+            const col = th.dataset.sort;
+            const isNumeric = th.dataset.numeric === 'true';
+            if (sortCol === col) {
+                sortDir = sortDir === 'asc' ? 'desc' : 'asc';
+            } else {
+                sortCol = col; sortDir = 'asc';
+            }
+            document.querySelectorAll('th[data-sort]').forEach(t => t.classList.remove('sorted-asc','sorted-desc'));
+            th.classList.add(sortDir === 'asc' ? 'sorted-asc' : 'sorted-desc');
 
-    function applyFilters() {
-        allCards.forEach(card => {
-            const statusOk = activeStatus === 'all' || card.dataset.status === activeStatus;
-            const countyOk = activeCounty === 'all' || card.dataset.county === activeCounty;
-            card.style.display = (statusOk && countyOk) ? '' : 'none';
+            const visible = allRows.filter(r => r.style.display !== 'none');
+            visible.sort((a, b) => {
+                let av = a.dataset[col] || '';
+                let bv = b.dataset[col] || '';
+                if (isNumeric) { av = parseFloat(av) || 0; bv = parseFloat(bv) || 0; }
+                if (av < bv) return sortDir === 'asc' ? -1 : 1;
+                if (av > bv) return sortDir === 'asc' ?  1 : -1;
+                return 0;
+            });
+            const body = document.getElementById('leads-body');
+            visible.forEach(r => body.appendChild(r));
         });
+    });
+
+    // ── Filtering ─────────────────────────────────────────────
+    function applyFilters() {
+        const q = document.getElementById('search-input').value.toLowerCase().trim();
+        const fc = document.getElementById('county-filter').value;
+        const fs = document.getElementById('status-filter').value;
+        const fst = document.getElementById('state-filter').value;
+        let visible = 0;
+        allRows.forEach(r => {
+            const matchQ = !q || ['address','owner','parcel_id','city','county','case_number','zip']
+                .some(k => (r.dataset[k] || '').includes(q));
+            const matchC  = !fc  || r.dataset.county === fc;
+            const matchS  = !fs  || r.dataset.status === fs;
+            const matchSt = !fst || r.dataset.state  === fst;
+            const show = matchQ && matchC && matchS && matchSt;
+            r.style.display = show ? '' : 'none';
+            if (show) visible++;
+        });
+        document.getElementById('visible-count').innerText = visible;
+    }
+    function clearFilters() {
+        document.getElementById('search-input').value = '';
+        document.getElementById('county-filter').value = '';
+        document.getElementById('status-filter').value = '';
+        document.getElementById('state-filter').value  = '';
+        applyFilters();
     }
 
-    function updateCart(cb) {
-        const card = document.getElementById('card-' + cb.getAttribute('data-id'));
-        card.classList.toggle('selected', cb.checked);
-        const checked = document.querySelectorAll('.lead-checkbox:checked');
-        let total = 0;
-        checked.forEach(c => total += parseFloat(c.getAttribute('data-price')));
+    // ── Cart ──────────────────────────────────────────────────
+    function toggleRow(cb) {
+        const tr = document.getElementById('row-' + cb.dataset.id);
+        tr.classList.toggle('selected', cb.checked);
+        updateCart();
+    }
+    function toggleAll(master) {
+        document.querySelectorAll('.lead-cb').forEach(cb => {
+            const tr = cb.closest('tr');
+            if (tr.style.display === 'none') return;
+            cb.checked = master.checked;
+            tr.classList.toggle('selected', cb.checked);
+        });
+        updateCart();
+    }
+    function updateCart() {
+        const checked = [...document.querySelectorAll('.lead-cb:checked')];
+        const total = checked.reduce((s, cb) => s + parseFloat(cb.dataset.price), 0);
         document.getElementById('cart-count').innerText = checked.length;
         document.getElementById('cart-total').innerText = total;
     }
-
-    function filterCards(status, btn) {
-        document.querySelectorAll('#type-filters .filter-btn').forEach(b => b.classList.remove('active'));
-        btn.classList.add('active');
-        activeStatus = status;
-        applyFilters();
-    }
-
-    function filterCounty(county, btn) {
-        document.querySelectorAll('#county-filters .filter-btn').forEach(b => b.classList.remove('active'));
-        btn.classList.add('active');
-        activeCounty = county;
-        applyFilters();
-    }
-
     function checkout() {
-        const count = parseInt(document.getElementById('cart-count').innerText);
-        if (count === 0) return alert("Select at least one lead first.");
-        alert("Proceeding to checkout for " + count + " lead(s) — $" + (count * 5) + " total.");
+        const n = parseInt(document.getElementById('cart-count').innerText);
+        if (!n) return alert('Select at least one lead first.');
+        alert(`Proceeding to checkout for ${n} lead(s) — $${n*5} total.`);
     }
 </script>
 </body>
