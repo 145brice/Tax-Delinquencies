@@ -194,6 +194,89 @@ def admin():
     settings = load_json(SETTINGS_FILE, {"counties": [], "lookback_days": 30})
     return render_template('admin.html', settings=settings)
 
+DATA_DIR = os.path.join(os.path.dirname(__file__), 'data')
+CSV_FIELDNAMES = [
+    "county", "record_type", "owner_name", "property_address", "city",
+    "state", "zip_code", "parcel_id", "tax_year", "amount_owed",
+    "sale_date", "case_number", "source_url", "scraped_date", "notes",
+]
+CSV_LABELS = {
+    "county": "County", "record_type": "Type", "owner_name": "Owner Name",
+    "property_address": "Property Address", "city": "City", "state": "State",
+    "zip_code": "ZIP", "parcel_id": "Parcel ID", "tax_year": "Tax Year",
+    "amount_owed": "Amount Owed", "sale_date": "Sale / Record Date",
+    "case_number": "Case #", "source_url": "Source", "scraped_date": "Scraped Date",
+    "notes": "Notes",
+}
+
+def _list_csv_files():
+    import glob
+    files = sorted(glob.glob(os.path.join(DATA_DIR, '*.csv')), reverse=True)
+    return [os.path.basename(f) for f in files]
+
+def _load_csv_rows(filename):
+    path = os.path.join(DATA_DIR, filename)
+    if not os.path.exists(path):
+        return []
+    rows = []
+    with open(path, newline='', encoding='utf-8') as f:
+        for row in csv.DictReader(f):
+            rows.append(row)
+    return rows
+
+@app.route('/admin/data')
+def admin_data():
+    files = _list_csv_files()
+    selected = request.args.get('file', '') or (files[0] if files else '')
+    filter_county = request.args.get('filter_county', '').strip().lower()
+    filter_type   = request.args.get('filter_type', '').strip().lower()
+    filter_q      = request.args.get('q', '').strip().lower()
+    sort_col      = request.args.get('sort', 'county')
+    sort_dir      = request.args.get('dir', 'asc')
+
+    rows = _load_csv_rows(selected) if selected else []
+    total = len(rows)
+
+    if filter_county:
+        rows = [r for r in rows if filter_county in r.get('county', '').lower()]
+    if filter_type:
+        rows = [r for r in rows if filter_type in r.get('record_type', '').lower()]
+    if filter_q:
+        rows = [r for r in rows if any(filter_q in str(v).lower() for v in r.values())]
+
+    if sort_col in CSV_FIELDNAMES:
+        rows = sorted(rows, key=lambda r: r.get(sort_col, '').lower(), reverse=(sort_dir == 'desc'))
+
+    all_rows = _load_csv_rows(selected) if selected else []
+    counties = sorted({r.get('county', '') for r in all_rows if r.get('county')})
+    types    = sorted({r.get('record_type', '') for r in all_rows if r.get('record_type')})
+
+    return render_template(
+        'admin_data.html',
+        rows=rows, total=total, filtered=len(rows),
+        files=files, selected=selected,
+        fieldnames=CSV_FIELDNAMES, column_labels=CSV_LABELS,
+        filter_county=request.args.get('filter_county', ''),
+        filter_type=request.args.get('filter_type', ''),
+        filter_q=request.args.get('q', ''),
+        sort_col=sort_col, sort_dir=sort_dir,
+        counties=counties, types=types,
+    )
+
+@app.route('/admin/data/download')
+def admin_data_download():
+    from flask import send_file
+    filename = request.args.get('file', '')
+    if not filename:
+        files = _list_csv_files()
+        if not files:
+            return "No CSV files available", 404
+        filename = files[0]
+    path = os.path.join(DATA_DIR, filename)
+    if not os.path.exists(path):
+        return "File not found", 404
+    return send_file(path, as_attachment=True, download_name=filename)
+
 @app.route('/csv-dash')
 def csv_dash():
     listings = load_json(DATA_FILE, [])
