@@ -44,7 +44,8 @@ def _domain(url: str) -> str:
 
 
 def _polite_wait(url: str):
-    """Enforce a minimum gap between requests to the same domain, with jitter."""
+    """Enforce a minimum gap between requests to the same domain, with jitter.
+    Sleeps in small chunks so a kill request can interrupt it."""
     dom = _domain(url)
     now = time.time()
     last = _domain_last_request.get(dom, 0)
@@ -53,7 +54,12 @@ def _polite_wait(url: str):
     if gap < wait:
         sleep_for = wait - gap
         log.debug(f"Rate-limiting {dom}: sleeping {sleep_for:.1f}s")
-        time.sleep(sleep_for)
+        # Interruptible sleep — wake every 0.2s to check kill flag
+        end = time.time() + sleep_for
+        while time.time() < end:
+            if _kill_flag["set"]:
+                raise ScraperKilled("Kill requested during rate-limit wait")
+            time.sleep(min(0.2, end - time.time()))
     _domain_last_request[dom] = time.time()
 
 
@@ -79,6 +85,29 @@ class PropertyRecord:
         return asdict(self)
 
 
+class ScraperKilled(Exception):
+    """Raised when a scraper is killed mid-run via the global kill switch."""
+
+
+# Global kill flag — set by Flask /api/scrape/stop?force=true.
+# BaseScraper.get() checks this before each request and raises ScraperKilled.
+_kill_flag = {"set": False}
+
+def request_kill():
+    _kill_flag["set"] = True
+
+def clear_kill():
+    _kill_flag["set"] = False
+
+def is_kill_requested() -> bool:
+    return _kill_flag["set"]
+
+
+def _check_kill():
+    if _kill_flag["set"]:
+        raise ScraperKilled("Kill requested")
+
+
 class BaseScraper:
     county_name: str = ""
     base_url: str = ""
@@ -93,9 +122,12 @@ class BaseScraper:
         self.session.headers.update({**_BASE_HEADERS, "User-Agent": ua})
 
     def get(self, url: str, **kwargs) -> Optional[requests.Response]:
+        _check_kill()
         _polite_wait(url)
+        _check_kill()
         self._rotate_ua()
         for attempt in range(3):
+            _check_kill()
             try:
                 resp = self.session.get(url, timeout=30, **kwargs)
                 resp.raise_for_status()

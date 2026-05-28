@@ -9,6 +9,7 @@ from datetime import datetime
 from flask import Flask, render_template, request, jsonify, Response
 from scraper import scrape_sync
 from scraper_runner import run_scrapers
+from scrapers.base_scraper import request_kill, clear_kill, ScraperKilled
 
 # Maps Flask county keys → scraper_runner county names
 # UI key → one or more scraper_runner keys (a single UI selection may fan
@@ -199,6 +200,7 @@ def run_scraper():
     stop_event = threading.Event()
     scrape_control["stop_event"] = stop_event
     scrape_status["stopping"] = False
+    clear_kill()  # reset kill flag at start of new run
 
     def do_scrape():
         scrape_status["running"] = True
@@ -254,6 +256,13 @@ def run_scraper():
                             }
                             if listings:
                                 save_batch(listings)
+                        except ScraperKilled:
+                            scrape_status["scraper_results"][sk] = {
+                                "count": 0, "raw": 0, "status": "error",
+                                "note": "killed mid-run",
+                            }
+                            update_progress(f"{sk} killed mid-run")
+                            break  # exit the per-scraper loop entirely
                         except Exception as e:
                             scrape_status["scraper_results"][sk] = {
                                 "count": 0, "raw": 0, "status": "error", "note": str(e)[:120]
@@ -304,8 +313,15 @@ def run_scraper():
 def stop_scraper():
     if not scrape_status["running"]:
         return jsonify({"status": "not_running"})
+    force = (request.args.get("force") == "true" or
+             (request.get_json(silent=True) or {}).get("force") is True)
     if scrape_control["stop_event"] is not None:
         scrape_control["stop_event"].set()
+    if force:
+        request_kill()
+        scrape_status["stopping"] = "kill"
+        scrape_status["last"] = "kill_requested"
+        return jsonify({"status": "killing"})
     scrape_status["stopping"] = True
     scrape_status["last"] = "stopping_requested"
     return jsonify({"status": "stopping"})

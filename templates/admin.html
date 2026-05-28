@@ -257,7 +257,8 @@
         <div class="btn-row">
             <button class="btn btn-save" id="save-btn" onclick="saveSettings()">Save Settings</button>
             <button class="btn btn-run" id="run-btn" onclick="triggerScrape()">🚀 Launch Scraper</button>
-            <button class="btn btn-stop" id="stop-btn" onclick="stopScrape()" style="display:none;">⛔ Kill Scraper</button>
+            <button class="btn btn-stop" id="stop-btn" onclick="stopScrape(false)" style="display:none;">⛔ Stop After Current</button>
+            <button class="btn btn-stop" id="kill-btn" onclick="stopScrape(true)" style="display:none; background:#991b1b;">💀 Kill Now</button>
         </div>
         <div class="status-msg" id="status-msg"></div>
 
@@ -293,11 +294,20 @@
         showMsg('✓ Settings saved.', '#22c55e');
     }
 
-    async function stopScrape() {
-        await fetch('/api/scrape/stop', { method: 'POST' });
-        document.getElementById('stop-btn').disabled = true;
-        document.getElementById('stop-btn').innerText = '⏳ Stopping...';
-        showMsg('Stop requested — finishing current step...', '#facc15');
+    async function stopScrape(force) {
+        const url = force ? '/api/scrape/stop?force=true' : '/api/scrape/stop';
+        await fetch(url, { method: 'POST' });
+        const stopBtn = document.getElementById('stop-btn');
+        const killBtn = document.getElementById('kill-btn');
+        if (force) {
+            killBtn.disabled = true;
+            killBtn.innerText = '⏳ Killing...';
+            showMsg('Kill signal sent — current scraper aborting immediately...', '#dc2626');
+        } else {
+            stopBtn.disabled = true;
+            stopBtn.innerText = '⏳ Stopping...';
+            showMsg('Stop requested — finishing current scraper, then stopping...', '#facc15');
+        }
     }
 
     function showMsg(text, color) {
@@ -310,15 +320,19 @@
     function setRunning(running) {
         const runBtn  = document.getElementById('run-btn');
         const stopBtn = document.getElementById('stop-btn');
+        const killBtn = document.getElementById('kill-btn');
         const saveBtn = document.getElementById('save-btn');
         const wrap    = document.getElementById('progress-wrap');
         runBtn.disabled  = running;
         runBtn.innerText = running ? '⏳ Running...' : '🚀 Launch Scraper';
-        stopBtn.style.display   = running ? 'inline-block' : 'none';
-        stopBtn.disabled        = false;
-        stopBtn.innerText       = '⛔ Kill Scraper';
-        saveBtn.disabled        = running;
-        wrap.style.display      = running ? 'block' : 'none';
+        stopBtn.style.display = running ? 'inline-block' : 'none';
+        killBtn.style.display = running ? 'inline-block' : 'none';
+        stopBtn.disabled  = false;
+        killBtn.disabled  = false;
+        stopBtn.innerText = '⛔ Stop After Current';
+        killBtn.innerText = '💀 Kill Now';
+        saveBtn.disabled  = running;
+        wrap.style.display = running ? 'block' : 'none';
     }
 
     function renderResults(results) {
