@@ -163,6 +163,18 @@
                 <div><div class="county-name">San Diego</div><div class="county-state">California</div></div>
             </label>
             <label class="county-item">
+                <input type="checkbox" name="county" value="losangeles" {% if 'losangeles' in settings.counties %}checked{% endif %}>
+                <div><div class="county-name">Los Angeles</div><div class="county-state">California</div></div>
+            </label>
+            <label class="county-item">
+                <input type="checkbox" name="county" value="orange" {% if 'orange' in settings.counties %}checked{% endif %}>
+                <div><div class="county-name">Orange</div><div class="county-state">California</div></div>
+            </label>
+            <label class="county-item">
+                <input type="checkbox" name="county" value="riverside" {% if 'riverside' in settings.counties %}checked{% endif %}>
+                <div><div class="county-name">Riverside</div><div class="county-state">California</div></div>
+            </label>
+            <label class="county-item">
                 <input type="checkbox" name="county" value="davidson" {% if 'davidson' in settings.counties %}checked{% endif %}>
                 <div><div class="county-name">Davidson (Nashville)</div><div class="county-state">Tennessee</div></div>
             </label>

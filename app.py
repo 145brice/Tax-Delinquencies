@@ -23,6 +23,9 @@ COUNTY_SCRAPER_MAP = {
     "robertson":  ["robertson"],
     "cheatham":   ["cheatham"],
     "sandiego":   ["sandiego_taxsale", "sandiego_legalnotices"],
+    "losangeles": ["losangeles_legalnotices"],
+    "orange":     ["orange_taxsale", "orange_legalnotices"],
+    "riverside":  ["riverside_legalnotices"],
 }
 
 

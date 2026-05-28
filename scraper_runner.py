@@ -22,6 +22,10 @@ from scrapers.robertson import RobertsonScraper
 from scrapers.cheatham import CheathamScraper
 from scrapers.sandiego_taxsale import SanDiegoTaxSaleScraper
 from scrapers.sandiego_legalnotices import SanDiegoLegalNoticesScraper
+from scrapers.losangeles_legalnotices import LosAngelesLegalNoticesScraper
+from scrapers.orange_legalnotices import OrangeLegalNoticesScraper
+from scrapers.orange_taxsale import OrangeTaxSaleScraper
+from scrapers.riverside_legalnotices import RiversideLegalNoticesScraper
 
 ALL_SCRAPERS = {
     "davidson": DavidsonScraper,
@@ -33,6 +37,10 @@ ALL_SCRAPERS = {
     "cheatham": CheathamScraper,
     "sandiego_taxsale": SanDiegoTaxSaleScraper,
     "sandiego_legalnotices": SanDiegoLegalNoticesScraper,
+    "losangeles_legalnotices": LosAngelesLegalNoticesScraper,
+    "orange_taxsale": OrangeTaxSaleScraper,
+    "orange_legalnotices": OrangeLegalNoticesScraper,
+    "riverside_legalnotices": RiversideLegalNoticesScraper,
 }
 
 # Region grouping — used to pick the output CSV filename
@@ -41,6 +49,9 @@ REGION_BY_KEY = {
     "wilson": "nashville", "sumner": "nashville", "robertson": "nashville",
     "cheatham": "nashville",
     "sandiego_taxsale": "sandiego", "sandiego_legalnotices": "sandiego",
+    "losangeles_legalnotices": "losangeles",
+    "orange_taxsale": "orange", "orange_legalnotices": "orange",
+    "riverside_legalnotices": "riverside",
 }
 
 DATA_DIR = os.path.join(os.path.dirname(__file__), "data")

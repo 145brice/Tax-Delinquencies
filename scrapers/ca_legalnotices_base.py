@@ -1,0 +1,205 @@
+"""
+Generic California legal-notice scraper base class.
+
+Scrapes Notice of Trustee Sale notices from capublicnotice.com filtered by
+a configurable county. Subclasses just supply the county name, a default
+city, and zip-code allow/deny ranges to filter cross-county notices.
+
+Each notice listing on capublicnotice.com is published in a single newspaper,
+but that paper may circulate to multiple counties — so we fetch each advert's
+full page and confirm the property is in the target county via zip+city.
+"""
+import re
+from datetime import date, timedelta
+from .base_scraper import BaseScraper, PropertyRecord, log
+
+SEARCH_URL = "https://www.capublicnotice.com/search/query"
+PORTAL_URL = "https://www.capublicnotice.com/category/legals/notice-of-trustee-sale"
+LOOKBACK_DAYS = 120
+
+_TS_RE = re.compile(r"T\.?S\.?\s*No\.?\s*[:#]?\s*([A-Z0-9\-]+)", re.I)
+_APN_RE = re.compile(r"A\.?P\.?N\.?[:#\s]+([0-9][\d\-A-Z]+)", re.I)
+_ADDR_RE = re.compile(r"Property Address[:\s]+([^\n]{10,120})", re.I)
+_CITY_STATE_RE = re.compile(r"([A-Za-z ]+),\s*CA\s+(\d{5})", re.I)
+
+
+class CALegalNoticesScraper(BaseScraper):
+    """Override these in subclasses:"""
+    county_name: str = ""           # e.g. "San Diego"
+    default_city: str = ""          # e.g. "San Diego" — fallback when no city extracted
+    allowed_zip_patterns: list = [] # regex patterns matching county zips
+    rejected_zip_patterns: list = []# regex patterns matching nearby OOC zips
+    allowed_cities: set = set()     # lowercase city names known to be in this county
+    rejected_cities: set = set()    # lowercase city names known to be outside
+
+    base_url = PORTAL_URL
+
+    def __init_subclass__(cls, **kwargs):
+        super().__init_subclass__(**kwargs)
+        # Pre-compile zip regexes
+        cls._allow_re = [re.compile(p) for p in cls.allowed_zip_patterns]
+        cls._reject_re = [re.compile(p) for p in cls.rejected_zip_patterns]
+
+    def _is_in_county(self, text: str) -> bool:
+        """
+        Priority:
+        1. If any allowed zip is in the 'Property Address' line — keep (strong signal).
+        2. Otherwise, allowed_cities/zips outside Property Address only weakly indicate.
+        3. Rejected cities/zips only reject if there's no allowed signal first.
+        """
+        lower = text.lower()
+
+        # Strong signal: check the Property Address line specifically
+        import re as _re
+        addr_match = _re.search(r"Property Address[:\s]+([^\n]{10,160})", text, _re.I)
+        if addr_match:
+            addr = addr_match.group(1)
+            addr_lower = addr.lower()
+            # Allowed zip in property address → definitely in county
+            for r in self._allow_re:
+                if r.search(addr):
+                    return True
+            # Allowed city in property address → in county
+            for city in self.allowed_cities:
+                if city in addr_lower:
+                    return True
+            # Rejected city in property address → definitely out
+            for city in self.rejected_cities:
+                if city in addr_lower:
+                    return False
+            # Rejected zip in property address → out
+            for r in self._reject_re:
+                if r.search(addr):
+                    return False
+
+        # Fallback: scan whole text but be less strict
+        # First check for allowed signals
+        has_allow_zip = any(r.search(text) for r in self._allow_re)
+        has_allow_city = any(city in lower for city in self.allowed_cities)
+
+        if has_allow_zip:
+            return True
+        if has_allow_city:
+            # City match but no zip — accept unless rejected city is also present
+            for city in self.rejected_cities:
+                if city in lower:
+                    return False
+            return True
+
+        return False
+
+    def scrape(self) -> list[PropertyRecord]:
+        today_d = date.today()
+        today = str(today_d)
+        first = today_d - timedelta(days=LOOKBACK_DAYS)
+
+        params = {
+            "categories": "14",
+            "county": self.county_name,
+            "size": "100",
+            "firstDate": first.strftime("%m/%d/%Y"),
+            "lastDate": today_d.strftime("%m/%d/%Y"),
+        }
+
+        log.info(f"[{self.county_name}] Searching trustee-sale notices "
+                 f"{first} to {today_d}...")
+        resp = self.get(SEARCH_URL, params=params)
+        if not resp:
+            return [self._stub(today)]
+
+        soup = self.soup(resp.text)
+        blocks = soup.find_all("div", class_="list")
+        records: list[PropertyRecord] = []
+        skipped = 0
+
+        for block in blocks:
+            advert_id_input = block.find("input", id=re.compile(r"^advertId_"))
+            advert_id = advert_id_input["value"] if advert_id_input else ""
+            advert_url = (f"https://www.capublicnotice.com/advert/-{advert_id}"
+                          if advert_id else PORTAL_URL)
+
+            h4 = block.find("h4")
+            publication = h4.get_text(strip=True) if h4 else ""
+
+            time_el = block.find("time")
+            post_date = time_el.get("datetime", "")[:10] if time_el else ""
+
+            ref_el = block.find("span", class_="refcode")
+            refcode = ref_el.get_text(strip=True) if ref_el else ""
+
+            full_text = ""
+            if advert_id:
+                full_resp = self.get(advert_url)
+                if full_resp:
+                    full_soup = self.soup(full_resp.text)
+                    full_text = full_soup.get_text(" ", strip=True)
+
+            if full_text and not self._is_in_county(full_text):
+                skipped += 1
+                continue
+
+            ts_m = _TS_RE.search(full_text or "")
+            ts_no = ts_m.group(1) if ts_m else ""
+
+            apn_m = _APN_RE.search(full_text or "")
+            apn = apn_m.group(1).strip(" -") if apn_m else ""
+
+            address = city_name = zip_code = ""
+            addr_m = _ADDR_RE.search(full_text or "")
+            if addr_m:
+                address = addr_m.group(1).strip()
+                cs_m = _CITY_STATE_RE.search(address)
+                if cs_m:
+                    city_name = cs_m.group(1).strip().title()
+                    zip_code = cs_m.group(2)
+            else:
+                cs_m = _CITY_STATE_RE.search(full_text or "")
+                if cs_m:
+                    city_name = cs_m.group(1).strip().title()
+                    zip_code = cs_m.group(2)
+
+            note_parts = []
+            if publication:
+                note_parts.append(f"Publication: {publication}")
+            if post_date:
+                note_parts.append(f"Posted: {post_date}")
+            if refcode:
+                note_parts.append(refcode)
+            if address:
+                note_parts.append(f"Address: {address}")
+
+            records.append(PropertyRecord(
+                county=self.county_name,
+                record_type="Pre-Foreclosure",
+                property_address=address,
+                city=city_name or self.default_city,
+                state="CA",
+                zip_code=zip_code,
+                parcel_id=apn,
+                case_number=ts_no,
+                source_url=advert_url,
+                scraped_date=today,
+                notes=" | ".join(note_parts),
+            ))
+
+        log.info(
+            f"[{self.county_name}] Trustee-sale notices: {len(records)} kept, "
+            f"{skipped} skipped (outside county)"
+        )
+
+        if not records:
+            records.append(self._stub(today))
+
+        return records
+
+    def _stub(self, today: str) -> PropertyRecord:
+        return PropertyRecord(
+            county=self.county_name,
+            record_type="Pre-Foreclosure",
+            notes=f"No {self.county_name} County trustee-sale notices found in last {LOOKBACK_DAYS} days. "
+                  f"Browse at {PORTAL_URL}",
+            source_url=PORTAL_URL,
+            scraped_date=today,
+            city=self.default_city,
+            state="CA",
+        )
