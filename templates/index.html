@@ -109,8 +109,8 @@
             text-align: left;
         }
         table.leads thead th:hover { background: #232a3f; }
-        table.leads thead th.sorted-asc::after  { content: ' ▲'; color: #3b82f6; }
-        table.leads thead th.sorted-desc::after { content: ' ▼'; color: #3b82f6; }
+        table.leads thead th.sorted-asc::after  { content: ' â–²'; color: #3b82f6; }
+        table.leads thead th.sorted-desc::after { content: ' â–¼'; color: #3b82f6; }
         table.leads tbody td {
             padding: 7px 12px;
             border-bottom: 1px solid #1a1f2e;
@@ -167,20 +167,20 @@
 <nav class="navbar">
     <div class="logo">Foreclosure<span>Leads</span> Pro</div>
     <div class="nav-right">
-        <a href="/admin" class="admin-link">⚙ Admin</a>
+        <a href="/admin" class="admin-link">âš™ Admin</a>
     </div>
 </nav>
 
 <div class="cart-bar">
     <div class="cart-info">
-        🛒 <strong id="cart-count">0</strong> leads selected
+        ðŸ›’ <strong id="cart-count">0</strong> leads selected
         &nbsp;|&nbsp; Total: <strong>$<span id="cart-total">0</span></strong>
     </div>
-    <button class="btn-checkout" onclick="checkout()">Checkout →</button>
+    <button class="btn-checkout" onclick="checkout()">Checkout â†’</button>
 </div>
 
 <div class="toolbar">
-    <input type="text" id="search-input" placeholder="🔎 Filter address, owner, parcel, city, county..." oninput="applyFilters()">
+    <input type="text" id="search-input" placeholder="ðŸ”Ž Filter address, owner, parcel, city, county..." oninput="applyFilters()">
     <select id="county-filter" onchange="applyFilters()">
         <option value="">All counties</option>
     </select>
@@ -251,21 +251,21 @@
                     <span class="badge badge-tax-lien">Tax Lien</span>
                 {% endif %}
             </td>
-            <td><span class="badge-county">{{ item.county or '—' }}</span></td>
+            <td><span class="badge-county">{{ item.county or 'â€”' }}</span></td>
             <td>{{ item.state or '' }}</td>
             <td>{{ item.city or '' }}</td>
             <td>{{ item.zip or '' }}</td>
             <td title="Full address revealed after purchase">{{ item.display_address }}</td>
-            <td>{{ item.owner or '—' }}</td>
-            <td>{{ item.parcel_id or '—' }}</td>
-            <td>{{ item.case_number or '—' }}</td>
-            <td>{{ item.amount_owed or '—' }}</td>
+            <td>{{ item.owner or 'â€”' }}</td>
+            <td>{{ item.parcel_id or 'â€”' }}</td>
+            <td>{{ item.case_number or 'â€”' }}</td>
+            <td>{{ item.amount_owed or 'â€”' }}</td>
             <td>{{ item.sale_date or '' }}</td>
             <td>{{ item.scraped_date or '' }}</td>
             <td><span class="price-tag">${{ item.price }}</span></td>
             <td>
                 {% if item.link %}
-                  <a class="src-link" href="{{ item.link }}" target="_blank" rel="noopener">↗</a>
+                  <a class="src-link" href="{{ item.link }}" target="_blank" rel="noopener">â†—</a>
                 {% endif %}
             </td>
         </tr>
@@ -275,7 +275,7 @@
 {% else %}
 <div class="empty">
     <h2>No leads loaded yet</h2>
-    <p>Go to <a href="/admin">Admin → Launch Scraper</a> to pull listings.</p>
+    <p>Go to <a href="/admin">Admin â†’ Launch Scraper</a> to pull listings.</p>
 </div>
 {% endif %}
 </div>
@@ -312,7 +312,7 @@
         stateSel.appendChild(opt);
     });
 
-    // ── Sorting ───────────────────────────────────────────────
+    // â”€â”€ Sorting â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     let sortCol = null, sortDir = 'asc';
     document.querySelectorAll('th[data-sort]').forEach(th => {
         th.addEventListener('click', () => {
@@ -340,7 +340,7 @@
         });
     });
 
-    // ── Filtering ─────────────────────────────────────────────
+    // â”€â”€ Filtering â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     function applyFilters() {
         const q = document.getElementById('search-input').value.toLowerCase().trim();
         const fc = document.getElementById('county-filter').value;
@@ -367,7 +367,7 @@
         applyFilters();
     }
 
-    // ── Cart ──────────────────────────────────────────────────
+    // â”€â”€ Cart â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     function toggleRow(cb) {
         const tr = document.getElementById('row-' + cb.dataset.id);
         tr.classList.toggle('selected', cb.checked);
@@ -390,9 +390,12 @@
     }
     function checkout() {
         const n = parseInt(document.getElementById('cart-count').innerText);
+        const total = document.getElementById('cart-total').innerText;
         if (!n) return alert('Select at least one lead first.');
-        alert(`Proceeding to checkout for ${n} lead(s) — $${n*5} total.`);
+        alert(`Proceeding to checkout for ${n} lead(s) — $${total} total.`);
     }
 </script>
 </body>
 </html>
+
+

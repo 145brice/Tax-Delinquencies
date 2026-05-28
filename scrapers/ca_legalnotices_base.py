@@ -22,6 +22,36 @@ _APN_RE = re.compile(r"A\.?P\.?N\.?[:#\s]+([0-9][\d\-A-Z]+)", re.I)
 _ADDR_RE = re.compile(r"Property Address[:\s]+([^\n]{10,120})", re.I)
 _CITY_STATE_RE = re.compile(r"([A-Za-z ]+),\s*CA\s+(\d{5})", re.I)
 
+# Trustee-sale notices use varied phrasing for the unpaid balance.
+# Order matters — most specific first.
+_AMOUNT_PATTERNS = [
+    re.compile(r"(?:estimated\s+(?:total\s+)?(?:amount\s+of\s+)?(?:the\s+)?unpaid\s+balance(?:\s+and\s+other\s+(?:charges|reasonable\s+estimated\s+costs))?[^$]{0,80})\$([\d,]+\.\d{2})", re.I),
+    re.compile(r"(?:total\s+amount\s+(?:of\s+)?(?:the\s+)?(?:unpaid\s+)?obligation[^$]{0,80})\$([\d,]+\.\d{2})", re.I),
+    re.compile(r"(?:opening\s+bid[^$]{0,40})\$([\d,]+\.\d{2})", re.I),
+    re.compile(r"(?:initial\s+(?:opening\s+)?bid[^$]{0,40})\$([\d,]+\.\d{2})", re.I),
+    re.compile(r"(?:amount\s+(?:of\s+)?(?:the\s+)?(?:unpaid\s+)?balance[^$]{0,40})\$([\d,]+\.\d{2})", re.I),
+    # Fallback: the largest dollar amount in the notice (usually the loan balance)
+]
+
+
+def _extract_amount(text: str) -> str:
+    """Return the most likely unpaid-balance amount from a trustee sale notice."""
+    if not text:
+        return ""
+    for pat in _AMOUNT_PATTERNS:
+        m = pat.search(text)
+        if m:
+            return f"${m.group(1)}"
+    # Fallback: pick the largest $ amount in the notice — usually the loan balance
+    amounts = re.findall(r"\$([\d,]+\.\d{2})", text)
+    if amounts:
+        nums = [(float(a.replace(",", "")), a) for a in amounts]
+        nums.sort(reverse=True)
+        # Largest amount must be > $1000 to plausibly be a loan balance
+        if nums[0][0] > 1000:
+            return f"${nums[0][1]}"
+    return ""
+
 
 class CALegalNoticesScraper(BaseScraper):
     """Override these in subclasses:"""
@@ -158,6 +188,8 @@ class CALegalNoticesScraper(BaseScraper):
                     city_name = cs_m.group(1).strip().title()
                     zip_code = cs_m.group(2)
 
+            amount = _extract_amount(full_text or "")
+
             note_parts = []
             if publication:
                 note_parts.append(f"Publication: {publication}")
@@ -177,6 +209,7 @@ class CALegalNoticesScraper(BaseScraper):
                 zip_code=zip_code,
                 parcel_id=apn,
                 case_number=ts_no,
+                amount_owed=amount,
                 source_url=advert_url,
                 scraped_date=today,
                 notes=" | ".join(note_parts),
