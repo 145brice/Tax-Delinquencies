@@ -11,14 +11,18 @@ from scraper import scrape_sync
 from scraper_runner import run_scrapers
 
 # Maps Flask county keys → scraper_runner county names
+# UI key → one or more scraper_runner keys (a single UI selection may fan
+# out into multiple scrapers, e.g. San Diego has separate tax-sale and
+# legal-notice sources).
 COUNTY_SCRAPER_MAP = {
-    "davidson":    "davidson",
-    "wilson-tn":   "wilson",
-    "williamson":  "williamson",
-    "rutherford":  "rutherford",
-    "sumner":      "sumner",
-    "robertson":   "robertson",
-    "cheatham":    "cheatham",
+    "davidson":   ["davidson"],
+    "wilson-tn":  ["wilson"],
+    "williamson": ["williamson"],
+    "rutherford": ["rutherford"],
+    "sumner":     ["sumner"],
+    "robertson":  ["robertson"],
+    "cheatham":   ["cheatham"],
+    "sandiego":   ["sandiego_taxsale", "sandiego_legalnotices"],
 }
 
 
@@ -209,7 +213,10 @@ def run_scraper():
         try:
             # ── Phase 1: Tax delinquency PDFs via scrapers/ ──────────────────
             if sources.get("include_tax_records") and not stop_event.is_set():
-                scraper_counties = [COUNTY_SCRAPER_MAP[c] for c in counties if c in COUNTY_SCRAPER_MAP]
+                scraper_counties = [
+                    sk for c in counties if c in COUNTY_SCRAPER_MAP
+                    for sk in COUNTY_SCRAPER_MAP[c]
+                ]
                 if scraper_counties:
                     update_progress(f"Tax delinquency scrapers: {', '.join(scraper_counties)}")
                     try:

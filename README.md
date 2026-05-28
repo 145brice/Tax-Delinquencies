@@ -1,9 +1,10 @@
-# Nashville TN — Tax Delinquency & Pre-Foreclosure Scraper
+# Tax Delinquency & Pre-Foreclosure Scraper
 
-Scrapes 7 Nashville-area counties for **tax delinquent properties** and **pre-foreclosure (Lis Pendens)** records, exports to CSV, and serves a sortable/filterable admin portal.
+Scrapes county-level **tax delinquent properties** and **pre-foreclosure / trustee-sale** records, exports to CSV, and serves a sortable/filterable admin portal.
 
 ## Counties Covered
 
+### Nashville TN region
 | County | County Seat | Sources |
 |--------|-------------|---------|
 | Davidson (Nashville) | Nashville | Chancery Clerk tax sale page + Register of Deeds Lis Pendens |
@@ -13,6 +14,14 @@ Scrapes 7 Nashville-area counties for **tax delinquent properties** and **pre-fo
 | Sumner | Gallatin | County Chancery Court + Trustee |
 | Robertson | Springfield | County website + Trustee |
 | Cheatham | Ashland City | County website + Trustee |
+
+### San Diego CA region
+| Source | Scraper key | What it returns |
+|--------|-------------|-----------------|
+| SDTTC Prior Sale Results (sdttc.mytaxsale.com) | `sandiego_taxsale` | Most recent tax-sale auction parcels: APN, sale date, opening/winning bid |
+| CA Public Notice — Notice of Trustee Sale (capublicnotice.com) | `sandiego_legalnotices` | Last ~120 days of San Diego County trustee-sale notices: TS#, publication, post date, description preview |
+
+Upcoming SD tax-sale parcel lists are gated behind a registered bidder account; the scraper emits a single record linking to the auction portal for those. Auction.com listings are JS-only and not yet supported.
 
 ## Setup
 
@@ -36,11 +45,14 @@ python app.py
 ## Scraper CLI Usage
 
 ```bash
-# All counties
+# All counties (Nashville + San Diego)
 python scraper_runner.py
 
 # One or more specific counties
 python scraper_runner.py --county davidson williamson
+
+# San Diego only — output goes to data/sandiego_<date>.csv
+python scraper_runner.py --county sandiego_taxsale sandiego_legalnotices
 
 # Custom output path
 python scraper_runner.py --output my_output.csv

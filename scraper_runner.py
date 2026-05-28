@@ -20,6 +20,8 @@ from scrapers.wilson import WilsonScraper
 from scrapers.sumner import SumnerScraper
 from scrapers.robertson import RobertsonScraper
 from scrapers.cheatham import CheathamScraper
+from scrapers.sandiego_taxsale import SanDiegoTaxSaleScraper
+from scrapers.sandiego_legalnotices import SanDiegoLegalNoticesScraper
 
 ALL_SCRAPERS = {
     "davidson": DavidsonScraper,
@@ -29,6 +31,16 @@ ALL_SCRAPERS = {
     "sumner": SumnerScraper,
     "robertson": RobertsonScraper,
     "cheatham": CheathamScraper,
+    "sandiego_taxsale": SanDiegoTaxSaleScraper,
+    "sandiego_legalnotices": SanDiegoLegalNoticesScraper,
+}
+
+# Region grouping — used to pick the output CSV filename
+REGION_BY_KEY = {
+    "davidson": "nashville", "williamson": "nashville", "rutherford": "nashville",
+    "wilson": "nashville", "sumner": "nashville", "robertson": "nashville",
+    "cheatham": "nashville",
+    "sandiego_taxsale": "sandiego", "sandiego_legalnotices": "sandiego",
 }
 
 DATA_DIR = os.path.join(os.path.dirname(__file__), "data")
@@ -77,7 +89,12 @@ def main():
     )
     args = parser.parse_args()
 
-    output_path = args.output or os.path.join(DATA_DIR, f"nashville_{date.today()}.csv")
+    if args.output:
+        output_path = args.output
+    else:
+        regions = {REGION_BY_KEY.get(c, "scrape") for c in args.county}
+        prefix = next(iter(regions)) if len(regions) == 1 else "multi"
+        output_path = os.path.join(DATA_DIR, f"{prefix}_{date.today()}.csv")
 
     print(f"Scraping counties: {', '.join(args.county)}")
     records = run_scrapers(args.county)
