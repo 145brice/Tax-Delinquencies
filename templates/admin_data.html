@@ -87,11 +87,40 @@
 <body>
 
 <div class="header">
-  <h1>Data <span>Explorer</span> — Scraped CSV Browser</h1>
+  <h1>Data <span>Explorer</span> &amp; Scraper Control</h1>
   <div class="header-actions">
-    <a href="/admin" class="back-link">← Admin Panel</a>
+    <span class="badge" id="scrape-badge">{{ filtered }} / {{ total }} records</span>
+    <button class="btn btn-primary" id="run-btn" onclick="openScrapeModal()" style="background:#16a34a;">▶ Run Scraper</button>
+    <button class="btn btn-secondary" id="stop-btn" onclick="stopScrape(false)" style="display:none;">⛔ Stop After</button>
+    <button class="btn btn-secondary" id="kill-btn" onclick="stopScrape(true)" style="display:none;background:#991b1b;color:#fca5a5;">💀 Kill Now</button>
+    <a href="/admin" class="back-link">⚙ Full Admin</a>
     <a href="/" class="back-link">Storefront →</a>
-    <span class="badge">{{ filtered }} / {{ total }} records</span>
+  </div>
+</div>
+
+<!-- Scrape progress strip (hidden until running) -->
+<div id="scrape-strip" style="display:none;background:#1e2130;border-bottom:1px solid #2563eb;padding:10px 28px;">
+  <div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap;">
+    <span id="scrape-status-text" style="color:#facc15;font-size:0.85rem;font-weight:600;">Initializing...</span>
+    <span style="flex:1;min-width:200px;height:8px;background:#0f1117;border-radius:4px;overflow:hidden;">
+      <span id="scrape-bar" style="display:block;height:100%;width:5%;background:linear-gradient(90deg,#1d4ed8,#3b82f6,#1d4ed8);background-size:200% 100%;animation:shimmer 1.5s linear infinite;transition:width 0.4s;"></span>
+    </span>
+    <span id="scrape-count" style="color:#93c5fd;font-size:0.82rem;font-weight:600;">0 leads</span>
+  </div>
+  <style>@keyframes shimmer { 0%{background-position:200% 0} 100%{background-position:-200% 0} }</style>
+</div>
+
+<!-- Scrape config modal -->
+<div id="scrape-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.75);z-index:200;align-items:center;justify-content:center;">
+  <div style="background:#16181f;border:1px solid #334155;border-radius:12px;padding:28px;min-width:520px;max-width:680px;max-height:90vh;overflow-y:auto;">
+    <h2 style="font-size:1.05rem;color:#e0e0e0;margin-bottom:18px;">Run Scraper — Select Counties</h2>
+    <div id="county-checkboxes" style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:18px;font-size:0.85rem;">
+      <!-- populated by JS -->
+    </div>
+    <div style="display:flex;gap:10px;justify-content:flex-end;">
+      <button class="btn btn-secondary" onclick="closeScrapeModal()">Cancel</button>
+      <button class="btn btn-primary" style="background:#16a34a;" onclick="launchScrape()">▶ Launch Scrape</button>
+    </div>
   </div>
 </div>
 
@@ -204,6 +233,110 @@
     </div>
   {% endif %}
 </div>
+
+<script>
+  // All available counties (mirrors COUNTY_SCRAPER_MAP keys in app.py)
+  const COUNTIES = [
+    {key:'davidson',   label:'Davidson (Nashville TN)'},
+    {key:'wilson-tn',  label:'Wilson (Lebanon TN)'},
+    {key:'williamson', label:'Williamson (Franklin TN)'},
+    {key:'rutherford', label:'Rutherford (Murfreesboro TN)'},
+    {key:'sumner',     label:'Sumner (Gallatin TN)'},
+    {key:'robertson',  label:'Robertson (Springfield TN)'},
+    {key:'cheatham',   label:'Cheatham (Ashland City TN)'},
+    {key:'sandiego',   label:'San Diego CA'},
+    {key:'losangeles', label:'Los Angeles CA'},
+    {key:'orange',     label:'Orange CA'},
+    {key:'riverside',  label:'Riverside CA'},
+  ];
+
+  function openScrapeModal() {
+    const box = document.getElementById('county-checkboxes');
+    box.innerHTML = COUNTIES.map(c =>
+      `<label style="display:flex;align-items:center;gap:8px;color:#cbd5e1;cursor:pointer;">
+        <input type="checkbox" name="county" value="${c.key}" checked style="accent-color:#2563eb;width:16px;height:16px;">
+        ${c.label}
+      </label>`
+    ).join('');
+    document.getElementById('scrape-modal').style.display = 'flex';
+  }
+  function closeScrapeModal() {
+    document.getElementById('scrape-modal').style.display = 'none';
+  }
+
+  async function launchScrape() {
+    const counties = [...document.querySelectorAll('#county-checkboxes input:checked')].map(cb => cb.value);
+    if (!counties.length) return alert('Pick at least one county.');
+    closeScrapeModal();
+    setRunning(true);
+    showProgress('Starting scraper...');
+    try {
+      const r = await fetch('/api/scrape', {
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({ counties, save_defaults: false })
+      });
+      pollStatus();
+    } catch(e) {
+      setRunning(false);
+      alert('Failed to start: ' + e);
+    }
+  }
+
+  async function stopScrape(force) {
+    const url = force ? '/api/scrape/stop?force=true' : '/api/scrape/stop';
+    await fetch(url, {method:'POST'});
+    showProgress(force ? 'Kill signal sent...' : 'Stopping after current scraper...');
+  }
+
+  let pollInterval = null;
+  function pollStatus() {
+    if (pollInterval) clearInterval(pollInterval);
+    pollInterval = setInterval(async () => {
+      const r = await fetch('/api/scrape/status');
+      const s = await r.json();
+      document.getElementById('scrape-count').innerText = (s.count || 0) + ' leads';
+      const msg = s.current_step || s.last || '...';
+      const elapsed = s.started_at ? Math.round((Date.now() - new Date(s.started_at).getTime())/1000) : 0;
+      const t = elapsed ? ` (${Math.floor(elapsed/60)}m ${elapsed%60}s)` : '';
+      document.getElementById('scrape-status-text').innerText = msg + t;
+      const bar = document.getElementById('scrape-bar');
+      if (s.running) {
+        bar.style.width = Math.max(10, 50 + 35*Math.sin(elapsed/8)) + '%';
+      } else {
+        clearInterval(pollInterval);
+        bar.style.width = '100%';
+        setRunning(false);
+        if (s.last === 'success') {
+          document.getElementById('scrape-status-text').innerText = `✓ Done — ${s.count} total leads. Reloading...`;
+          setTimeout(() => location.reload(), 1500);
+        } else {
+          document.getElementById('scrape-status-text').innerText = 'Stopped: ' + s.last;
+          setTimeout(() => document.getElementById('scrape-strip').style.display = 'none', 4000);
+        }
+      }
+    }, 1500);
+  }
+
+  function setRunning(running) {
+    document.getElementById('run-btn').style.display = running ? 'none' : 'inline-block';
+    document.getElementById('stop-btn').style.display = running ? 'inline-block' : 'none';
+    document.getElementById('kill-btn').style.display = running ? 'inline-block' : 'none';
+    document.getElementById('scrape-strip').style.display = running ? 'block' : 'none';
+  }
+
+  function showProgress(msg) {
+    document.getElementById('scrape-strip').style.display = 'block';
+    document.getElementById('scrape-status-text').innerText = msg;
+  }
+
+  // Resume on load if a scrape is already running
+  (async () => {
+    const r = await fetch('/api/scrape/status');
+    const s = await r.json();
+    if (s.running) { setRunning(true); showProgress(s.current_step || 'Running...'); pollStatus(); }
+  })();
+</script>
 
 </body>
 </html>
