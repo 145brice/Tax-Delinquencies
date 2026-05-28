@@ -173,24 +173,28 @@
             <div class="stat-label">Per Lead</div>
         </div>
         <div class="stat">
-            <div class="stat-num">3</div>
+            <div class="stat-num" id="county-count">0</div>
             <div class="stat-label">Counties</div>
         </div>
     </div>
 </div>
 
-<div class="filters">
+<div class="filters" id="type-filters">
     <button class="filter-btn active" onclick="filterCards('all', this)">All</button>
     <button class="filter-btn" onclick="filterCards('Auction', this)">Auction</button>
     <button class="filter-btn" onclick="filterCards('Pre-foreclosure', this)">Pre-Foreclosure</button>
     <button class="filter-btn" onclick="filterCards('Tax Lien', this)">Tax Lien</button>
+</div>
+<div class="filters" id="county-filters" style="border-top:1px solid #1e2130; padding-top:12px;">
+    <span style="font-size:0.75rem;color:#4b5563;text-transform:uppercase;letter-spacing:0.06em;margin-right:6px;">County:</span>
+    <button class="filter-btn active" onclick="filterCounty('all', this)">All</button>
 </div>
 
 <div class="listings-wrap">
     <div class="listings-grid" id="listings-grid">
         {% if listings %}
             {% for item in listings %}
-            <div class="card" data-status="{{ item.status }}" id="card-{{ item.id }}">
+            <div class="card" data-status="{{ item.status }}" data-county="{{ item.county }}" id="card-{{ item.id }}">
                 <div class="card-header">
                     <span class="status-badge
                         {% if item.status == 'Auction' %}badge-auction
@@ -223,7 +227,37 @@
 </div>
 
 <script>
-    document.getElementById('total-count').innerText = document.querySelectorAll('.card').length;
+    const allCards = [...document.querySelectorAll('.card')];
+    document.getElementById('total-count').innerText = allCards.length;
+    const uniqueCounties = new Set(allCards.map(c => c.dataset.county).filter(Boolean));
+    document.getElementById('county-count').innerText = uniqueCounties.size;
+
+    // Build county filter buttons dynamically
+    const countyBar = document.getElementById('county-filters');
+    const countyLabels = {
+        'davidson': 'Davidson TN', 'wilson': 'Wilson TN', 'williamson': 'Williamson TN',
+        'rutherford': 'Rutherford TN', 'sumner': 'Sumner TN', 'robertson': 'Robertson TN',
+        'cheatham': 'Cheatham TN', 'san diego': 'San Diego CA',
+        'miami-dade': 'Miami-Dade FL', 'harris': 'Harris TX', 'fulton': 'Fulton GA',
+        'cook': 'Cook IL', 'maricopa': 'Maricopa AZ',
+    };
+    [...uniqueCounties].sort().forEach(county => {
+        const btn = document.createElement('button');
+        btn.className = 'filter-btn';
+        btn.innerText = countyLabels[county] || county.replace(/(^\w|\s\w)/g, m => m.toUpperCase());
+        btn.onclick = function() { filterCounty(county, this); };
+        countyBar.appendChild(btn);
+    });
+
+    let activeStatus = 'all', activeCounty = 'all';
+
+    function applyFilters() {
+        allCards.forEach(card => {
+            const statusOk = activeStatus === 'all' || card.dataset.status === activeStatus;
+            const countyOk = activeCounty === 'all' || card.dataset.county === activeCounty;
+            card.style.display = (statusOk && countyOk) ? '' : 'none';
+        });
+    }
 
     function updateCart(cb) {
         const card = document.getElementById('card-' + cb.getAttribute('data-id'));
@@ -236,11 +270,17 @@
     }
 
     function filterCards(status, btn) {
-        document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+        document.querySelectorAll('#type-filters .filter-btn').forEach(b => b.classList.remove('active'));
         btn.classList.add('active');
-        document.querySelectorAll('.card').forEach(card => {
-            card.style.display = (status === 'all' || card.dataset.status === status) ? '' : 'none';
-        });
+        activeStatus = status;
+        applyFilters();
+    }
+
+    function filterCounty(county, btn) {
+        document.querySelectorAll('#county-filters .filter-btn').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        activeCounty = county;
+        applyFilters();
     }
 
     function checkout() {

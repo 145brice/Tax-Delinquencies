@@ -71,28 +71,39 @@ class WilsonScraper(BaseScraper):
                     if rec.owner_name or rec.parcel_id or rec.property_address:
                         records.append(rec)
 
-            # Parse property listing sections (article/div blocks with address info)
-            for block in soup.find_all(["article", "div", "section"], class_=re.compile(r'listing|property|sale|auction', re.I)):
-                text = block.get_text(separator=" ", strip=True)
-                if len(text) < 20:
+            # Parse WordPress post/entry content for address listings
+            content_blocks = (
+                soup.find_all("div", class_=re.compile(r'entry-content|post-content|wp-content|page-content', re.I))
+                or soup.find_all("article")
+                or [soup.find("main")]
+            )
+            for container in content_blocks:
+                if not container:
                     continue
-                address_m = re.search(r'\d+\s+\w[\w\s]+(?:Rd|Dr|Ave|Ln|St|Blvd|Hwy|Way|Ct|Cir|Pl)[\w\s,\.]*', text, re.I)
-                amount_m = re.search(r'\$[\d,]+(?:\.\d{2})?', text)
-                date_m = re.search(r'\b(?:January|February|March|April|May|June|July|August|September|October|November|December)\s+\d+,\s*\d{4}', text, re.I)
-                rec = PropertyRecord(
-                    county=self.county_name,
-                    record_type="Tax Delinquent",
-                    property_address=address_m.group(0).strip() if address_m else "",
-                    amount_owed=amount_m.group(0) if amount_m else "",
-                    sale_date=date_m.group(0) if date_m else "",
-                    notes=text[:200],
-                    source_url=url,
-                    scraped_date=today,
-                    state="TN",
-                    city="Lebanon",
-                )
-                if rec.property_address or rec.amount_owed:
-                    records.append(rec)
+                full_text = container.get_text(separator="\n", strip=True)
+                # Split on paragraph breaks and look for address lines
+                for para in re.split(r'\n{2,}', full_text):
+                    para = para.strip()
+                    address_m = re.search(r'\d+\s+\w[\w\s]+(?:Road|Pike|Drive|Street|Avenue|Lane|Way|Blvd|Court|Circle|Rd|Dr|St|Ave|Ln|Ct)\b[^\n]{0,80}', para, re.I)
+                    if not address_m:
+                        continue
+                    amount_m = re.search(r'\$[\d,]+(?:\.\d{2})?', para)
+                    date_m = re.search(r'(?:January|February|March|April|May|June|July|August|September|October|November|December)\s+\d{1,2},?\s+\d{4}', para, re.I)
+                    address = address_m.group(0).strip()
+                    city_m = re.search(r',\s*([A-Za-z ]+),\s*TN', address, re.I)
+                    city = city_m.group(1).strip().title() if city_m else "Lebanon"
+                    records.append(PropertyRecord(
+                        county=self.county_name,
+                        record_type="Tax Delinquent",
+                        property_address=address,
+                        city=city,
+                        amount_owed=amount_m.group(0) if amount_m else "",
+                        sale_date=date_m.group(0) if date_m else "",
+                        notes=para[:300],
+                        source_url=url,
+                        scraped_date=today,
+                        state="TN",
+                    ))
 
             # Grab PDF links
             for a in soup.find_all("a", href=True):

@@ -13,7 +13,7 @@ from datetime import date
 from .base_scraper import BaseScraper, PropertyRecord, log
 
 SALE_PAGE = "https://robertsoncountytn.gov/departments/clerk_and_master/chancery_auction_sale.php"
-GOVEASE_URL = "https://liveauctions.govease.com/tennessee/robertson-county"
+COURT_AUCTIONS_PAGE = "https://robertsoncountytn.gov/departments/clerk_and_master/court_auctions.php"
 ROD_URL = "https://robertsoncountytn.gov/departments/register_of_deeds/"
 BASE = "https://robertsoncountytn.gov"
 
@@ -25,6 +25,7 @@ class RobertsonScraper(BaseScraper):
     def scrape(self) -> list[PropertyRecord]:
         records = []
         records += self._scrape_sale_page()
+        records += self._scrape_court_auctions()
         records += self._scrape_preforeclosures()
         return records
 
@@ -159,6 +160,51 @@ class RobertsonScraper(BaseScraper):
                 state="TN",
                 city="Springfield",
             ))
+        return records
+
+    def _scrape_court_auctions(self) -> list[PropertyRecord]:
+        """Scrape individual court auction listings — these often have real addresses."""
+        today = str(date.today())
+        records = []
+        resp = self.get(COURT_AUCTIONS_PAGE)
+        if not resp:
+            return records
+
+        soup = self.soup(resp.text)
+        main = soup.find("main") or soup.find("div", id="content") or soup.find("article") or soup.body
+        if not main:
+            return records
+
+        text = main.get_text(separator="\n")
+        # Each auction block typically has a case number, address, and sale date
+        blocks = re.split(r'\n{2,}', text)
+        for block in blocks:
+            block = block.strip()
+            # Look for case number pattern (e.g. 74CH1-2026-CV-7723)
+            case_m = re.search(r'(\d{2}CH\d-\d{4}-[A-Z]+-\d+)', block)
+            # Look for Tennessee address
+            addr_m = re.search(r'(\d+\s+[A-Za-z0-9 ]+(?:Road|Pike|Drive|Street|Ave|Lane|Way|Blvd|Court|Circle|Rd|Dr|St|Ave|Ln|Ct)\b[^\n]{0,60})', block, re.I)
+            # Look for date
+            date_m = re.search(r'((?:January|February|March|April|May|June|July|August|September|October|November|December)\s+\d{1,2},?\s+\d{4})', block, re.I)
+
+            if addr_m:
+                address = addr_m.group(1).strip()
+                city_m = re.search(r',\s*([A-Za-z ]+),\s*Tennessee', address, re.I)
+                city = city_m.group(1).strip() if city_m else "Springfield"
+                records.append(PropertyRecord(
+                    county=self.county_name,
+                    record_type="Tax Delinquent",
+                    property_address=address,
+                    city=city,
+                    state="TN",
+                    case_number=case_m.group(1) if case_m else "",
+                    sale_date=date_m.group(1) if date_m else "",
+                    source_url=COURT_AUCTIONS_PAGE,
+                    scraped_date=today,
+                    notes="Court auction listing",
+                ))
+
+        log.info(f"[{self.county_name}] Court auction records: {len(records)}")
         return records
 
     def _scrape_preforeclosures(self) -> list[PropertyRecord]:

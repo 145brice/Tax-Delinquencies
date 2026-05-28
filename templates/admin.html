@@ -87,8 +87,40 @@
         .btn-run { background: #2563eb; color: #fff; }
         .btn-run:hover { background: #1d4ed8; }
         .btn-run:disabled { background: #1e2130; color: #4b5563; cursor: not-allowed; }
+        .btn-stop { background: #7f1d1d; color: #fca5a5; }
+        .btn-stop:hover { background: #dc2626; color: #fff; }
 
         .status-msg { font-size: 0.85rem; color: #22c55e; margin-top: 10px; display: none; }
+
+        .progress-wrap { display: none; margin-top: 18px; }
+        .progress-label { font-size: 0.8rem; color: #9ca3af; margin-bottom: 6px; display: flex; justify-content: space-between; }
+        .progress-bar-track {
+            background: #1e2130; border-radius: 8px; height: 10px; overflow: hidden;
+        }
+        .progress-bar-fill {
+            height: 100%; width: 0%; background: #2563eb;
+            border-radius: 8px;
+            transition: width 0.4s ease;
+            background: linear-gradient(90deg, #1d4ed8, #3b82f6, #1d4ed8);
+            background-size: 200% 100%;
+            animation: shimmer 1.5s infinite linear;
+        }
+        @keyframes shimmer { 0%{background-position:200% 0} 100%{background-position:-200% 0} }
+        .progress-step { font-size: 0.82rem; color: #facc15; margin-top: 8px; min-height: 1.2em; }
+        .progress-count { font-size: 0.8rem; color: #4b5563; margin-top: 4px; }
+
+        .results-grid { display: flex; flex-direction: column; gap: 8px; margin-top: 16px; }
+        .result-row {
+            display: flex; align-items: center; justify-content: space-between;
+            background: #1e2130; border-radius: 8px; padding: 10px 14px;
+            font-size: 0.85rem;
+        }
+        .result-key { color: #93c5fd; font-weight: 600; min-width: 180px; }
+        .result-count { color: #f0f0f0; font-weight: 700; min-width: 80px; text-align: right; }
+        .result-note { color: #6b7280; font-size: 0.78rem; flex: 1; text-align: right; padding-left: 12px; }
+        .badge-ok    { background: #14532d; color: #86efac; padding: 2px 8px; border-radius: 10px; font-size: 0.72rem; font-weight: 700; }
+        .badge-empty { background: #78350f; color: #fcd34d; padding: 2px 8px; border-radius: 10px; font-size: 0.72rem; font-weight: 700; }
+        .badge-error { background: #7f1d1d; color: #fca5a5; padding: 2px 8px; border-radius: 10px; font-size: 0.72rem; font-weight: 700; }
     </style>
 </head>
 <body>
@@ -127,8 +159,8 @@
                 <div><div class="county-name">Maricopa</div><div class="county-state">Arizona</div></div>
             </label>
             <label class="county-item">
-                <input type="checkbox" name="county" value="los-angeles" {% if 'los-angeles' in settings.counties %}checked{% endif %}>
-                <div><div class="county-name">Los Angeles</div><div class="county-state">California</div></div>
+                <input type="checkbox" name="county" value="sandiego" {% if 'sandiego' in settings.counties %}checked{% endif %}>
+                <div><div class="county-name">San Diego</div><div class="county-state">California</div></div>
             </label>
             <label class="county-item">
                 <input type="checkbox" name="county" value="davidson" {% if 'davidson' in settings.counties %}checked{% endif %}>
@@ -137,6 +169,26 @@
             <label class="county-item">
                 <input type="checkbox" name="county" value="wilson-tn" {% if 'wilson-tn' in settings.counties %}checked{% endif %}>
                 <div><div class="county-name">Wilson (Lebanon)</div><div class="county-state">Tennessee</div></div>
+            </label>
+            <label class="county-item">
+                <input type="checkbox" name="county" value="williamson" {% if 'williamson' in settings.counties %}checked{% endif %}>
+                <div><div class="county-name">Williamson (Franklin)</div><div class="county-state">Tennessee</div></div>
+            </label>
+            <label class="county-item">
+                <input type="checkbox" name="county" value="rutherford" {% if 'rutherford' in settings.counties %}checked{% endif %}>
+                <div><div class="county-name">Rutherford (Murfreesboro)</div><div class="county-state">Tennessee</div></div>
+            </label>
+            <label class="county-item">
+                <input type="checkbox" name="county" value="sumner" {% if 'sumner' in settings.counties %}checked{% endif %}>
+                <div><div class="county-name">Sumner (Gallatin)</div><div class="county-state">Tennessee</div></div>
+            </label>
+            <label class="county-item">
+                <input type="checkbox" name="county" value="robertson" {% if 'robertson' in settings.counties %}checked{% endif %}>
+                <div><div class="county-name">Robertson (Springfield)</div><div class="county-state">Tennessee</div></div>
+            </label>
+            <label class="county-item">
+                <input type="checkbox" name="county" value="cheatham" {% if 'cheatham' in settings.counties %}checked{% endif %}>
+                <div><div class="county-name">Cheatham (Ashland City)</div><div class="county-state">Tennessee</div></div>
             </label>
         </div>
     </div>
@@ -191,14 +243,33 @@
     <div class="card">
         <h2>Run</h2>
         <div class="btn-row">
-            <button class="btn btn-save" onclick="saveSettings()">Save Settings</button>
+            <button class="btn btn-save" id="save-btn" onclick="saveSettings()">Save Settings</button>
             <button class="btn btn-run" id="run-btn" onclick="triggerScrape()">🚀 Launch Scraper</button>
+            <button class="btn btn-stop" id="stop-btn" onclick="stopScrape()" style="display:none;">⛔ Kill Scraper</button>
         </div>
-        <div class="status-msg" id="status-msg">✓ Done! Listings updated.</div>
+        <div class="status-msg" id="status-msg"></div>
+
+        <div class="progress-wrap" id="progress-wrap">
+            <div class="progress-label">
+                <span>Progress</span>
+                <span id="progress-count-top">0 leads collected</span>
+            </div>
+            <div class="progress-bar-track">
+                <div class="progress-bar-fill" id="progress-bar"></div>
+            </div>
+            <div class="progress-step" id="progress-step">Initializing...</div>
+        </div>
+
+        <div id="results-panel" style="display:none; margin-top:20px;">
+            <div style="font-size:0.8rem; color:#9ca3af; text-transform:uppercase; letter-spacing:0.07em; margin-bottom:10px;">Per-Scraper Results</div>
+            <div class="results-grid" id="results-grid"></div>
+        </div>
     </div>
 </div>
 
 <script>
+    let pollInterval = null;
+
     async function saveSettings() {
         const counties = Array.from(document.querySelectorAll('input[name="county"]:checked')).map(cb => cb.value);
         const lookback = document.getElementById('lookback').value;
@@ -207,47 +278,143 @@
             headers: {'Content-Type': 'application/json'},
             body: JSON.stringify({ counties, lookback_days: parseInt(lookback) })
         });
+        showMsg('✓ Settings saved.', '#22c55e');
+    }
+
+    async function stopScrape() {
+        await fetch('/api/scrape/stop', { method: 'POST' });
+        document.getElementById('stop-btn').disabled = true;
+        document.getElementById('stop-btn').innerText = '⏳ Stopping...';
+        showMsg('Stop requested — finishing current step...', '#facc15');
+    }
+
+    function showMsg(text, color) {
         const msg = document.getElementById('status-msg');
-        msg.innerText = '✓ Settings saved.';
+        msg.style.color = color || '#22c55e';
+        msg.innerText = text;
         msg.style.display = 'block';
-        setTimeout(() => msg.style.display = 'none', 3000);
+    }
+
+    function setRunning(running) {
+        const runBtn  = document.getElementById('run-btn');
+        const stopBtn = document.getElementById('stop-btn');
+        const saveBtn = document.getElementById('save-btn');
+        const wrap    = document.getElementById('progress-wrap');
+        runBtn.disabled  = running;
+        runBtn.innerText = running ? '⏳ Running...' : '🚀 Launch Scraper';
+        stopBtn.style.display   = running ? 'inline-block' : 'none';
+        stopBtn.disabled        = false;
+        stopBtn.innerText       = '⛔ Kill Scraper';
+        saveBtn.disabled        = running;
+        wrap.style.display      = running ? 'block' : 'none';
+    }
+
+    function renderResults(results) {
+        if (!results || !Object.keys(results).length) return;
+        const panel = document.getElementById('results-panel');
+        const grid  = document.getElementById('results-grid');
+        panel.style.display = 'block';
+        grid.innerHTML = Object.entries(results).map(([key, r]) => {
+            const badge = r.status === 'ok'
+                ? `<span class="badge-ok">✓ ${r.count} leads</span>`
+                : r.status === 'empty'
+                ? `<span class="badge-empty">⚠ stub only</span>`
+                : `<span class="badge-error">✗ error</span>`;
+            return `<div class="result-row">
+                <span class="result-key">${key}</span>
+                ${badge}
+                <span class="result-note">${r.note || ''}</span>
+            </div>`;
+        }).join('');
+    }
+
+    function updateProgress(s) {
+        const bar   = document.getElementById('progress-bar');
+        const step  = document.getElementById('progress-step');
+        const count = document.getElementById('progress-count-top');
+
+        const msg = s.current_step || s.last || '...';
+        const elapsed = s.started_at
+            ? Math.round((Date.now() - new Date(s.started_at).getTime()) / 1000)
+            : 0;
+        const mins = Math.floor(elapsed / 60), secs = elapsed % 60;
+        const timeStr = elapsed > 0 ? ` (${mins}m ${secs}s)` : '';
+
+        step.innerText  = msg + timeStr;
+        count.innerText = (s.count || 0) + ' leads collected';
+
+        // Keep bar pulsing between 15-85% while running — exact % unknown
+        if (s.stopping) {
+            bar.style.width = '95%';
+        } else if (s.running) {
+            // Oscillate slowly so it looks alive
+            const osc = 50 + 35 * Math.sin(elapsed / 8);
+            bar.style.width = Math.max(10, osc) + '%';
+        }
     }
 
     async function triggerScrape() {
-        const btn = document.getElementById('run-btn');
-        const msg = document.getElementById('status-msg');
-        btn.innerText = '⏳ Running...';
-        btn.disabled = true;
-        msg.style.color = '#facc15';
-        msg.innerText = '⏳ Scraper running — fetching county data...';
-        msg.style.display = 'block';
+        setRunning(true);
+        showMsg('⏳ Starting scraper...', '#facc15');
+        document.getElementById('progress-step').innerText = 'Initializing...';
+        document.getElementById('progress-bar').style.width = '5%';
+
         await saveSettings();
         try {
             await fetch('/api/scrape', { method: 'POST' });
-            const poll = setInterval(async () => {
+            pollInterval = setInterval(async () => {
                 const r = await fetch('/api/scrape/status');
                 const s = await r.json();
+                updateProgress(s);
                 if (!s.running) {
-                    clearInterval(poll);
+                    clearInterval(pollInterval);
+                    setRunning(false);
+                    renderResults(s.scraper_results);
+                    document.getElementById('progress-bar').style.width = '100%';
                     if (s.last === 'success') {
-                        msg.style.color = '#22c55e';
-                        msg.innerText = '✓ Done! Pulled ' + s.count + ' leads. Redirecting...';
-                        setTimeout(() => window.location.href = '/', 1500);
+                        document.getElementById('progress-step').innerText = '✓ Complete!';
+                        showMsg('✓ Done! Pulled ' + s.count + ' leads.', '#22c55e');
+                    } else if (s.last === 'stopped') {
+                        document.getElementById('progress-step').innerText = 'Stopped by user.';
+                        showMsg('Scraper stopped. ' + (s.count || 0) + ' leads collected.', '#facc15');
                     } else {
-                        msg.style.color = '#f87171';
-                        msg.innerText = 'Error: ' + s.last;
-                        btn.disabled = false;
-                        btn.innerText = '🚀 Launch Scraper';
+                        document.getElementById('progress-step').innerText = 'Error.';
+                        showMsg('Error: ' + s.last, '#f87171');
                     }
                 }
-            }, 2000);
+            }, 1500);
         } catch(e) {
-            msg.style.color = '#f87171';
-            msg.innerText = 'Network error.';
-            btn.disabled = false;
-            btn.innerText = '🚀 Launch Scraper';
+            setRunning(false);
+            showMsg('Network error: ' + e, '#f87171');
         }
     }
+
+    // Resume polling if scraper was already running when page loaded; else show last results
+    (async () => {
+        const r = await fetch('/api/scrape/status');
+        const s = await r.json();
+        if (s.scraper_results && Object.keys(s.scraper_results).length) {
+            renderResults(s.scraper_results);
+        }
+        if (s.running) {
+            setRunning(true);
+            showMsg('⏳ Scraper already running...', '#facc15');
+            updateProgress(s);
+            pollInterval = setInterval(async () => {
+                const r2 = await fetch('/api/scrape/status');
+                const s2 = await r2.json();
+                updateProgress(s2);
+                if (!s2.running) {
+                    clearInterval(pollInterval);
+                    setRunning(false);
+                    document.getElementById('progress-bar').style.width = '100%';
+                    showMsg(s2.last === 'success'
+                        ? '✓ Done! ' + s2.count + ' leads.'
+                        : 'Stopped: ' + s2.last, s2.last === 'success' ? '#22c55e' : '#facc15');
+                }
+            }, 1500);
+        }
+    })();
 </script>
 </body>
 </html>

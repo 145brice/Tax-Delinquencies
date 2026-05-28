@@ -31,13 +31,20 @@ def property_records_to_listings(records: list[dict]) -> list[dict]:
     listings = []
     seen = set()
     for r in records:
-        addr_parts = [
-            r.get("property_address", "").strip(),
-            r.get("city", "").strip(),
-            r.get("state", "").strip(),
-            r.get("zip_code", "").strip(),
-        ]
-        address = ", ".join(p for p in addr_parts if p)
+        street   = r.get("property_address", "").strip()
+        city     = r.get("city", "").strip()
+        state    = r.get("state", "").strip()
+        zip_code = r.get("zip_code", "").strip()
+        parcel   = r.get("parcel_id", "").strip()
+
+        if street:
+            address = ", ".join(p for p in [street, city, state, zip_code] if p)
+        elif parcel:
+            # No street address — use APN so each parcel gets a unique listing
+            address = ", ".join(p for p in [f"APN {parcel}", city, state, zip_code] if p)
+        else:
+            address = ", ".join(p for p in [city, state, zip_code] if p)
+
         if len(address) < 8:
             continue
 
@@ -84,6 +91,7 @@ scrape_status = {
     "stopping": False,
     "updated_at": None,
     "current_step": None,
+    "scraper_results": {},  # key -> {"count": N, "status": "ok"|"error"|"empty", "note": "..."}
 }
 scrape_control = {"thread": None, "stop_event": None}
 listing_lock = threading.Lock()
@@ -193,8 +201,13 @@ def run_scraper():
         scrape_status["running"] = True
         scrape_status["started_at"] = datetime.now().isoformat(timespec="seconds")
         scrape_status["updated_at"] = None
-        scrape_status["count"] = len(load_json(DATA_FILE, []))
+        existing_count = len(load_json(DATA_FILE, []))
+        scrape_status["count"] = existing_count
         scrape_status["last"] = "running"
+        scrape_status["scraper_results"]["_existing_in_db"] = {
+            "count": existing_count, "raw": existing_count,
+            "status": "ok", "note": f"{existing_count} records already in database before this run",
+        }
 
         def save_batch(batch):
             with listing_lock:
@@ -211,6 +224,8 @@ def run_scraper():
             scrape_status["last"] = message
 
         try:
+            scrape_status["scraper_results"] = {}
+
             # ── Phase 1: Tax delinquency PDFs via scrapers/ ──────────────────
             if sources.get("include_tax_records") and not stop_event.is_set():
                 scraper_counties = [
@@ -218,18 +233,33 @@ def run_scraper():
                     for sk in COUNTY_SCRAPER_MAP[c]
                 ]
                 if scraper_counties:
-                    update_progress(f"Tax delinquency scrapers: {', '.join(scraper_counties)}")
-                    try:
-                        tax_records = run_scrapers(scraper_counties)
-                        tax_listings = property_records_to_listings(tax_records)
-                        if tax_listings:
-                            save_batch(tax_listings)
-                        update_progress(f"Tax delinquency scrapers complete ({len(tax_listings)} found)")
-                    except Exception as e:
-                        update_progress(f"Tax scraper error: {e}")
+                    # Run each scraper individually so we can track per-key results
+                    for sk in scraper_counties:
+                        if stop_event.is_set():
+                            break
+                        update_progress(f"Scraping: {sk}")
+                        try:
+                            recs = run_scrapers([sk])
+                            listings = property_records_to_listings(recs)
+                            real = [r for r in recs if r.get("owner_name") or r.get("parcel_id") or r.get("property_address")]
+                            stub_only = len(real) == 0
+                            scrape_status["scraper_results"][sk] = {
+                                "count": len(listings),
+                                "raw": len(recs),
+                                "status": "empty" if stub_only else "ok",
+                                "note": "stub/portal link only" if stub_only else f"{len(listings)} leads",
+                            }
+                            if listings:
+                                save_batch(listings)
+                        except Exception as e:
+                            scrape_status["scraper_results"][sk] = {
+                                "count": 0, "raw": 0, "status": "error", "note": str(e)[:120]
+                            }
+                            update_progress(f"Error scraping {sk}: {e}")
 
             # ── Phase 2: HUD + HomePath REO via scraper.py ───────────────────
             if not stop_event.is_set():
+                p2_before = scrape_status["count"]
                 results = scrape_sync(
                     counties,
                     lookback,
@@ -244,6 +274,13 @@ def run_scraper():
                         merged = merge_listings(current, results)
                         save_json(DATA_FILE, merged)
                         scrape_status["count"] = len(merged)
+                p2_count = scrape_status["count"] - p2_before
+                scrape_status["scraper_results"]["hud_homepath"] = {
+                    "count": max(0, p2_count),
+                    "raw": len(results) if results else 0,
+                    "status": "ok" if p2_count > 0 else "empty",
+                    "note": f"{max(0,p2_count)} new leads (HUD + HomePath)" if p2_count > 0 else "no new listings found",
+                }
 
             scrape_status["last"] = "stopped" if stop_event.is_set() else "success"
         except Exception as e:
