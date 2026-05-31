@@ -118,6 +118,10 @@
 <div id="scrape-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.75);z-index:200;align-items:center;justify-content:center;">
   <div style="background:#16181f;border:1px solid #334155;border-radius:12px;padding:28px;min-width:520px;max-width:680px;max-height:90vh;overflow-y:auto;">
     <h2 style="font-size:1.05rem;color:#e0e0e0;margin-bottom:18px;">Run Scraper - Select Counties</h2>
+    <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:14px;">
+      <button type="button" class="btn btn-secondary" onclick="setModalCountyChecks(true)">Select All</button>
+      <button type="button" class="btn btn-secondary" onclick="setModalCountyChecks(false)">Clear All</button>
+    </div>
     <div id="county-checkboxes" style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:18px;font-size:0.85rem;">
       <!-- populated by JS -->
     </div>
@@ -241,6 +245,11 @@
 <script>
   // All available counties (mirrors COUNTY_SCRAPER_MAP keys in app.py)
   const COUNTIES = [
+    {key:'miami-dade', label:'Miami-Dade FL'},
+    {key:'harris',     label:'Harris TX'},
+    {key:'fulton',     label:'Fulton GA'},
+    {key:'cook',       label:'Cook IL'},
+    {key:'maricopa',   label:'Maricopa AZ'},
     {key:'davidson',   label:'Davidson (Nashville TN)'},
     {key:'wilson-tn',  label:'Wilson (Lebanon TN)'},
     {key:'williamson', label:'Williamson (Franklin TN)'},
@@ -252,6 +261,14 @@
     {key:'losangeles', label:'Los Angeles CA'},
     {key:'orange',     label:'Orange CA'},
     {key:'riverside',  label:'Riverside CA'},
+    {key:'chatham-ga', label:'Chatham GA'},
+    {key:'glynn-ga',   label:'Glynn GA'},
+    {key:'camden-ga',  label:'Camden GA'},
+    {key:'lowndes-ga', label:'Lowndes GA'},
+    {key:'duval-fl',   label:'Duval FL'},
+    {key:'stjohns-fl', label:'St. Johns FL'},
+    {key:'nassau-fl',  label:'Nassau FL'},
+    {key:'clay-fl',    label:'Clay FL'},
   ];
 
   window.openScrapeModal = function openScrapeModal() {
@@ -266,6 +283,10 @@
   };
   window.closeScrapeModal = function closeScrapeModal() {
     document.getElementById('scrape-modal').style.display = 'none';
+  };
+
+  window.setModalCountyChecks = function setModalCountyChecks(checked) {
+    document.querySelectorAll('#county-checkboxes input[type="checkbox"]').forEach(cb => cb.checked = checked);
   };
 
   window.launchScrape = async function launchScrape() {

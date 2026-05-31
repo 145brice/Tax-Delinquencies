@@ -54,6 +54,9 @@
         .county-item input[type="checkbox"] { width: 17px; height: 17px; accent-color: #2563eb; cursor: pointer; }
         .county-name { font-size: 0.9rem; font-weight: 500; }
         .county-state { font-size: 0.75rem; color: #6b7280; }
+        .mini-actions { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 16px; }
+        .mini-btn { background: #1e3a5f; color: #93c5fd; border: 1px solid #2563eb; border-radius: 999px; padding: 6px 12px; cursor: pointer; font-size: 0.78rem; font-weight: 700; }
+        .mini-btn:hover { background: #1d4ed8; color: #fff; }
         .source-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 10px; }
         .source-card {
             background: #1e2130;
@@ -155,6 +158,10 @@
     <!-- COUNTIES -->
     <div class="card">
         <h2>Target Counties</h2>
+        <div class="mini-actions">
+            <button type="button" class="mini-btn" onclick="setCountyChecks(true)">Select All Counties</button>
+            <button type="button" class="mini-btn" onclick="setCountyChecks(false)">Clear Counties</button>
+        </div>
         <div class="county-grid">
             <label class="county-item">
                 <input type="checkbox" name="county" value="miami-dade" {% if 'miami-dade' in settings.counties %}checked{% endif %}>
@@ -351,6 +358,10 @@
 
     function selectedCounties() {
         return Array.from(document.querySelectorAll('input[name="county"]:checked')).map(cb => cb.value);
+    }
+
+    function setCountyChecks(checked) {
+        document.querySelectorAll('input[name="county"]').forEach(cb => cb.checked = checked);
     }
 
     async function saveSettings() {
