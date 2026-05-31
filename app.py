@@ -107,9 +107,16 @@ scrape_control = {"thread": None, "stop_event": None}
 listing_lock = threading.Lock()
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+DATA_DIR = os.path.join(BASE_DIR, 'data')
 IS_VERCEL = bool(os.getenv("VERCEL") or os.getenv("VERCEL_ENV"))
 STOREFRONT_ONLY = IS_VERCEL
 SQLITE_DB = os.getenv("SQLITE_DB", os.path.join(BASE_DIR, "foreclosure_local.sqlite3"))
+STOREFRONT_CSV = os.getenv("STOREFRONT_CSV", os.path.join(DATA_DIR, "storefront_listings.csv"))
+STOREFRONT_FIELDS = [
+    "id", "status", "county", "state", "city", "zip", "address", "street",
+    "owner", "parcel_id", "case_number", "record_type", "price", "bid",
+    "amount_owed", "date", "sale_date", "scraped_date", "link", "source",
+]
 
 def _sqlite_enabled():
     return not IS_VERCEL
@@ -149,7 +156,7 @@ def _sqlite_set(key, data):
         )
 
 def current_listings():
-    return load_json(DATA_FILE, [])
+    return sort_storefront_listings(load_json(DATA_FILE, []))
 
 def _runtime_data_file(filename):
     """Use /tmp on Vercel (writable), project files locally."""
@@ -171,7 +178,53 @@ DEFAULT_SOURCES = {
     "include_homepath": True,
 }
 
+def _listing_sort_key(item):
+    date_value = str(item.get("sale_date") or item.get("date") or item.get("scraped_date") or "")
+    return (
+        str(item.get("county") or "").lower(),
+        str(item.get("status") or "").lower(),
+        str(item.get("city") or "").lower(),
+        date_value,
+        str(item.get("owner") or "").lower(),
+        str(item.get("parcel_id") or "").lower(),
+        str(item.get("address") or "").lower(),
+    )
+
+def sort_storefront_listings(listings):
+    return sorted((item for item in listings if isinstance(item, dict)), key=_listing_sort_key)
+
+def _read_storefront_csv(default):
+    if not os.path.exists(STOREFRONT_CSV):
+        return default
+    rows = []
+    with open(STOREFRONT_CSV, newline="", encoding="utf-8-sig") as f:
+        for row in csv.DictReader(f):
+            item = {field: row.get(field, "") for field in STOREFRONT_FIELDS}
+            for int_field in ("price", "bid"):
+                try:
+                    item[int_field] = int(float(str(item.get(int_field) or "0").replace(",", "")))
+                except ValueError:
+                    item[int_field] = 0
+            rows.append(item)
+    return sort_storefront_listings(rows)
+
+def export_storefront_csv(listings):
+    rows = sort_storefront_listings(listings)
+    os.makedirs(os.path.dirname(STOREFRONT_CSV), exist_ok=True)
+    with open(STOREFRONT_CSV, "w", newline="", encoding="utf-8") as f:
+        writer = csv.DictWriter(f, fieldnames=STOREFRONT_FIELDS)
+        writer.writeheader()
+        for item in rows:
+            public_item = dict(item)
+            if public_item.get("address"):
+                public_item["address"] = obfuscate_address(str(public_item["address"]))
+            public_item["street"] = ""
+            writer.writerow({field: public_item.get(field, "") for field in STOREFRONT_FIELDS})
+    return STOREFRONT_CSV
+
 def load_json(file, default):
+    if IS_VERCEL and os.path.abspath(file) == os.path.abspath(DATA_FILE):
+        return _read_storefront_csv(default)
     if _sqlite_enabled() and os.path.abspath(file) == os.path.abspath(DATA_FILE):
         seed = default
         if os.path.exists(file):
@@ -200,7 +253,9 @@ def load_json(file, default):
 
 def save_json(file, data):
     if _sqlite_enabled() and os.path.abspath(file) == os.path.abspath(DATA_FILE):
-        _sqlite_set("listings", data)
+        rows = sort_storefront_listings(data)
+        _sqlite_set("listings", rows)
+        export_storefront_csv(rows)
         return
     if _sqlite_enabled() and os.path.abspath(file) == os.path.abspath(SETTINGS_FILE):
         _sqlite_set("settings", data)
@@ -434,7 +489,6 @@ def checkout_success():
 def checkout_cancel():
     return render_template('checkout_status.html', title="Checkout canceled", message="Checkout was canceled. Your selected leads were not charged.")
 
-DATA_DIR = os.path.join(os.path.dirname(__file__), 'data')
 CSV_FIELDNAMES = [
     "county", "record_type", "owner_name", "property_address", "city",
     "state", "zip_code", "parcel_id", "tax_year", "amount_owed",

@@ -4,3 +4,8 @@ __pycache__/
 *.log
 .env
 .claude/
+foreclosure_local.sqlite3
+*.sqlite3
+data/*.csv
+!data/storefront_listings.csv
+data/*.pdf

@@ -59,6 +59,17 @@ Local scraper/admin state is stored in SQLite at `foreclosure_local.sqlite3`
 by default. Set `SQLITE_DB=path/to/file.sqlite3` if you want a different local
 database path.
 
+The local app also writes one deploy artifact after each scraper save:
+
+```text
+data/storefront_listings.csv
+```
+
+That CSV is sorted in the same deterministic order the storefront uses:
+county, status, city, date, owner, parcel/APN, then address. Push that file to
+update the Vercel storefront data. Other run/audit CSVs stay ignored so
+`git add .` does not accidentally publish scratch data.
+
 ## Scraper CLI Usage
 
 ```bash
