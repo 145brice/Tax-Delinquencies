@@ -193,6 +193,23 @@ def _listing_sort_key(item):
 def sort_storefront_listings(listings):
     return sorted((item for item in listings if isinstance(item, dict)), key=_listing_sort_key)
 
+def _is_publishable_listing(item):
+    if not isinstance(item, dict):
+        return False
+    if str(item.get("id") or "").strip() in {"1", "2", "3"}:
+        return False
+    if not str(item.get("county") or "").strip():
+        return False
+    if not (str(item.get("source") or "").strip() or str(item.get("link") or "").strip()):
+        return False
+    address = str(item.get("address") or "").strip()
+    if len(address) < 8:
+        return False
+    return True
+
+def publishable_storefront_listings(listings):
+    return sort_storefront_listings([item for item in listings if _is_publishable_listing(item)])
+
 def _storefront_owner(item):
     owner = str(item.get("owner") or "").strip()
     if owner:
@@ -227,7 +244,7 @@ def _read_storefront_csv(default):
     return sort_storefront_listings(rows)
 
 def export_storefront_csv(listings):
-    rows = sort_storefront_listings(listings)
+    rows = publishable_storefront_listings(listings)
     os.makedirs(os.path.dirname(STOREFRONT_CSV), exist_ok=True)
     with open(STOREFRONT_CSV, "w", newline="", encoding="utf-8") as f:
         writer = csv.DictWriter(f, fieldnames=STOREFRONT_FIELDS)

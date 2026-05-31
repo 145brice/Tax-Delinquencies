@@ -1,7 +1,4 @@
 id,status,county,state,city,zip,address,street,owner,parcel_id,case_number,record_type,price,bid,amount_owed,date,sale_date,scraped_date,link,source
-1,Auction,,FL,Miami,,"XXXX SW 128th Ave, Miami, FL",,Seller not listed,,,,5,0,,2023-11-20,,,,
-2,Pre-foreclosure,,TX,Houston,,"XXXX Memorial Dr, Houston, TX",,Owner not listed in notice,,,,5,0,,2023-11-21,,,,
-3,Tax Lien,,GA,Atlanta,,"XXXX Pryor St SW, Atlanta, GA",,Owner not listed in tax record,,,,5,0,,2023-11-22,,,,
 90411a75,Auction,camden,GA,Valdosta,31602,"XXXX Lineberger Rd, Valdosta, GA 31602",,Fannie Mae (HomePath),,,,5,129900,,2026-05-29,,,https://www.homepath.fanniemae.com/property/3yd-VMLSGA-146511,HomePath
 007c0a84,Auction,camden,GA,Quitman,31643,"XXXX Fodie Rd, Quitman, GA 31643",,Fannie Mae (HomePath),,,,5,31800,,2026-05-29,,,https://www.homepath.fanniemae.com/property/3yd-VMLSGA-153245,HomePath
 c7dc879a,Auction,camden,GA,Atlanta,30306,"XXXX N Highland Avenue NE #4, Atlanta, GA 30306",,Fannie Mae (HomePath),,,,5,22000,,2026-05-29,,,https://www.homepath.fanniemae.com/property/3yd-PRUGA-7709175,HomePath
