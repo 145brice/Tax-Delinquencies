@@ -17,7 +17,7 @@ from .base_scraper import BaseScraper, PropertyRecord, log
 SEARCH_URL = "https://www.capublicnotice.com/search/query"
 PORTAL_URL = "https://www.capublicnotice.com/category/legals/notice-of-trustee-sale"
 LOOKBACK_DAYS = int(os.getenv("CA_NOTICE_LOOKBACK_DAYS", "60"))
-MAX_NOTICE_DETAILS = int(os.getenv("CA_NOTICE_MAX_DETAILS", "30"))
+MAX_NOTICE_DETAILS = int(os.getenv("CA_NOTICE_MAX_DETAILS", "150"))
 
 _TS_RE = re.compile(r"T\.?S\.?\s*No\.?\s*[:#]?\s*([A-Z0-9\-]+)", re.I)
 _APN_RE = re.compile(r"A\.?P\.?N\.?[:#\s]+([0-9][\d\-A-Z]+)", re.I)
@@ -65,6 +65,11 @@ class CALegalNoticesScraper(BaseScraper):
     rejected_cities: set = set()    # lowercase city names known to be outside
 
     base_url = PORTAL_URL
+
+    def _detail_limit(self, lookback_days: int) -> int:
+        # Larger search windows need more candidate notices, but still keep an
+        # upper bound so Vercel does not spend forever opening detail pages.
+        return min(MAX_NOTICE_DETAILS, max(60, lookback_days * 2))
 
     def __init_subclass__(cls, **kwargs):
         super().__init_subclass__(**kwargs)
@@ -125,12 +130,13 @@ class CALegalNoticesScraper(BaseScraper):
         today = str(today_d)
         lookback_days = int(getattr(self, "lookback_days", None) or LOOKBACK_DAYS)
         lookback_days = max(1, min(365, lookback_days))
+        detail_limit = self._detail_limit(lookback_days)
         first = today_d - timedelta(days=lookback_days)
 
         params = {
             "categories": "14",
             "county": self.county_name,
-            "size": str(MAX_NOTICE_DETAILS),
+            "size": str(detail_limit),
             "firstDate": first.strftime("%m/%d/%Y"),
             "lastDate": today_d.strftime("%m/%d/%Y"),
         }
@@ -142,7 +148,7 @@ class CALegalNoticesScraper(BaseScraper):
             return [self._stub(today)]
 
         soup = self.soup(resp.text)
-        blocks = soup.find_all("div", class_="list")[:MAX_NOTICE_DETAILS]
+        blocks = soup.find_all("div", class_="list")[:detail_limit]
         records: list[PropertyRecord] = []
         skipped = 0
 
