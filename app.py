@@ -415,6 +415,7 @@ def _load_csv_rows(filename):
 @app.route('/admin/data')
 def admin_data():
     files = _list_csv_files()
+    settings = normalize_settings(load_json(SETTINGS_FILE, {}))
     selected = request.args.get('file', '') or (files[0] if files else '')
     filter_county = request.args.get('filter_county', '').strip().lower()
     filter_type   = request.args.get('filter_type', '').strip().lower()
@@ -449,6 +450,7 @@ def admin_data():
         filter_q=request.args.get('q', ''),
         sort_col=sort_col, sort_dir=sort_dir,
         counties=counties, types=types,
+        settings=settings,
     )
 
 @app.route('/admin/data/download')
@@ -556,7 +558,7 @@ def run_scraper():
                             break
                         update_progress(f"Scraping: {sk}")
                         try:
-                            recs = run_scrapers([sk])
+                            recs = run_scrapers([sk], lookback_days=lookback)
                             csv_file = _write_scrape_csv(sk, recs)
                             listings = property_records_to_listings(recs)
                             real = [r for r in recs if r.get("owner_name") or r.get("parcel_id") or r.get("property_address")]

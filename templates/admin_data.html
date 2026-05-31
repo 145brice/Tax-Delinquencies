@@ -118,6 +118,10 @@
 <div id="scrape-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.75);z-index:200;align-items:center;justify-content:center;">
   <div style="background:#16181f;border:1px solid #334155;border-radius:12px;padding:28px;min-width:520px;max-width:680px;max-height:90vh;overflow-y:auto;">
     <h2 style="font-size:1.05rem;color:#e0e0e0;margin-bottom:18px;">Run Scraper - Select Counties</h2>
+    <p style="margin:-8px 0 16px;color:#94a3b8;font-size:0.82rem;">
+      Using saved search depth: <strong style="color:#dbeafe;">{{ settings.lookback_days }}</strong> days.
+      Change it on the Admin tab.
+    </p>
     <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:14px;">
       <button type="button" class="btn btn-secondary" onclick="setModalCountyChecks(true)">Select All</button>
       <button type="button" class="btn btn-secondary" onclick="setModalCountyChecks(false)">Clear All</button>
@@ -299,7 +303,7 @@
       const r = await fetch('/api/scrape', {
         method:'POST',
         headers:{'Content-Type':'application/json'},
-        body: JSON.stringify({ counties, save_defaults: false })
+        body: JSON.stringify({ counties, lookback_days: {{ settings.lookback_days }}, save_defaults: false })
       });
       pollStatus();
     } catch(e) {
@@ -322,7 +326,7 @@
       const s = await r.json();
       document.getElementById('scrape-count').innerText = (s.count || 0) + ' leads';
       const msg = s.current_step || s.last || '...';
-      const elapsed = s.started_at ? Math.round((Date.now() - new Date(s.started_at).getTime())/1000) : 0;
+      const elapsed = s.started_at ? Math.max(0, Math.round((Date.now() - new Date(s.started_at).getTime())/1000)) : 0;
       const t = elapsed ? ` (${Math.floor(elapsed/60)}m ${elapsed%60}s)` : '';
       document.getElementById('scrape-status-text').innerText = msg + t;
       const bar = document.getElementById('scrape-bar');

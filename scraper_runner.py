@@ -9,8 +9,9 @@ Usage:
 import argparse
 import csv
 import os
+import re
 from dataclasses import fields
-from datetime import date
+from datetime import date, datetime, timedelta
 
 from scrapers.base_scraper import PropertyRecord
 from scrapers.source_registry import ALL_SCRAPERS, REGION_BY_KEY, SOURCE_METADATA
@@ -20,7 +21,40 @@ DATA_DIR = os.path.join(os.path.dirname(__file__), "data")
 CSV_FIELDNAMES = [f.name for f in fields(PropertyRecord)]
 
 
-def run_scrapers(county_names: list[str]) -> list[dict]:
+def _record_date(value: str, today: date) -> date | None:
+    value = (value or "").strip()
+    if not value:
+        return None
+
+    # Handle ranges like "March 13 - March 18, 2026" by using the first date.
+    range_match = re.search(r"([A-Z][a-z]+)\s+(\d{1,2})\s*-\s*[A-Z][a-z]+\s+\d{1,2},\s+(\d{4})", value)
+    if range_match:
+        value = f"{range_match.group(1)} {range_match.group(2)}, {range_match.group(3)}"
+
+    for fmt in ("%Y-%m-%d", "%B %d, %Y", "%b %d, %Y", "%B %d %Y", "%m/%d/%Y"):
+        try:
+            return datetime.strptime(value, fmt).date()
+        except ValueError:
+            pass
+    return None
+
+
+def _within_lookback(record: dict, lookback_days: int | None, today: date | None = None) -> bool:
+    if not lookback_days:
+        return True
+    today = today or date.today()
+    cutoff = today - timedelta(days=lookback_days)
+    for field in ("sale_date", "scraped_date"):
+        dt = _record_date(record.get(field, ""), today)
+        if dt:
+            # Future auction/sale dates are active, so keep them.
+            return dt >= cutoff
+    # Some source lists do not expose record dates; keep those instead of silently
+    # throwing away current public lists.
+    return True
+
+
+def run_scrapers(county_names: list[str], lookback_days: int | None = None) -> list[dict]:
     all_records = []
     for name in county_names:
         key = name.lower()
@@ -29,11 +63,17 @@ def run_scrapers(county_names: list[str]) -> list[dict]:
             print(f"[WARNING] Unknown scraper source: {name}")
             continue
         scraper = cls()
+        scraper.lookback_days = lookback_days
         label = SOURCE_METADATA.get(key, {}).get("label", key)
         try:
             records = scraper.scrape()
-            all_records.extend([r.to_dict() for r in records])
-            print(f"[{label}] {len(records)} records scraped.")
+            rows = [r.to_dict() for r in records]
+            kept = [r for r in rows if _within_lookback(r, lookback_days)]
+            all_records.extend(kept)
+            if len(kept) != len(rows):
+                print(f"[{label}] {len(rows)} records scraped, {len(kept)} within {lookback_days} days.")
+            else:
+                print(f"[{label}] {len(records)} records scraped.")
         except Exception as e:
             print(f"[{label}] ERROR: {e}")
     return all_records
@@ -62,6 +102,12 @@ def main():
         default=None,
         help="Output CSV file path (default: data/<region>_<date>.csv)",
     )
+    parser.add_argument(
+        "--lookback-days",
+        type=int,
+        default=None,
+        help="Only keep records with parseable sale/scraped dates within this many days.",
+    )
     args = parser.parse_args()
 
     if args.output:
@@ -72,7 +118,7 @@ def main():
         output_path = os.path.join(DATA_DIR, f"{prefix}_{date.today()}.csv")
 
     print(f"Scraping sources: {', '.join(args.county)}")
-    records = run_scrapers(args.county)
+    records = run_scrapers(args.county, lookback_days=args.lookback_days)
     save_csv(records, output_path)
     print(f"\nDone. {len(records)} total records. CSV: {output_path}")
     return output_path

@@ -9,13 +9,15 @@ Each notice listing on capublicnotice.com is published in a single newspaper,
 but that paper may circulate to multiple counties — so we fetch each advert's
 full page and confirm the property is in the target county via zip+city.
 """
+import os
 import re
 from datetime import date, timedelta
 from .base_scraper import BaseScraper, PropertyRecord, log
 
 SEARCH_URL = "https://www.capublicnotice.com/search/query"
 PORTAL_URL = "https://www.capublicnotice.com/category/legals/notice-of-trustee-sale"
-LOOKBACK_DAYS = 120
+LOOKBACK_DAYS = int(os.getenv("CA_NOTICE_LOOKBACK_DAYS", "60"))
+MAX_NOTICE_DETAILS = int(os.getenv("CA_NOTICE_MAX_DETAILS", "30"))
 
 _TS_RE = re.compile(r"T\.?S\.?\s*No\.?\s*[:#]?\s*([A-Z0-9\-]+)", re.I)
 _APN_RE = re.compile(r"A\.?P\.?N\.?[:#\s]+([0-9][\d\-A-Z]+)", re.I)
@@ -121,12 +123,14 @@ class CALegalNoticesScraper(BaseScraper):
     def scrape(self) -> list[PropertyRecord]:
         today_d = date.today()
         today = str(today_d)
-        first = today_d - timedelta(days=LOOKBACK_DAYS)
+        lookback_days = int(getattr(self, "lookback_days", None) or LOOKBACK_DAYS)
+        lookback_days = max(1, min(365, lookback_days))
+        first = today_d - timedelta(days=lookback_days)
 
         params = {
             "categories": "14",
             "county": self.county_name,
-            "size": "100",
+            "size": str(MAX_NOTICE_DETAILS),
             "firstDate": first.strftime("%m/%d/%Y"),
             "lastDate": today_d.strftime("%m/%d/%Y"),
         }
@@ -138,7 +142,7 @@ class CALegalNoticesScraper(BaseScraper):
             return [self._stub(today)]
 
         soup = self.soup(resp.text)
-        blocks = soup.find_all("div", class_="list")
+        blocks = soup.find_all("div", class_="list")[:MAX_NOTICE_DETAILS]
         records: list[PropertyRecord] = []
         skipped = 0
 
@@ -229,7 +233,7 @@ class CALegalNoticesScraper(BaseScraper):
         return PropertyRecord(
             county=self.county_name,
             record_type="Pre-Foreclosure",
-            notes=f"No {self.county_name} County trustee-sale notices found in last {LOOKBACK_DAYS} days. "
+            notes=f"No {self.county_name} County trustee-sale notices found in last {int(getattr(self, 'lookback_days', None) or LOOKBACK_DAYS)} days. "
                   f"Browse at {PORTAL_URL}",
             source_url=PORTAL_URL,
             scraped_date=today,

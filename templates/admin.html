@@ -449,7 +449,7 @@
         const step  = document.getElementById('progress-step');
         const count = document.getElementById('progress-count-top');
         const msg = s.current_step || s.last || '...';
-        const elapsed = s.started_at ? Math.round((Date.now() - new Date(s.started_at).getTime()) / 1000) : 0;
+        const elapsed = s.started_at ? Math.max(0, Math.round((Date.now() - new Date(s.started_at).getTime()) / 1000)) : 0;
         const mins = Math.floor(elapsed / 60), secs = elapsed % 60;
         const timeStr = elapsed > 0 ? ` (${mins}m ${secs}s)` : '';
 
