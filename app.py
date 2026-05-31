@@ -6,10 +6,10 @@ import threading
 import csv
 import io
 import shutil
+import sqlite3
 from datetime import datetime
 from flask import Flask, render_template, request, jsonify, Response, redirect, url_for
 from dotenv import load_dotenv
-import requests
 import stripe
 from scraper import scrape_sync
 from scraper_runner import run_scrapers
@@ -93,9 +93,6 @@ def property_records_to_listings(records: list[dict]) -> list[dict]:
 
 app = Flask(__name__)
 stripe.api_key = os.getenv("STRIPE_SECRET_KEY", "")
-SCRAPER_WORKER_URL = os.getenv("SCRAPER_WORKER_URL", "").rstrip("/")
-SCRAPER_WORKER_TOKEN = os.getenv("SCRAPER_WORKER_TOKEN", "")
-WORKER_TOKEN = os.getenv("WORKER_TOKEN", "")
 scrape_status = {
     "running": False,
     "last": None,
@@ -111,56 +108,47 @@ listing_lock = threading.Lock()
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 IS_VERCEL = bool(os.getenv("VERCEL") or os.getenv("VERCEL_ENV"))
-USE_REMOTE_WORKER = bool(SCRAPER_WORKER_URL)
+STOREFRONT_ONLY = IS_VERCEL
+SQLITE_DB = os.getenv("SQLITE_DB", os.path.join(BASE_DIR, "foreclosure_local.sqlite3"))
 
-def _auth_headers():
-    return {"X-Scraper-Token": SCRAPER_WORKER_TOKEN} if SCRAPER_WORKER_TOKEN else {}
+def _sqlite_enabled():
+    return not IS_VERCEL
 
-def _worker_enabled_response():
-    return {
-        "remote_worker": USE_REMOTE_WORKER,
-        "worker_url": SCRAPER_WORKER_URL if USE_REMOTE_WORKER else "",
-    }
+def _sqlite_conn():
+    os.makedirs(os.path.dirname(SQLITE_DB) or ".", exist_ok=True)
+    conn = sqlite3.connect(SQLITE_DB)
+    conn.row_factory = sqlite3.Row
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS app_json (
+            key TEXT PRIMARY KEY,
+            value TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        )
+    """)
+    return conn
 
-def _worker_request(method, path, **kwargs):
-    if not SCRAPER_WORKER_URL:
-        return None
-    headers = kwargs.pop("headers", {})
-    headers.update(_auth_headers())
-    return requests.request(
-        method,
-        f"{SCRAPER_WORKER_URL}{path}",
-        headers=headers,
-        timeout=kwargs.pop("timeout", 20),
-        **kwargs,
-    )
-
-def _authorized_worker_request():
-    if not WORKER_TOKEN:
-        return True
-    return request.headers.get("X-Scraper-Token") == WORKER_TOKEN
-
-def _authorized_raw_data_request():
-    expected = WORKER_TOKEN or (SCRAPER_WORKER_TOKEN if USE_REMOTE_WORKER else "")
-    if not expected:
-        return True
-    return request.headers.get("X-Scraper-Token") == expected
-
-def _remote_listings():
-    if not USE_REMOTE_WORKER:
-        return None
+def _sqlite_get(key, default):
     try:
-        resp = _worker_request("GET", "/api/listings", timeout=20)
-        resp.raise_for_status()
-        data = resp.json()
-        return data.get("listings", [])
+        with _sqlite_conn() as conn:
+            row = conn.execute("SELECT value FROM app_json WHERE key = ?", (key,)).fetchone()
+        return json.loads(row["value"]) if row else default
     except Exception:
-        return None
+        return default
+
+def _sqlite_set(key, data):
+    with _sqlite_conn() as conn:
+        conn.execute(
+            """
+            INSERT INTO app_json (key, value, updated_at)
+            VALUES (?, ?, ?)
+            ON CONFLICT(key) DO UPDATE SET
+                value = excluded.value,
+                updated_at = excluded.updated_at
+            """,
+            (key, json.dumps(data, ensure_ascii=False), datetime.now().isoformat(timespec="seconds")),
+        )
 
 def current_listings():
-    listings = _remote_listings()
-    if listings is not None:
-        return listings
     return load_json(DATA_FILE, [])
 
 def _runtime_data_file(filename):
@@ -184,6 +172,24 @@ DEFAULT_SOURCES = {
 }
 
 def load_json(file, default):
+    if _sqlite_enabled() and os.path.abspath(file) == os.path.abspath(DATA_FILE):
+        seed = default
+        if os.path.exists(file):
+            with open(file, 'r', encoding='utf-8-sig') as f:
+                try:
+                    seed = json.load(f)
+                except json.JSONDecodeError:
+                    seed = default
+        return _sqlite_get("listings", seed)
+    if _sqlite_enabled() and os.path.abspath(file) == os.path.abspath(SETTINGS_FILE):
+        seed = default
+        if os.path.exists(file):
+            with open(file, 'r', encoding='utf-8-sig') as f:
+                try:
+                    seed = json.load(f)
+                except json.JSONDecodeError:
+                    seed = default
+        return _sqlite_get("settings", seed)
     if os.path.exists(file):
         with open(file, 'r', encoding='utf-8-sig') as f:
             try:
@@ -193,6 +199,12 @@ def load_json(file, default):
     return default
 
 def save_json(file, data):
+    if _sqlite_enabled() and os.path.abspath(file) == os.path.abspath(DATA_FILE):
+        _sqlite_set("listings", data)
+        return
+    if _sqlite_enabled() and os.path.abspath(file) == os.path.abspath(SETTINGS_FILE):
+        _sqlite_set("settings", data)
+        return
     with open(file, 'w', encoding='utf-8') as f:
         json.dump(data, f, indent=4, ensure_ascii=False)
 
@@ -343,10 +355,12 @@ def index():
         masked_item = _backfill_fields(item.copy())
         masked_item['display_address'] = obfuscate_address(item['address'])
         display_listings.append(masked_item)
-    return render_template('index.html', listings=display_listings)
+    return render_template('index.html', listings=display_listings, storefront_only=STOREFRONT_ONLY)
 
 @app.route('/admin')
 def admin():
+    if STOREFRONT_ONLY:
+        return redirect(url_for('index'), code=302)
     settings = load_json(SETTINGS_FILE, {"counties": [], "lookback_days": 30})
     source_cards = sorted(
         SOURCE_METADATA.values(),
@@ -356,6 +370,8 @@ def admin():
 
 @app.route('/admin/<path:bad_path>')
 def admin_bad_link_redirect(bad_path):
+    if STOREFRONT_ONLY:
+        return redirect(url_for('index'), code=302)
     """Recover from older Data Explorer links that missed the /data? route."""
     if bad_path.startswith("-file="):
         query = bad_path.replace("-file=", "file=", 1)
@@ -469,10 +485,8 @@ def _load_csv_rows(filename):
 
 @app.route('/admin/data')
 def admin_data():
-    if USE_REMOTE_WORKER and request.args.get("local") != "1":
-        query = request.query_string.decode("utf-8")
-        suffix = f"?{query}" if query else ""
-        return redirect(f"{SCRAPER_WORKER_URL}/admin/data{suffix}", code=302)
+    if STOREFRONT_ONLY:
+        return redirect(url_for('index'), code=302)
 
     files = _list_csv_files()
     settings = normalize_settings(load_json(SETTINGS_FILE, {}))
@@ -515,6 +529,8 @@ def admin_data():
 
 @app.route('/admin/data/download')
 def admin_data_download():
+    if STOREFRONT_ONLY:
+        return redirect(url_for('index'), code=302)
     from flask import send_file
     filename = request.args.get('file', '')
     if not filename:
@@ -529,18 +545,24 @@ def admin_data_download():
 
 @app.route('/csv-dash')
 def csv_dash():
+    if STOREFRONT_ONLY:
+        return redirect(url_for('index'), code=302)
     listings = current_listings()
     settings = normalize_settings(load_json(SETTINGS_FILE, {}))
     return render_template('csv_dash.html', listings=listings, settings=settings)
 
 @app.route('/api/settings', methods=['POST'])
 def update_settings():
+    if STOREFRONT_ONLY:
+        return jsonify({"status": "disabled", "reason": "storefront_only"}), 403
     settings = request.json
     save_json(SETTINGS_FILE, settings)
     return jsonify({"status": "success"})
 
 @app.route('/api/sources')
 def sources_json():
+    if STOREFRONT_ONLY:
+        return jsonify({"sources": [], "county_sources": {}, "storefront_only": True})
     return jsonify({
         "sources": sorted(
             SOURCE_METADATA.values(),
@@ -551,15 +573,8 @@ def sources_json():
 
 @app.route('/api/scrape', methods=['POST'])
 def run_scraper():
-    if not _authorized_worker_request():
-        return jsonify({"status": "unauthorized"}), 401
-
-    if USE_REMOTE_WORKER:
-        try:
-            resp = _worker_request("POST", "/api/scrape", json=request.get_json(silent=True) or {}, timeout=20)
-            return Response(resp.content, status=resp.status_code, content_type=resp.headers.get("content-type"))
-        except Exception as e:
-            return jsonify({"status": "worker_error", "error": str(e)}), 502
+    if STOREFRONT_ONLY:
+        return jsonify({"status": "disabled", "reason": "storefront_only"}), 403
 
     if scrape_status["running"]:
         return jsonify({"status": "already_running"})
@@ -687,20 +702,12 @@ def run_scraper():
     t.daemon = True
     scrape_control["thread"] = t
     t.start()
-    return jsonify({"status": "started", "counties": counties, "lookback_days": lookback, **_worker_enabled_response()})
+    return jsonify({"status": "started", "counties": counties, "lookback_days": lookback})
 
 @app.route('/api/scrape/stop', methods=['POST'])
 def stop_scraper():
-    if not _authorized_worker_request():
-        return jsonify({"status": "unauthorized"}), 401
-
-    if USE_REMOTE_WORKER:
-        suffix = "?force=true" if request.args.get("force") == "true" else ""
-        try:
-            resp = _worker_request("POST", f"/api/scrape/stop{suffix}", json=request.get_json(silent=True) or {}, timeout=20)
-            return Response(resp.content, status=resp.status_code, content_type=resp.headers.get("content-type"))
-        except Exception as e:
-            return jsonify({"status": "worker_error", "error": str(e)}), 502
+    if STOREFRONT_ONLY:
+        return jsonify({"status": "disabled", "reason": "storefront_only"}), 403
 
     if not scrape_status["running"]:
         return jsonify({"status": "not_running"})
@@ -719,38 +726,24 @@ def stop_scraper():
 
 @app.route('/api/scrape/status')
 def scrape_status_check():
-    if USE_REMOTE_WORKER:
-        try:
-            resp = _worker_request("GET", "/api/scrape/status", timeout=20)
-            return Response(resp.content, status=resp.status_code, content_type=resp.headers.get("content-type"))
-        except Exception as e:
-            return jsonify({"running": False, "last": f"worker_error: {e}", **_worker_enabled_response()}), 502
-    return jsonify({**scrape_status, **_worker_enabled_response()})
+    if STOREFRONT_ONLY:
+        return jsonify({"running": False, "last": "storefront_only"})
+    return jsonify(scrape_status)
 
 @app.route('/api/listings')
 def listings_json():
-    if not _authorized_raw_data_request():
-        return jsonify({"status": "unauthorized"}), 401
-
-    if USE_REMOTE_WORKER:
-        try:
-            resp = _worker_request("GET", "/api/listings", timeout=20)
-            return Response(resp.content, status=resp.status_code, content_type=resp.headers.get("content-type"))
-        except Exception as e:
-            return jsonify({"count": 0, "listings": [], "error": str(e), **_worker_enabled_response()}), 502
+    if STOREFRONT_ONLY:
+        return jsonify({"status": "disabled", "reason": "storefront_only"}), 403
     with listing_lock:
         listings = load_json(DATA_FILE, [])
-    return jsonify({"count": len(listings), "listings": listings, **_worker_enabled_response()})
+    return jsonify({"count": len(listings), "listings": listings})
 
 @app.route('/api/listings.csv')
 def listings_csv():
-    if not _authorized_raw_data_request():
-        return jsonify({"status": "unauthorized"}), 401
-
-    listings = _remote_listings()
-    if listings is None:
-        with listing_lock:
-            listings = load_json(DATA_FILE, [])
+    if STOREFRONT_ONLY:
+        return jsonify({"status": "disabled", "reason": "storefront_only"}), 403
+    with listing_lock:
+        listings = load_json(DATA_FILE, [])
     output = io.StringIO()
     fieldnames = ["id", "address", "status", "price", "bid", "date", "county", "link", "source"]
     writer = csv.DictWriter(output, fieldnames=fieldnames)

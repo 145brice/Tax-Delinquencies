@@ -42,52 +42,22 @@ python app.py
 # Open http://localhost:8095
 ```
 
-## Production Setup: Vercel UI + Python Worker
+## Production Setup: Vercel Storefront Only
 
-Vercel is good for the storefront/admin UI, but it is not a good home for
-long-running scrapers. The recommended production setup is:
+Vercel serves only the buyer-facing storefront. Admin, Data Explorer, scraper
+controls, raw listings JSON, and CSV exports are disabled automatically on
+Vercel.
 
-1. Deploy this repo to Vercel for the public app.
-2. Deploy this same repo to a long-running Python host for scraping
-   (Render, Railway, Fly.io, or a VPS).
-3. Point Vercel at the worker with environment variables.
-
-### Worker Service
-
-Use this start command on the worker host:
+Run the Python app locally for scraping and data work:
 
 ```bash
-gunicorn worker:app --workers 1 --threads 4 --timeout 900
+python app.py
+# Open http://127.0.0.1:8095/admin
 ```
 
-Or use the included `Procfile` on hosts that detect it automatically.
-
-Set this environment variable on the worker:
-
-```bash
-WORKER_TOKEN=choose_a_long_random_secret
-```
-
-The worker keeps the full lead data and runs the slow scraping process.
-
-### Vercel
-
-Set these environment variables on Vercel:
-
-```bash
-SCRAPER_WORKER_URL=https://your-worker-service.example.com
-SCRAPER_WORKER_TOKEN=the_same_long_random_secret
-```
-
-With those set, the Vercel app:
-
-- Renders the storefront from the worker's latest results
-- Forwards Run Scraper / Stop / Status calls to the worker
-- Redirects Data Explorer to the worker so it can show worker-side CSVs
-- Keeps scraper jobs out of Vercel's serverless timeout limits
-
-Do not set `SCRAPER_WORKER_URL` on the worker itself. That variable is only
-for the Vercel UI side.
+Local scraper/admin state is stored in SQLite at `foreclosure_local.sqlite3`
+by default. Set `SQLITE_DB=path/to/file.sqlite3` if you want a different local
+database path.
 
 ## Scraper CLI Usage
 

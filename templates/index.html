@@ -171,8 +171,10 @@
     <div class="logo">Foreclosure<span>Leads</span> Pro</div>
     <div class="nav-right">
         <a href="/" class="nav-tab active">Storefront</a>
+        {% if not storefront_only %}
         <a href="/admin/data" class="nav-tab">Data Explorer</a>
         <a href="/admin" class="nav-tab">Admin</a>
+        {% endif %}
     </div>
 </nav>
 
@@ -280,7 +282,11 @@
 {% else %}
 <div class="empty">
     <h2>No leads loaded yet</h2>
+    {% if storefront_only %}
+    <p>Leads are being prepared. Please check back soon.</p>
+    {% else %}
     <p>Go to <a href="/admin">Admin &rarr; Launch Scraper</a> to pull listings.</p>
+    {% endif %}
 </div>
 {% endif %}
 </div>
