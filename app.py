@@ -193,6 +193,24 @@ def _listing_sort_key(item):
 def sort_storefront_listings(listings):
     return sorted((item for item in listings if isinstance(item, dict)), key=_listing_sort_key)
 
+def _storefront_owner(item):
+    owner = str(item.get("owner") or "").strip()
+    if owner:
+        return owner
+    source = str(item.get("source") or "").lower()
+    status = str(item.get("status") or item.get("record_type") or "").lower()
+    if "homepath" in source:
+        return "Fannie Mae (HomePath)"
+    if source == "hud" or "hud" in source:
+        return "HUD"
+    if "tax" in status:
+        return "Owner not listed in tax record"
+    if "pre-foreclosure" in status or "foreclosure" in status:
+        return "Owner not listed in notice"
+    if "auction" in status:
+        return "Seller not listed"
+    return ""
+
 def _read_storefront_csv(default):
     if not os.path.exists(STOREFRONT_CSV):
         return default
@@ -215,7 +233,8 @@ def export_storefront_csv(listings):
         writer = csv.DictWriter(f, fieldnames=STOREFRONT_FIELDS)
         writer.writeheader()
         for item in rows:
-            public_item = dict(item)
+            public_item = _backfill_fields(dict(item))
+            public_item["owner"] = _storefront_owner(public_item)
             if public_item.get("address"):
                 public_item["address"] = obfuscate_address(str(public_item["address"]))
             public_item["street"] = ""
@@ -408,6 +427,7 @@ def index():
     display_listings = []
     for item in listings:
         masked_item = _backfill_fields(item.copy())
+        masked_item["owner"] = _storefront_owner(masked_item)
         masked_item['display_address'] = obfuscate_address(item['address'])
         display_listings.append(masked_item)
     return render_template('index.html', listings=display_listings, storefront_only=STOREFRONT_ONLY)

@@ -43,6 +43,16 @@ _ADDRESS_PATTERNS = [
     re.compile(r"(?:Property Address|Also known as)\s*[:.]?\s*([^\n]{8,160})", re.I),
 ]
 _CITY_STATE_ZIP_RE = re.compile(r"(.+?),\s*([A-Za-z .'-]+),?\s+FL\s+(\d{5})", re.I)
+_OWNER_PATTERNS = [
+    re.compile(r"\bvs\.?\s+(.+?)\s*,?\s*Defendant\(s\)", re.I | re.S),
+    re.compile(r"\bv\.?\s+(.+?)\s*,?\s*Defendant\(s\)", re.I | re.S),
+    re.compile(r"\bDefendant\(s\)\s*[:.]?\s*(.+?)(?:\bNOTICE OF SALE\b|\bNOTICE IS HEREBY GIVEN\b|$)", re.I | re.S),
+]
+_NON_OWNER_PARTS = re.compile(
+    r"\b(?:unknown|tenant|tenants|spouse|parties?|possession|association|bank|"
+    r"mortgage|mortgagee|clerk|state of florida|department|city of|county of)\b",
+    re.I,
+)
 
 
 def _clean(v: str) -> str:
@@ -79,6 +89,25 @@ def _extract_address(text: str) -> tuple[str, str, str]:
     return "", "", ""
 
 
+def _extract_owner(text: str) -> str:
+    cleaned_text = _clean(text.replace("\r", "\n"))
+    for pat in _OWNER_PATTERNS:
+        m = pat.search(cleaned_text)
+        if not m:
+            continue
+        raw = _clean(m.group(1))
+        raw = re.split(r"\b(?:NOTICE OF SALE|NOTICE IS HEREBY GIVEN|Plaintiff|Case No)\b", raw, 1, flags=re.I)[0]
+        parts = [
+            _clean(p)
+            for p in re.split(r"\s*;\s*|\s+AND\s+|\s*,\s*", raw, flags=re.I)
+            if _clean(p)
+        ]
+        owners = [p for p in parts if len(p) > 2 and not _NON_OWNER_PARTS.search(p)]
+        if owners:
+            return "; ".join(owners[:2])
+    return ""
+
+
 class JaxDailyRecordLegalNoticesScraper(BaseScraper):
     county_name = ""
     base_url = NOTICE_URL
@@ -108,6 +137,7 @@ class JaxDailyRecordLegalNoticesScraper(BaseScraper):
                 continue
 
             case_number = _extract_case(text)
+            owner = _extract_owner(text)
             address, city, zip_code = _extract_address(text)
             sale_date = _extract_sale_date(text)
             if not address:
@@ -119,6 +149,7 @@ class JaxDailyRecordLegalNoticesScraper(BaseScraper):
             records.append(PropertyRecord(
                 county=self.county_name,
                 record_type="Pre-Foreclosure",
+                owner_name=owner,
                 property_address=address,
                 city=city or COUNTY_DEFAULT_CITY[self.county_name],
                 state="FL",

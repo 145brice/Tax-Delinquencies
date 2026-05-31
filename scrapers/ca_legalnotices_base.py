@@ -23,6 +23,11 @@ _TS_RE = re.compile(r"T\.?S\.?\s*No\.?\s*[:#]?\s*([A-Z0-9\-]+)", re.I)
 _APN_RE = re.compile(r"A\.?P\.?N\.?[:#\s]+([0-9][\d\-A-Z]+)", re.I)
 _ADDR_RE = re.compile(r"Property Address[:\s]+([^\n]{10,120})", re.I)
 _CITY_STATE_RE = re.compile(r"([A-Za-z ]+),\s*CA\s+(\d{5})", re.I)
+_OWNER_PATTERNS = [
+    re.compile(r"\bTrustor\(s\)?\s*[:\-]\s*([^\n]{3,120})", re.I),
+    re.compile(r"\bTrustor\s*[:\-]\s*([^\n]{3,120})", re.I),
+    re.compile(r"\bexecuted by\s+(.{3,120}?),\s+as\s+Trustor", re.I | re.S),
+]
 
 # Trustee-sale notices use varied phrasing for the unpaid balance.
 # Order matters — most specific first.
@@ -52,6 +57,21 @@ def _extract_amount(text: str) -> str:
         # Largest amount must be > $1000 to plausibly be a loan balance
         if nums[0][0] > 1000:
             return f"${nums[0][1]}"
+    return ""
+
+
+def _extract_owner(text: str) -> str:
+    if not text:
+        return ""
+    for pat in _OWNER_PATTERNS:
+        m = pat.search(text)
+        if not m:
+            continue
+        raw = re.sub(r"\s+", " ", m.group(1)).strip(" ,.;")
+        raw = re.split(r"\b(?:Trustee|Beneficiary|Property Address|APN|NOTICE)\b", raw, 1, flags=re.I)[0]
+        raw = raw.strip(" ,.;")
+        if 2 < len(raw) <= 100:
+            return raw
     return ""
 
 
@@ -199,6 +219,7 @@ class CALegalNoticesScraper(BaseScraper):
                     zip_code = cs_m.group(2)
 
             amount = _extract_amount(full_text or "")
+            owner = _extract_owner(full_text or "")
 
             note_parts = []
             if publication:
@@ -213,6 +234,7 @@ class CALegalNoticesScraper(BaseScraper):
             records.append(PropertyRecord(
                 county=self.county_name,
                 record_type="Pre-Foreclosure",
+                owner_name=owner,
                 property_address=address,
                 city=city_name or self.default_city,
                 state="CA",
