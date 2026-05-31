@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>Data Explorer — ForeclosureLeads Pro</title>
+  <title>Data Explorer - ForeclosureLeads Pro</title>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
     body { font-family: 'Segoe UI', Arial, sans-serif; background: #0f1117; color: #e0e0e0; min-height: 100vh; }
@@ -21,6 +21,9 @@
     .badge { background: #1e3a8a; color: #93c5fd; font-size: 0.78rem; padding: 6px 14px; border-radius: 14px; font-weight: 600; }
     .back-link { color: #9ca3af; text-decoration: none; font-size: 0.85rem; }
     .back-link:hover { color: #fff; }
+    .nav-tab { color: #9ca3af; text-decoration: none; font-size: 0.85rem; padding: 6px 10px; border-radius: 999px; border: 1px solid transparent; }
+    .nav-tab:hover { color: #fff; border-color: #334155; background: #1e2130; }
+    .nav-tab.active { color: #fff; border-color: #2563eb; background: #1e3a5f; }
 
     .controls {
       background: #161b2b;
@@ -90,11 +93,12 @@
   <h1>Data <span>Explorer</span> &amp; Scraper Control</h1>
   <div class="header-actions">
     <span class="badge" id="scrape-badge">{{ filtered }} / {{ total }} records</span>
-    <button class="btn btn-primary" id="run-btn" onclick="openScrapeModal()" style="background:#16a34a;">▶ Run Scraper</button>
-    <button class="btn btn-secondary" id="stop-btn" onclick="stopScrape(false)" style="display:none;">⛔ Stop After</button>
-    <button class="btn btn-secondary" id="kill-btn" onclick="stopScrape(true)" style="display:none;background:#991b1b;color:#fca5a5;">💀 Kill Now</button>
-    <a href="/admin" class="back-link">⚙ Full Admin</a>
-    <a href="/" class="back-link">Storefront →</a>
+    <button type="button" class="btn btn-primary" id="run-btn" onclick="openScrapeModal()" style="background:#16a34a;">Run Scraper</button>
+    <button type="button" class="btn btn-secondary" id="stop-btn" onclick="stopScrape(false)" style="display:none;">Stop After</button>
+    <button type="button" class="btn btn-secondary" id="kill-btn" onclick="stopScrape(true)" style="display:none;background:#991b1b;color:#fca5a5;">Kill Now</button>
+    <a href="/" class="nav-tab">Storefront</a>
+    <a href="/admin/data" class="nav-tab active">Data Explorer</a>
+    <a href="/admin" class="nav-tab">Admin</a>
   </div>
 </div>
 
@@ -113,13 +117,13 @@
 <!-- Scrape config modal -->
 <div id="scrape-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.75);z-index:200;align-items:center;justify-content:center;">
   <div style="background:#16181f;border:1px solid #334155;border-radius:12px;padding:28px;min-width:520px;max-width:680px;max-height:90vh;overflow-y:auto;">
-    <h2 style="font-size:1.05rem;color:#e0e0e0;margin-bottom:18px;">Run Scraper — Select Counties</h2>
+    <h2 style="font-size:1.05rem;color:#e0e0e0;margin-bottom:18px;">Run Scraper - Select Counties</h2>
     <div id="county-checkboxes" style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:18px;font-size:0.85rem;">
       <!-- populated by JS -->
     </div>
     <div style="display:flex;gap:10px;justify-content:flex-end;">
-      <button class="btn btn-secondary" onclick="closeScrapeModal()">Cancel</button>
-      <button class="btn btn-primary" style="background:#16a34a;" onclick="launchScrape()">▶ Launch Scrape</button>
+      <button type="button" class="btn btn-secondary" onclick="closeScrapeModal()">Cancel</button>
+      <button type="button" class="btn btn-primary" style="background:#16a34a;" onclick="launchScrape()">Launch Scrape</button>
     </div>
   </div>
 </div>
@@ -135,7 +139,7 @@
           <option value="{{ f }}" {% if f == selected %}selected{% endif %}>{{ f }}</option>
         {% endfor %}
         {% if not files %}
-          <option value="">No CSV files — run scraper first</option>
+          <option value="">No CSV files - run scraper first</option>
         {% endif %}
       </select>
     </div>
@@ -163,7 +167,7 @@
     </div>
     <button type="submit" class="btn btn-primary">Filter</button>
     <a href="/admin/data" class="btn btn-secondary">Clear</a>
-    <a href="/admin/data/download?file={{ selected }}" class="btn btn-outline" style="margin-left:auto;">⬇ Download CSV</a>
+    <a href="{{ url_for('admin_data_download', file=selected) }}" class="btn btn-outline" style="margin-left:auto;">Download CSV</a>
   </div>
 </form>
 
@@ -182,9 +186,9 @@
       <tr>
         {% for col in fieldnames %}
           {% set next_dir = 'desc' if sort_col == col and sort_dir == 'asc' else 'asc' %}
-          {% set arrow = '▲' if (sort_col == col and sort_dir == 'asc') else ('▼' if (sort_col == col and sort_dir == 'desc') else '') %}
+          {% set arrow = 'up' if (sort_col == col and sort_dir == 'asc') else ('down' if (sort_col == col and sort_dir == 'desc') else '') %}
           <th class="{{ 'active' if sort_col == col else '' }}">
-            <a href="?file={{ selected }}&filter_county={{ filter_county }}&filter_type={{ filter_type }}&q={{ filter_q }}&sort={{ col }}&dir={{ next_dir }}">
+            <a href="{{ url_for('admin_data', file=selected, filter_county=filter_county, filter_type=filter_type, q=filter_q, sort=col, dir=next_dir) }}">
               {{ column_labels[col] }}
               {% if arrow %}<span class="sort-arrow">{{ arrow }}</span>{% endif %}
             </a>
@@ -217,7 +221,7 @@
         <td title="{{ row.case_number }}">{{ row.case_number }}</td>
         <td title="{{ row.source_url }}">
           {% if row.source_url %}
-            <a class="src-link" href="{{ row.source_url }}" target="_blank" rel="noopener">link ↗</a>
+            <a class="src-link" href="{{ row.source_url }}" target="_blank" rel="noopener">link</a>
           {% endif %}
         </td>
         <td title="{{ row.scraped_date }}">{{ row.scraped_date }}</td>
@@ -250,7 +254,7 @@
     {key:'riverside',  label:'Riverside CA'},
   ];
 
-  function openScrapeModal() {
+  window.openScrapeModal = function openScrapeModal() {
     const box = document.getElementById('county-checkboxes');
     box.innerHTML = COUNTIES.map(c =>
       `<label style="display:flex;align-items:center;gap:8px;color:#cbd5e1;cursor:pointer;">
@@ -259,12 +263,12 @@
       </label>`
     ).join('');
     document.getElementById('scrape-modal').style.display = 'flex';
-  }
-  function closeScrapeModal() {
+  };
+  window.closeScrapeModal = function closeScrapeModal() {
     document.getElementById('scrape-modal').style.display = 'none';
-  }
+  };
 
-  async function launchScrape() {
+  window.launchScrape = async function launchScrape() {
     const counties = [...document.querySelectorAll('#county-checkboxes input:checked')].map(cb => cb.value);
     if (!counties.length) return alert('Pick at least one county.');
     closeScrapeModal();
@@ -281,13 +285,13 @@
       setRunning(false);
       alert('Failed to start: ' + e);
     }
-  }
+  };
 
-  async function stopScrape(force) {
+  window.stopScrape = async function stopScrape(force) {
     const url = force ? '/api/scrape/stop?force=true' : '/api/scrape/stop';
     await fetch(url, {method:'POST'});
     showProgress(force ? 'Kill signal sent...' : 'Stopping after current scraper...');
-  }
+  };
 
   let pollInterval = null;
   function pollStatus() {
@@ -308,7 +312,7 @@
         bar.style.width = '100%';
         setRunning(false);
         if (s.last === 'success') {
-          document.getElementById('scrape-status-text').innerText = `✓ Done — ${s.count} total leads. Reloading...`;
+          document.getElementById('scrape-status-text').innerText = `Done - ${s.count} total leads. Reloading...`;
           setTimeout(() => location.reload(), 1500);
         } else {
           document.getElementById('scrape-status-text').innerText = 'Stopped: ' + s.last;
@@ -329,6 +333,11 @@
     document.getElementById('scrape-strip').style.display = 'block';
     document.getElementById('scrape-status-text').innerText = msg;
   }
+
+  document.addEventListener('DOMContentLoaded', () => {
+    const runBtn = document.getElementById('run-btn');
+    if (runBtn) runBtn.addEventListener('click', openScrapeModal);
+  });
 
   // Resume on load if a scrape is already running
   (async () => {

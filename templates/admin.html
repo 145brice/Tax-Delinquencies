@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Admin — ForeclosureLeads Pro</title>
+    <title>Admin - ForeclosureLeads Pro</title>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body { font-family: 'Segoe UI', sans-serif; background: #0f1117; color: #e0e0e0; min-height: 100vh; }
@@ -21,6 +21,9 @@
         .logo span { color: #3b82f6; }
         .back-link { color: #9ca3af; text-decoration: none; font-size: 0.9rem; }
         .back-link:hover { color: #fff; }
+        .nav-tab { color: #9ca3af; text-decoration: none; font-size: 0.9rem; padding: 6px 10px; border-radius: 999px; border: 1px solid transparent; }
+        .nav-tab:hover { color: #fff; border-color: #334155; background: #1e2130; }
+        .nav-tab.active { color: #fff; border-color: #2563eb; background: #1e3a5f; }
 
         .page { max-width: 860px; margin: 40px auto; padding: 0 24px; }
         h1 { font-size: 1.6rem; margin-bottom: 6px; }
@@ -51,6 +54,17 @@
         .county-item input[type="checkbox"] { width: 17px; height: 17px; accent-color: #2563eb; cursor: pointer; }
         .county-name { font-size: 0.9rem; font-weight: 500; }
         .county-state { font-size: 0.75rem; color: #6b7280; }
+        .source-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 10px; }
+        .source-card {
+            background: #1e2130;
+            border: 1px solid #2a2d3a;
+            border-radius: 8px;
+            padding: 12px 14px;
+        }
+        .source-title { font-size: 0.84rem; font-weight: 700; color: #dbeafe; }
+        .source-meta { font-size: 0.72rem; color: #8ea0bf; margin-top: 4px; }
+        .source-link { color: #93c5fd; text-decoration: none; }
+        .source-link:hover { color: #fff; }
 
         .range-wrap { display: flex; align-items: center; gap: 20px; flex-wrap: wrap; }
         input[type="range"] { flex: 1; min-width: 200px; accent-color: #2563eb; }
@@ -128,14 +142,15 @@
 <nav class="navbar">
     <div class="logo">Foreclosure<span>Leads</span> Pro</div>
     <div style="display:flex;gap:18px;align-items:center;">
-        <a href="/admin/data" class="back-link">📊 Data Explorer</a>
-        <a href="/" class="back-link">← Back to Store</a>
+        <a href="/" class="nav-tab">Storefront</a>
+        <a href="/admin/data" class="nav-tab">Data Explorer</a>
+        <a href="/admin" class="nav-tab active">Admin</a>
     </div>
 </nav>
 
 <div class="page">
     <h1>Scraper Control Panel</h1>
-    <p class="subtitle">Configure which counties to scrape and how far back to search.</p>
+    <p class="subtitle">Configure Southern Georgia and Northeast Florida target counties.</p>
 
     <!-- COUNTIES -->
     <div class="card">
@@ -205,6 +220,54 @@
                 <input type="checkbox" name="county" value="cheatham" {% if 'cheatham' in settings.counties %}checked{% endif %}>
                 <div><div class="county-name">Cheatham (Ashland City)</div><div class="county-state">Tennessee</div></div>
             </label>
+            <label class="county-item">
+                <input type="checkbox" name="county" value="chatham-ga" {% if 'chatham-ga' in settings.counties %}checked{% endif %}>
+                <div><div class="county-name">Chatham</div><div class="county-state">Georgia (South)</div></div>
+            </label>
+            <label class="county-item">
+                <input type="checkbox" name="county" value="glynn-ga" {% if 'glynn-ga' in settings.counties %}checked{% endif %}>
+                <div><div class="county-name">Glynn</div><div class="county-state">Georgia (Coastal)</div></div>
+            </label>
+            <label class="county-item">
+                <input type="checkbox" name="county" value="camden-ga" {% if 'camden-ga' in settings.counties %}checked{% endif %}>
+                <div><div class="county-name">Camden</div><div class="county-state">Georgia (Coastal)</div></div>
+            </label>
+            <label class="county-item">
+                <input type="checkbox" name="county" value="lowndes-ga" {% if 'lowndes-ga' in settings.counties %}checked{% endif %}>
+                <div><div class="county-name">Lowndes</div><div class="county-state">Georgia (South)</div></div>
+            </label>
+            <label class="county-item">
+                <input type="checkbox" name="county" value="duval-fl" {% if 'duval-fl' in settings.counties %}checked{% endif %}>
+                <div><div class="county-name">Duval</div><div class="county-state">Florida (Northeast)</div></div>
+            </label>
+            <label class="county-item">
+                <input type="checkbox" name="county" value="stjohns-fl" {% if 'stjohns-fl' in settings.counties %}checked{% endif %}>
+                <div><div class="county-name">St. Johns</div><div class="county-state">Florida (Northeast)</div></div>
+            </label>
+            <label class="county-item">
+                <input type="checkbox" name="county" value="nassau-fl" {% if 'nassau-fl' in settings.counties %}checked{% endif %}>
+                <div><div class="county-name">Nassau</div><div class="county-state">Florida (Northeast)</div></div>
+            </label>
+            <label class="county-item">
+                <input type="checkbox" name="county" value="clay-fl" {% if 'clay-fl' in settings.counties %}checked{% endif %}>
+                <div><div class="county-name">Clay</div><div class="county-state">Florida (Northeast)</div></div>
+            </label>
+        </div>
+    </div>
+
+    <!-- SOURCES -->
+    <div class="card">
+        <h2>Source Registry</h2>
+        <div class="source-grid">
+            {% for source in source_cards %}
+            <div class="source-card">
+                <div class="source-title">{{ source.label }}</div>
+                <div class="source-meta">{{ source.region }} &middot; {{ source.source_type }}</div>
+                {% if source.source_url %}
+                <div class="source-meta"><a class="source-link" href="{{ source.source_url }}" target="_blank">Open public source</a></div>
+                {% endif %}
+            </div>
+            {% endfor %}
         </div>
     </div>
 
@@ -216,7 +279,7 @@
             <div style="flex:1">
                 <input type="range" id="lookback" min="1" max="90" value="{{ settings.lookback_days }}"
                        oninput="document.getElementById('range-display').innerText = this.value">
-                <div class="range-label">Days back to search (1 – 90 days)</div>
+                <div class="range-label">Days back to search (1 - 90 days)</div>
             </div>
         </div>
     </div>
@@ -258,10 +321,10 @@
     <div class="card">
         <h2>Run</h2>
         <div class="btn-row">
-            <button class="btn btn-save" id="save-btn" onclick="saveSettings()">Save Settings</button>
-            <button class="btn btn-run" id="run-btn" onclick="triggerScrape()">🚀 Launch Scraper</button>
-            <button class="btn btn-stop" id="stop-btn" onclick="stopScrape(false)" style="display:none;">⛔ Stop After Current</button>
-            <button class="btn btn-stop" id="kill-btn" onclick="stopScrape(true)" style="display:none; background:#991b1b;">💀 Kill Now</button>
+            <button type="button" class="btn btn-save" id="save-btn">Save Settings</button>
+            <button type="button" class="btn btn-run" id="run-btn">Launch Scraper</button>
+            <button type="button" class="btn btn-stop" id="stop-btn" onclick="stopScrape(false)" style="display:none;">Stop After Current</button>
+            <button type="button" class="btn btn-stop" id="kill-btn" onclick="stopScrape(true)" style="display:none; background:#991b1b;">Kill Now</button>
         </div>
         <div class="status-msg" id="status-msg"></div>
 
@@ -286,15 +349,24 @@
 <script>
     let pollInterval = null;
 
+    function selectedCounties() {
+        return Array.from(document.querySelectorAll('input[name="county"]:checked')).map(cb => cb.value);
+    }
+
     async function saveSettings() {
-        const counties = Array.from(document.querySelectorAll('input[name="county"]:checked')).map(cb => cb.value);
-        const lookback = document.getElementById('lookback').value;
+        const counties = selectedCounties();
+        const lookback = parseInt(document.getElementById('lookback').value, 10);
+        const sources = {
+            include_tax_records: document.getElementById('tog-taxlien').checked,
+            include_hud: document.getElementById('tog-auction').checked,
+            include_homepath: document.getElementById('tog-auction').checked,
+        };
         await fetch('/api/settings', {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({ counties, lookback_days: parseInt(lookback) })
+            body: JSON.stringify({ counties, lookback_days: lookback, sources })
         });
-        showMsg('✓ Settings saved.', '#22c55e');
+        showMsg('Settings saved.', '#22c55e');
     }
 
     async function stopScrape(force) {
@@ -304,12 +376,12 @@
         const killBtn = document.getElementById('kill-btn');
         if (force) {
             killBtn.disabled = true;
-            killBtn.innerText = '⏳ Killing...';
-            showMsg('Kill signal sent — current scraper aborting immediately...', '#dc2626');
+            killBtn.innerText = 'Killing...';
+            showMsg('Kill signal sent - current scraper aborting immediately...', '#dc2626');
         } else {
             stopBtn.disabled = true;
-            stopBtn.innerText = '⏳ Stopping...';
-            showMsg('Stop requested — finishing current scraper, then stopping...', '#facc15');
+            stopBtn.innerText = 'Stopping...';
+            showMsg('Stop requested - finishing current scraper, then stopping...', '#facc15');
         }
     }
 
@@ -326,15 +398,15 @@
         const killBtn = document.getElementById('kill-btn');
         const saveBtn = document.getElementById('save-btn');
         const wrap    = document.getElementById('progress-wrap');
-        runBtn.disabled  = running;
-        runBtn.innerText = running ? '⏳ Running...' : '🚀 Launch Scraper';
+        runBtn.disabled = running;
+        runBtn.innerText = running ? 'Running...' : 'Launch Scraper';
         stopBtn.style.display = running ? 'inline-block' : 'none';
         killBtn.style.display = running ? 'inline-block' : 'none';
-        stopBtn.disabled  = false;
-        killBtn.disabled  = false;
-        stopBtn.innerText = '⛔ Stop After Current';
-        killBtn.innerText = '💀 Kill Now';
-        saveBtn.disabled  = running;
+        stopBtn.disabled = false;
+        killBtn.disabled = false;
+        stopBtn.innerText = 'Stop After Current';
+        killBtn.innerText = 'Kill Now';
+        saveBtn.disabled = running;
         wrap.style.display = running ? 'block' : 'none';
     }
 
@@ -344,15 +416,19 @@
         const grid  = document.getElementById('results-grid');
         panel.style.display = 'block';
         grid.innerHTML = Object.entries(results).map(([key, r]) => {
+            const count = r.new ?? r.count ?? 0;
             const badge = r.status === 'ok'
-                ? `<span class="badge-ok">✓ ${r.count} leads</span>`
+                ? `<span class="badge-ok">OK ${count} new</span>`
                 : r.status === 'empty'
-                ? `<span class="badge-empty">⚠ stub only</span>`
-                : `<span class="badge-error">✗ error</span>`;
+                    ? `<span class="badge-empty">stub only</span>`
+                    : `<span class="badge-error">error</span>`;
+            const title = r.label || key;
+            const duplicateNote = r.duplicates ? ` (${r.duplicates} duplicate)` : '';
+            const stats = `${r.note || ''}${duplicateNote}`;
             return `<div class="result-row">
-                <span class="result-key">${key}</span>
+                <span class="result-key">${title}</span>
                 ${badge}
-                <span class="result-note">${r.note || ''}</span>
+                <span class="result-note">${stats}</span>
             </div>`;
         }).join('');
     }
@@ -361,22 +437,17 @@
         const bar   = document.getElementById('progress-bar');
         const step  = document.getElementById('progress-step');
         const count = document.getElementById('progress-count-top');
-
         const msg = s.current_step || s.last || '...';
-        const elapsed = s.started_at
-            ? Math.round((Date.now() - new Date(s.started_at).getTime()) / 1000)
-            : 0;
+        const elapsed = s.started_at ? Math.round((Date.now() - new Date(s.started_at).getTime()) / 1000) : 0;
         const mins = Math.floor(elapsed / 60), secs = elapsed % 60;
         const timeStr = elapsed > 0 ? ` (${mins}m ${secs}s)` : '';
 
-        step.innerText  = msg + timeStr;
+        step.innerText = msg + timeStr;
         count.innerText = (s.count || 0) + ' leads collected';
 
-        // Keep bar pulsing between 15-85% while running — exact % unknown
         if (s.stopping) {
             bar.style.width = '95%';
         } else if (s.running) {
-            // Oscillate slowly so it looks alive
             const osc = 50 + 35 * Math.sin(elapsed / 8);
             bar.style.width = Math.max(10, osc) + '%';
         }
@@ -384,42 +455,69 @@
 
     async function triggerScrape() {
         setRunning(true);
-        showMsg('⏳ Starting scraper...', '#facc15');
+        showMsg('Starting scraper...', '#facc15');
         document.getElementById('progress-step').innerText = 'Initializing...';
         document.getElementById('progress-bar').style.width = '5%';
 
-        await saveSettings();
+        const counties = selectedCounties();
+        const lookback = parseInt(document.getElementById('lookback').value, 10);
+        const payload = {
+            counties,
+            lookback_days: lookback,
+            save_defaults: true,
+            include_tax_records: document.getElementById('tog-taxlien').checked,
+            include_hud: document.getElementById('tog-auction').checked,
+            include_homepath: document.getElementById('tog-auction').checked,
+        };
+
         try {
-            await fetch('/api/scrape', { method: 'POST' });
-            pollInterval = setInterval(async () => {
-                const r = await fetch('/api/scrape/status');
-                const s = await r.json();
-                updateProgress(s);
-                if (!s.running) {
-                    clearInterval(pollInterval);
-                    setRunning(false);
-                    renderResults(s.scraper_results);
-                    document.getElementById('progress-bar').style.width = '100%';
-                    if (s.last === 'success') {
-                        document.getElementById('progress-step').innerText = '✓ Complete!';
-                        showMsg('✓ Done! Pulled ' + s.count + ' leads.', '#22c55e');
-                    } else if (s.last === 'stopped') {
-                        document.getElementById('progress-step').innerText = 'Stopped by user.';
-                        showMsg('Scraper stopped. ' + (s.count || 0) + ' leads collected.', '#facc15');
-                    } else {
-                        document.getElementById('progress-step').innerText = 'Error.';
-                        showMsg('Error: ' + s.last, '#f87171');
-                    }
-                }
-            }, 1500);
-        } catch(e) {
+            const start = await fetch('/api/scrape', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify(payload)
+            });
+            const startJson = await start.json();
+            if (startJson.status === 'already_running') {
+                showMsg('Scraper already running...', '#facc15');
+            }
+            pollStatus();
+        } catch (e) {
             setRunning(false);
             showMsg('Network error: ' + e, '#f87171');
         }
     }
 
-    // Resume polling if scraper was already running when page loaded; else show last results
-    (async () => {
+    function pollStatus() {
+        if (pollInterval) clearInterval(pollInterval);
+        pollInterval = setInterval(async () => {
+            const r = await fetch('/api/scrape/status');
+            const s = await r.json();
+            updateProgress(s);
+            if (!s.running) {
+                clearInterval(pollInterval);
+                setRunning(false);
+                renderResults(s.scraper_results);
+                document.getElementById('progress-bar').style.width = '100%';
+                if (s.last === 'success') {
+                    document.getElementById('progress-step').innerText = 'Complete!';
+                    showMsg('Done! Pulled ' + s.count + ' leads.', '#22c55e');
+                } else if (s.last === 'stopped') {
+                    document.getElementById('progress-step').innerText = 'Stopped by user.';
+                    showMsg('Scraper stopped. ' + (s.count || 0) + ' leads collected.', '#facc15');
+                } else {
+                    showMsg('Scraper ended: ' + (s.last || 'unknown'), '#f87171');
+                }
+            }
+        }, 1500);
+    }
+
+    window.saveSettings = saveSettings;
+    window.stopScrape = stopScrape;
+    window.triggerScrape = triggerScrape;
+
+    document.addEventListener('DOMContentLoaded', async () => {
+        document.getElementById('save-btn').addEventListener('click', saveSettings);
+        document.getElementById('run-btn').addEventListener('click', triggerScrape);
         const r = await fetch('/api/scrape/status');
         const s = await r.json();
         if (s.scraper_results && Object.keys(s.scraper_results).length) {
@@ -427,23 +525,12 @@
         }
         if (s.running) {
             setRunning(true);
-            showMsg('⏳ Scraper already running...', '#facc15');
+            showMsg('Scraper already running...', '#facc15');
             updateProgress(s);
-            pollInterval = setInterval(async () => {
-                const r2 = await fetch('/api/scrape/status');
-                const s2 = await r2.json();
-                updateProgress(s2);
-                if (!s2.running) {
-                    clearInterval(pollInterval);
-                    setRunning(false);
-                    document.getElementById('progress-bar').style.width = '100%';
-                    showMsg(s2.last === 'success'
-                        ? '✓ Done! ' + s2.count + ' leads.'
-                        : 'Stopped: ' + s2.last, s2.last === 'success' ? '#22c55e' : '#facc15');
-                }
-            }, 1500);
+            pollStatus();
         }
-    })();
+    });
 </script>
 </body>
 </html>
+

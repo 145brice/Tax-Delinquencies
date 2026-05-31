@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ title }} - ForeclosureLeads Pro</title>
+    <style>
+        body {
+            margin: 0;
+            min-height: 100vh;
+            display: grid;
+            place-items: center;
+            background: #0f1117;
+            color: #e5e7eb;
+            font-family: "Segoe UI", sans-serif;
+        }
+        main {
+            width: min(520px, calc(100vw - 32px));
+            border: 1px solid #2a3148;
+            border-radius: 8px;
+            background: #16181f;
+            padding: 28px;
+        }
+        h1 { margin: 0 0 12px; font-size: 1.5rem; }
+        p { margin: 0 0 24px; color: #9ca3af; line-height: 1.5; }
+        a {
+            color: #fff;
+            background: #2563eb;
+            border-radius: 6px;
+            display: inline-block;
+            padding: 10px 16px;
+            text-decoration: none;
+            font-weight: 700;
+        }
+    </style>
+</head>
+<body>
+    <main>
+        <h1>{{ title }}</h1>
+        <p>{{ message }}</p>
+        <a href="/">Back to storefront</a>
+    </main>
+</body>
+</html>

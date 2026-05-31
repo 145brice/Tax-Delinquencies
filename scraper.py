@@ -23,6 +23,14 @@ COUNTY_CONFIG = {
     "los-angeles": {"state": "CA", "county": "Los Angeles"},
     "davidson":    {"state": "TN", "county": "Davidson"},
     "wilson-tn":   {"state": "TN", "county": "Wilson"},
+    "chatham-ga": {"state": "GA", "county": "Chatham"},
+    "glynn-ga":   {"state": "GA", "county": "Glynn"},
+    "camden-ga":  {"state": "GA", "county": "Camden"},
+    "lowndes-ga": {"state": "GA", "county": "Lowndes"},
+    "duval-fl":   {"state": "FL", "county": "Duval"},
+    "stjohns-fl": {"state": "FL", "county": "St. Johns"},
+    "nassau-fl":  {"state": "FL", "county": "Nassau"},
+    "clay-fl":    {"state": "FL", "county": "Clay"},
 }
 
 STATUS_MAP = {
@@ -526,10 +534,24 @@ async def run_scraper(
     all_results = []
 
     async with async_playwright() as p:
-        browser = await p.chromium.launch(
-            headless=True,
-            args=["--disable-blink-features=AutomationControlled"],
-        )
+        try:
+            browser = await p.chromium.launch(
+                headless=True,
+                args=["--disable-blink-features=AutomationControlled"],
+            )
+        except Exception as e:
+            # Fallback for Windows setups where Playwright browser binaries
+            # were not installed yet; use local Chrome if available.
+            msg = str(e).lower()
+            if "executable doesn't exist" in msg or "please run the following command" in msg:
+                print("[Playwright] Bundled Chromium missing. Falling back to local Chrome channel...")
+                browser = await p.chromium.launch(
+                    channel="chrome",
+                    headless=True,
+                    args=["--disable-blink-features=AutomationControlled"],
+                )
+            else:
+                raise
         context = await browser.new_context(
             user_agent=(
                 "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "

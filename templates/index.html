@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
@@ -23,6 +23,9 @@
         .nav-right { display: flex; align-items: center; gap: 16px; }
         .admin-link { color: #9ca3af; text-decoration: none; font-size: 0.9rem; }
         .admin-link:hover { color: #fff; }
+        .nav-tab { color: #9ca3af; text-decoration: none; font-size: 0.9rem; padding: 6px 10px; border-radius: 999px; border: 1px solid transparent; }
+        .nav-tab:hover { color: #fff; border-color: #334155; background: #1e2130; }
+        .nav-tab.active { color: #fff; border-color: #2563eb; background: #1e3a5f; }
 
         .cart-bar {
             background: linear-gradient(90deg, #1e3a5f, #1a3a6b);
@@ -109,8 +112,8 @@
             text-align: left;
         }
         table.leads thead th:hover { background: #232a3f; }
-        table.leads thead th.sorted-asc::after  { content: ' â–²'; color: #3b82f6; }
-        table.leads thead th.sorted-desc::after { content: ' â–¼'; color: #3b82f6; }
+        table.leads thead th.sorted-asc::after  { content: ' ▲'; color: #3b82f6; }
+        table.leads thead th.sorted-desc::after { content: ' ▼'; color: #3b82f6; }
         table.leads tbody td {
             padding: 7px 12px;
             border-bottom: 1px solid #1a1f2e;
@@ -167,20 +170,22 @@
 <nav class="navbar">
     <div class="logo">Foreclosure<span>Leads</span> Pro</div>
     <div class="nav-right">
-        <a href="/admin" class="admin-link">âš™ Admin</a>
+        <a href="/" class="nav-tab active">Storefront</a>
+        <a href="/admin/data" class="nav-tab">Data Explorer</a>
+        <a href="/admin" class="nav-tab">Admin</a>
     </div>
 </nav>
 
 <div class="cart-bar">
     <div class="cart-info">
-        ðŸ›’ <strong id="cart-count">0</strong> leads selected
+        &#128722; <strong id="cart-count">0</strong> leads selected
         &nbsp;|&nbsp; Total: <strong>$<span id="cart-total">0</span></strong>
     </div>
-    <button class="btn-checkout" onclick="checkout()">Checkout â†’</button>
+    <button class="btn-checkout" onclick="checkout()">Checkout &rarr;</button>
 </div>
 
 <div class="toolbar">
-    <input type="text" id="search-input" placeholder="ðŸ”Ž Filter address, owner, parcel, city, county..." oninput="applyFilters()">
+    <input type="text" id="search-input" placeholder="&#128269; Filter address, owner, parcel, city, county..." oninput="applyFilters()">
     <select id="county-filter" onchange="applyFilters()">
         <option value="">All counties</option>
     </select>
@@ -251,21 +256,21 @@
                     <span class="badge badge-tax-lien">Tax Lien</span>
                 {% endif %}
             </td>
-            <td><span class="badge-county">{{ item.county or 'â€”' }}</span></td>
+            <td><span class="badge-county">{{ item.county or '-' }}</span></td>
             <td>{{ item.state or '' }}</td>
             <td>{{ item.city or '' }}</td>
             <td>{{ item.zip or '' }}</td>
             <td title="Full address revealed after purchase">{{ item.display_address }}</td>
-            <td>{{ item.owner or 'â€”' }}</td>
-            <td>{{ item.parcel_id or 'â€”' }}</td>
-            <td>{{ item.case_number or 'â€”' }}</td>
-            <td>{{ item.amount_owed or 'â€”' }}</td>
+            <td>{{ item.owner or '-' }}</td>
+            <td>{{ item.parcel_id or '-' }}</td>
+            <td>{{ item.case_number or '-' }}</td>
+            <td>{{ item.amount_owed or '-' }}</td>
             <td>{{ item.sale_date or '' }}</td>
             <td>{{ item.scraped_date or '' }}</td>
             <td><span class="price-tag">${{ item.price }}</span></td>
             <td>
                 {% if item.link %}
-                  <a class="src-link" href="{{ item.link }}" target="_blank" rel="noopener">â†—</a>
+                  <a class="src-link" href="{{ item.link }}" target="_blank" rel="noopener">&nearr;</a>
                 {% endif %}
             </td>
         </tr>
@@ -275,7 +280,7 @@
 {% else %}
 <div class="empty">
     <h2>No leads loaded yet</h2>
-    <p>Go to <a href="/admin">Admin â†’ Launch Scraper</a> to pull listings.</p>
+    <p>Go to <a href="/admin">Admin &rarr; Launch Scraper</a> to pull listings.</p>
 </div>
 {% endif %}
 </div>
@@ -388,14 +393,28 @@
         document.getElementById('cart-count').innerText = checked.length;
         document.getElementById('cart-total').innerText = total;
     }
-    function checkout() {
+    async function checkout() {
         const n = parseInt(document.getElementById('cart-count').innerText);
-        const total = document.getElementById('cart-total').innerText;
         if (!n) return alert('Select at least one lead first.');
-        alert(`Proceeding to checkout for ${n} lead(s) — $${total} total.`);
-    }
-</script>
+
+        const leadIds = [...document.querySelectorAll('.lead-cb:checked')]
+            .map(cb => cb.dataset.id);
+
+        try {
+            const res = await fetch('/api/create-checkout-session', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ lead_ids: leadIds }),
+            });
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.error || 'Checkout failed.');
+            window.location.href = data.url;
+        } catch (err) {
+            alert(err.message);
+        }
+    }</script>
 </body>
 </html>
+
 
 

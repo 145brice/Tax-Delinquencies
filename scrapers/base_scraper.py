@@ -1,4 +1,4 @@
-"""Base scraper — human-like request pacing, rotating UA, PDF parsing, output schema."""
+"""Base scraper - human-like request pacing, rotating UA, PDF parsing, output schema."""
 import io
 import time
 import random
@@ -54,7 +54,7 @@ def _polite_wait(url: str):
     if gap < wait:
         sleep_for = wait - gap
         log.debug(f"Rate-limiting {dom}: sleeping {sleep_for:.1f}s")
-        # Interruptible sleep — wake every 0.2s to check kill flag
+        # Interruptible sleep - wake every 0.2s to check kill flag
         end = time.time() + sleep_for
         while time.time() < end:
             if _kill_flag["set"]:
@@ -89,7 +89,7 @@ class ScraperKilled(Exception):
     """Raised when a scraper is killed mid-run via the global kill switch."""
 
 
-# Global kill flag — set by Flask /api/scrape/stop?force=true.
+# Global kill flag - set by Flask /api/scrape/stop-force=true.
 # BaseScraper.get() checks this before each request and raises ScraperKilled.
 _kill_flag = {"set": False}
 

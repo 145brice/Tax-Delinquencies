@@ -5,3 +5,5 @@ lxml>=5.1.0
 pandas>=2.2.0
 pdfplumber>=0.11.0
 python-dotenv>=1.0.0
+playwright>=1.44.0
+stripe>=11.0.0

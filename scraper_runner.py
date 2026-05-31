@@ -1,58 +1,20 @@
 """
-Main runner — scrapes all Nashville-area counties and saves results to CSV.
+Main runner for source-registered public-record scrapers.
 
 Usage:
-    python scraper_runner.py                    # Run all counties
-    python scraper_runner.py --county davidson  # Run one county
-    python scraper_runner.py --county davidson williamson rutherford
+    python scraper_runner.py
+    python scraper_runner.py --county duval_jaxdailyrecord
+    python scraper_runner.py --county davidson wilson
 """
 import argparse
 import csv
 import os
-from datetime import date
 from dataclasses import fields
+from datetime import date
 
 from scrapers.base_scraper import PropertyRecord
-from scrapers.davidson import DavidsonScraper
-from scrapers.williamson import WilliamsonScraper
-from scrapers.rutherford import RutherfordScraper
-from scrapers.wilson import WilsonScraper
-from scrapers.sumner import SumnerScraper
-from scrapers.robertson import RobertsonScraper
-from scrapers.cheatham import CheathamScraper
-from scrapers.sandiego_taxsale import SanDiegoTaxSaleScraper
-from scrapers.sandiego_legalnotices import SanDiegoLegalNoticesScraper
-from scrapers.losangeles_legalnotices import LosAngelesLegalNoticesScraper
-from scrapers.orange_legalnotices import OrangeLegalNoticesScraper
-from scrapers.orange_taxsale import OrangeTaxSaleScraper
-from scrapers.riverside_legalnotices import RiversideLegalNoticesScraper
+from scrapers.source_registry import ALL_SCRAPERS, REGION_BY_KEY, SOURCE_METADATA
 
-ALL_SCRAPERS = {
-    "davidson": DavidsonScraper,
-    "williamson": WilliamsonScraper,
-    "rutherford": RutherfordScraper,
-    "wilson": WilsonScraper,
-    "sumner": SumnerScraper,
-    "robertson": RobertsonScraper,
-    "cheatham": CheathamScraper,
-    "sandiego_taxsale": SanDiegoTaxSaleScraper,
-    "sandiego_legalnotices": SanDiegoLegalNoticesScraper,
-    "losangeles_legalnotices": LosAngelesLegalNoticesScraper,
-    "orange_taxsale": OrangeTaxSaleScraper,
-    "orange_legalnotices": OrangeLegalNoticesScraper,
-    "riverside_legalnotices": RiversideLegalNoticesScraper,
-}
-
-# Region grouping — used to pick the output CSV filename
-REGION_BY_KEY = {
-    "davidson": "nashville", "williamson": "nashville", "rutherford": "nashville",
-    "wilson": "nashville", "sumner": "nashville", "robertson": "nashville",
-    "cheatham": "nashville",
-    "sandiego_taxsale": "sandiego", "sandiego_legalnotices": "sandiego",
-    "losangeles_legalnotices": "losangeles",
-    "orange_taxsale": "orange", "orange_legalnotices": "orange",
-    "riverside_legalnotices": "riverside",
-}
 
 DATA_DIR = os.path.join(os.path.dirname(__file__), "data")
 CSV_FIELDNAMES = [f.name for f in fields(PropertyRecord)]
@@ -61,17 +23,19 @@ CSV_FIELDNAMES = [f.name for f in fields(PropertyRecord)]
 def run_scrapers(county_names: list[str]) -> list[dict]:
     all_records = []
     for name in county_names:
-        cls = ALL_SCRAPERS.get(name.lower())
+        key = name.lower()
+        cls = ALL_SCRAPERS.get(key)
         if not cls:
-            print(f"[WARNING] Unknown county: {name}")
+            print(f"[WARNING] Unknown scraper source: {name}")
             continue
         scraper = cls()
+        label = SOURCE_METADATA.get(key, {}).get("label", key)
         try:
             records = scraper.scrape()
             all_records.extend([r.to_dict() for r in records])
-            print(f"[{name.title()}] {len(records)} records scraped.")
+            print(f"[{label}] {len(records)} records scraped.")
         except Exception as e:
-            print(f"[{name.title()}] ERROR: {e}")
+            print(f"[{label}] ERROR: {e}")
     return all_records
 
 
@@ -85,18 +49,18 @@ def save_csv(records: list[dict], output_path: str):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Nashville-area tax delinquency & pre-foreclosure scraper")
+    parser = argparse.ArgumentParser(description="Public-record foreclosure source runner")
     parser.add_argument(
         "--county",
         nargs="+",
         default=list(ALL_SCRAPERS.keys()),
         choices=list(ALL_SCRAPERS.keys()),
-        help="County or counties to scrape (default: all)",
+        help="Scraper source key or keys to scrape (default: all)",
     )
     parser.add_argument(
         "--output",
         default=None,
-        help="Output CSV file path (default: data/nashville_<date>.csv)",
+        help="Output CSV file path (default: data/<region>_<date>.csv)",
     )
     args = parser.parse_args()
 
@@ -107,7 +71,7 @@ def main():
         prefix = next(iter(regions)) if len(regions) == 1 else "multi"
         output_path = os.path.join(DATA_DIR, f"{prefix}_{date.today()}.csv")
 
-    print(f"Scraping counties: {', '.join(args.county)}")
+    print(f"Scraping sources: {', '.join(args.county)}")
     records = run_scrapers(args.county)
     save_csv(records, output_path)
     print(f"\nDone. {len(records)} total records. CSV: {output_path}")

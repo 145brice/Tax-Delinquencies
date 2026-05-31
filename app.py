@@ -5,29 +5,23 @@ import hashlib
 import threading
 import csv
 import io
+import shutil
 from datetime import datetime
-from flask import Flask, render_template, request, jsonify, Response
+from flask import Flask, render_template, request, jsonify, Response, redirect, url_for
+from dotenv import load_dotenv
+import stripe
 from scraper import scrape_sync
 from scraper_runner import run_scrapers
 from scrapers.base_scraper import request_kill, clear_kill, ScraperKilled
+from scrapers.source_registry import SOURCE_METADATA, UI_COUNTY_SOURCES
 
-# Maps Flask county keys → scraper_runner county names
-# UI key → one or more scraper_runner keys (a single UI selection may fan
+load_dotenv()
+
+# Maps Flask county keys to scraper_runner county names
+# UI key to one or more scraper_runner keys (a single UI selection may fan
 # out into multiple scrapers, e.g. San Diego has separate tax-sale and
 # legal-notice sources).
-COUNTY_SCRAPER_MAP = {
-    "davidson":   ["davidson"],
-    "wilson-tn":  ["wilson"],
-    "williamson": ["williamson"],
-    "rutherford": ["rutherford"],
-    "sumner":     ["sumner"],
-    "robertson":  ["robertson"],
-    "cheatham":   ["cheatham"],
-    "sandiego":   ["sandiego_taxsale", "sandiego_legalnotices"],
-    "losangeles": ["losangeles_legalnotices"],
-    "orange":     ["orange_taxsale", "orange_legalnotices"],
-    "riverside":  ["riverside_legalnotices"],
-}
+COUNTY_SCRAPER_MAP = UI_COUNTY_SOURCES
 
 
 def property_records_to_listings(records: list[dict]) -> list[dict]:
@@ -44,7 +38,7 @@ def property_records_to_listings(records: list[dict]) -> list[dict]:
         if street:
             address = ", ".join(p for p in [street, city, state, zip_code] if p)
         elif parcel:
-            # No street address — use APN so each parcel gets a unique listing
+            # No street address; use APN so each parcel gets a unique listing
             address = ", ".join(p for p in [f"APN {parcel}", city, state, zip_code] if p)
         else:
             address = ", ".join(p for p in [city, state, zip_code] if p)
@@ -60,7 +54,8 @@ def property_records_to_listings(records: list[dict]) -> list[dict]:
         seen.add(key)
 
         amount_str = r.get("amount_owed") or ""
-        bid = int(re.sub(r'[^\d]', '', amount_str)) if amount_str else 0
+        bid_digits = re.sub(r'[^\d]', '', amount_str)
+        bid = int(bid_digits) if bid_digits else 0
 
         record_type = (r.get("record_type") or "").lower()
         if "delinquent" in record_type or "tax" in record_type:
@@ -96,6 +91,7 @@ def property_records_to_listings(records: list[dict]) -> list[dict]:
     return listings
 
 app = Flask(__name__)
+stripe.api_key = os.getenv("STRIPE_SECRET_KEY", "")
 scrape_status = {
     "running": False,
     "last": None,
@@ -109,8 +105,23 @@ scrape_status = {
 scrape_control = {"thread": None, "stop_event": None}
 listing_lock = threading.Lock()
 
-DATA_FILE = 'listings.json'
-SETTINGS_FILE = 'settings.json'
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+IS_VERCEL = bool(os.getenv("VERCEL") or os.getenv("VERCEL_ENV"))
+
+def _runtime_data_file(filename):
+    """Use /tmp on Vercel (writable), project files locally."""
+    if not IS_VERCEL:
+        return os.path.join(BASE_DIR, filename)
+    runtime_dir = "/tmp/foreclosure-app"
+    os.makedirs(runtime_dir, exist_ok=True)
+    runtime_file = os.path.join(runtime_dir, filename)
+    bundled_file = os.path.join(BASE_DIR, filename)
+    if not os.path.exists(runtime_file) and os.path.exists(bundled_file):
+        shutil.copyfile(bundled_file, runtime_file)
+    return runtime_file
+
+DATA_FILE = _runtime_data_file('listings.json')
+SETTINGS_FILE = _runtime_data_file('settings.json')
 DEFAULT_SOURCES = {
     "include_tax_records": True,
     "include_hud": True,
@@ -119,7 +130,7 @@ DEFAULT_SOURCES = {
 
 def load_json(file, default):
     if os.path.exists(file):
-        with open(file, 'r') as f:
+        with open(file, 'r', encoding='utf-8-sig') as f:
             try:
                 return json.load(f)
             except json.JSONDecodeError:
@@ -127,27 +138,91 @@ def load_json(file, default):
     return default
 
 def save_json(file, data):
-    with open(file, 'w') as f:
-        json.dump(data, f, indent=4)
+    with open(file, 'w', encoding='utf-8') as f:
+        json.dump(data, f, indent=4, ensure_ascii=False)
 
 def merge_listings(existing, incoming):
     merged = list(existing)
     seen = {str(item.get("id")) for item in merged if item.get("id") is not None}
+    by_parcel_date = {}
+    for idx, item in enumerate(merged):
+        parcel_key = _parcel_date_key(item)
+        if parcel_key:
+            by_parcel_date.setdefault(parcel_key, idx)
+    added = 0
     for item in incoming:
         item_id = str(item.get("id"))
-        if item_id and item_id not in seen:
+        existing_idx = None
+        if item_id and item_id in seen:
+            existing_idx = next((i for i, old in enumerate(merged) if str(old.get("id")) == item_id), None)
+        parcel_key = _parcel_date_key(item)
+        if existing_idx is None and parcel_key in by_parcel_date:
+            existing_idx = by_parcel_date[parcel_key]
+
+        if existing_idx is not None:
+            _upgrade_listing(merged[existing_idx], item)
+        elif item_id and item_id not in seen:
             merged.append(item)
             seen.add(item_id)
+            if parcel_key:
+                by_parcel_date.setdefault(parcel_key, len(merged) - 1)
+            added += 1
+    return merged, added
+
+def merge_listings_only(existing, incoming):
+    merged, _ = merge_listings(existing, incoming)
     return merged
+
+def _parcel_date_key(item):
+    parcel = re.sub(r"\D", "", str(item.get("parcel_id") or ""))
+    county = str(item.get("county") or "").lower().strip()
+    date_value = str(item.get("sale_date") or item.get("date") or "").strip()
+    if not parcel or not county:
+        return ""
+    return f"{county}|{parcel}|{date_value}"
+
+def _upgrade_listing(existing, incoming):
+    """Keep existing lead identity, but fill in better data from newer scrapes."""
+    for key, value in incoming.items():
+        if value in (None, ""):
+            continue
+        old = existing.get(key)
+        if old in (None, ""):
+            existing[key] = value
+            continue
+        if key in {"address", "street", "city", "zip"}:
+            old_text = str(old)
+            new_text = str(value)
+            if old_text.startswith("APN ") and not new_text.startswith("APN "):
+                existing[key] = value
+            elif key == "address" and len(new_text) > len(old_text) and "APN " not in new_text:
+                existing[key] = value
+    return existing
+
+def source_result(source_key, raw_count, kept_count, new_count, status, note=""):
+    meta = SOURCE_METADATA.get(source_key, {})
+    return {
+        "count": new_count,
+        "new": new_count,
+        "kept": kept_count,
+        "raw": raw_count,
+        "duplicates": max(0, kept_count - new_count),
+        "status": status,
+        "note": note,
+        "label": meta.get("label", source_key),
+        "region": meta.get("region", ""),
+        "source_type": meta.get("source_type", ""),
+        "source_url": meta.get("source_url", ""),
+    }
 
 def prioritize_counties(counties, sources):
     if not sources.get("include_tax_records"):
         return counties
-    tax_first = ["davidson", "wilson-tn"]
+    tax_first = []
     return sorted(counties, key=lambda county: 0 if county in tax_first else 1)
 
 def normalize_settings(settings):
-    settings.setdefault("counties", ["miami-dade", "davidson", "wilson-tn"])
+    settings.setdefault("counties", ["chatham-ga", "glynn-ga", "camden-ga", "duval-fl", "stjohns-fl", "nassau-fl"])
     settings.setdefault("lookback_days", 30)
     settings["sources"] = {**DEFAULT_SOURCES, **settings.get("sources", {})}
     return settings
@@ -159,6 +234,24 @@ def obfuscate_address(address):
     return "Address Hidden"
 
 _ADDR_PARSE_RE = re.compile(r'^(.*?),\s*([A-Za-z\.\- ]+),\s*([A-Z]{2})(?:\s+(\d{5}))?\s*$')
+_GARBLED_MARKERS = {
+    "\xc3\xa2\xe2\x82\xac\xe2\x80\x9d",
+    "\xc3\xa2\xe2\x82\xac\xe2\x80\x9c",
+    "\xc3\xa2\xe2\x82\xac",
+    "\xc3\x83\xc2\xa2\xc3\xa2\xe2\x80\x9a\xc2\xac\xc3\xa2\xe2\x82\xac\xc2\x9d",
+    "\xc3\x83\xc2\xa2\xc3\xa2\xe2\x80\x9a\xc2\xac\xc3\xa2\xe2\x82\xac\xc5\x93",
+    "\xc3\x82",
+}
+
+def _clean_text(v):
+    if v is None:
+        return ""
+    if not isinstance(v, str):
+        return v
+    s = v.strip()
+    if s in _GARBLED_MARKERS:
+        return ""
+    return s
 
 def _backfill_fields(item):
     """For old listings missing city/state/zip, parse from the address string."""
@@ -171,13 +264,21 @@ def _backfill_fields(item):
             if not item.get('city'):  item['city']  = city.strip()
             if not item.get('state'): item['state'] = state.strip()
             if not item.get('zip'):   item['zip']   = (zip_code or '').strip()
-    # Ensure all keys exist (None → '') so template doesn't crash
+    # Ensure all keys exist so the templates do not crash on older listings.
     for k in ['city','state','zip','owner','parcel_id','case_number',
               'amount_owed','sale_date','scraped_date','county','link',
               'bid','record_type','street']:
         if item.get(k) is None:
             item[k] = '' if k != 'bid' else 0
+        elif k != 'bid':
+            item[k] = _clean_text(item[k])
     return item
+
+def _listing_price_cents(item):
+    try:
+        return max(0, int(round(float(item.get("price", 5)) * 100)))
+    except (TypeError, ValueError):
+        return 500
 
 @app.route('/')
 def index():
@@ -192,7 +293,75 @@ def index():
 @app.route('/admin')
 def admin():
     settings = load_json(SETTINGS_FILE, {"counties": [], "lookback_days": 30})
-    return render_template('admin.html', settings=settings)
+    source_cards = sorted(
+        SOURCE_METADATA.values(),
+        key=lambda s: (s.get("region", ""), s.get("label", "")),
+    )
+    return render_template('admin.html', settings=settings, source_cards=source_cards)
+
+@app.route('/admin/<path:bad_path>')
+def admin_bad_link_redirect(bad_path):
+    """Recover from older Data Explorer links that missed the /data? route."""
+    if bad_path.startswith("-file="):
+        query = bad_path.replace("-file=", "file=", 1)
+        return redirect(f"{url_for('admin_data')}?{query}", code=302)
+    return "Not Found", 404
+
+@app.route('/api/create-checkout-session', methods=['POST'])
+def create_checkout_session():
+    if not stripe.api_key:
+        return jsonify({
+            "error": "Stripe is not configured. Set STRIPE_SECRET_KEY and restart the app."
+        }), 500
+
+    payload = request.get_json(silent=True) or {}
+    selected_ids = {str(lead_id) for lead_id in payload.get("lead_ids", [])}
+    if not selected_ids:
+        return jsonify({"error": "Select at least one lead first."}), 400
+
+    listings = load_json(DATA_FILE, [])
+    selected = [item for item in listings if str(item.get("id")) in selected_ids]
+    if not selected:
+        return jsonify({"error": "Selected leads were not found."}), 400
+
+    total_cents = sum(_listing_price_cents(item) for item in selected)
+    if total_cents <= 0:
+        return jsonify({"error": "Selected leads do not have a valid price."}), 400
+
+    origin = request.host_url.rstrip("/")
+    try:
+        session = stripe.checkout.Session.create(
+            mode="payment",
+            payment_method_types=["card"],
+            line_items=[{
+                "price_data": {
+                    "currency": "usd",
+                    "product_data": {
+                        "name": f"{len(selected)} foreclosure lead(s)",
+                    },
+                    "unit_amount": total_cents,
+                },
+                "quantity": 1,
+            }],
+            metadata={
+                "lead_count": str(len(selected)),
+                "lead_ids": ",".join(str(item.get("id")) for item in selected)[:500],
+            },
+            success_url=f"{origin}/checkout/success-session_id={{CHECKOUT_SESSION_ID}}",
+            cancel_url=f"{origin}/checkout/cancel",
+        )
+    except stripe.error.StripeError as exc:
+        return jsonify({"error": str(exc)}), 502
+
+    return jsonify({"url": session.url})
+
+@app.route('/checkout/success')
+def checkout_success():
+    return render_template('checkout_status.html', title="Payment complete", message="Payment complete. Your lead purchase was received.")
+
+@app.route('/checkout/cancel')
+def checkout_cancel():
+    return render_template('checkout_status.html', title="Checkout canceled", message="Checkout was canceled. Your selected leads were not charged.")
 
 DATA_DIR = os.path.join(os.path.dirname(__file__), 'data')
 CSV_FIELDNAMES = [
@@ -211,8 +380,27 @@ CSV_LABELS = {
 
 def _list_csv_files():
     import glob
-    files = sorted(glob.glob(os.path.join(DATA_DIR, '*.csv')), reverse=True)
+    files = sorted(
+        glob.glob(os.path.join(DATA_DIR, '*.csv')),
+        key=lambda p: os.path.getmtime(p),
+        reverse=True,
+    )
     return [os.path.basename(f) for f in files]
+
+def _write_scrape_csv(source_key, records):
+    if not records:
+        return ""
+    os.makedirs(DATA_DIR, exist_ok=True)
+    stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    safe_key = re.sub(r"[^A-Za-z0-9_.-]+", "_", source_key)
+    filename = f"{safe_key}_{stamp}.csv"
+    path = os.path.join(DATA_DIR, filename)
+    with open(path, "w", newline="", encoding="utf-8") as f:
+        writer = csv.DictWriter(f, fieldnames=CSV_FIELDNAMES)
+        writer.writeheader()
+        for record in records:
+            writer.writerow({field: record.get(field, "") for field in CSV_FIELDNAMES})
+    return filename
 
 def _load_csv_rows(filename):
     path = os.path.join(DATA_DIR, filename)
@@ -289,6 +477,16 @@ def update_settings():
     save_json(SETTINGS_FILE, settings)
     return jsonify({"status": "success"})
 
+@app.route('/api/sources')
+def sources_json():
+    return jsonify({
+        "sources": sorted(
+            SOURCE_METADATA.values(),
+            key=lambda s: (s.get("region", ""), s.get("label", "")),
+        ),
+        "county_sources": COUNTY_SCRAPER_MAP,
+    })
+
 @app.route('/api/scrape', methods=['POST'])
 def run_scraper():
     if scrape_status["running"]:
@@ -296,7 +494,7 @@ def run_scraper():
 
     payload = request.get_json(silent=True) or {}
     settings = normalize_settings(load_json(SETTINGS_FILE, {}))
-    counties = payload.get("counties") or settings.get("counties") or ["miami-dade", "harris", "fulton"]
+    counties = payload.get("counties") or settings.get("counties") or ["chatham-ga", "glynn-ga", "camden-ga", "duval-fl", "stjohns-fl", "nassau-fl"]
     lookback = int(payload.get("lookback_days", settings.get("lookback_days", 30)))
     lookback = max(1, min(365, lookback))
     sources = {
@@ -330,11 +528,12 @@ def run_scraper():
         def save_batch(batch):
             with listing_lock:
                 current = load_json(DATA_FILE, [])
-                merged = merge_listings(current, batch)
+                merged, added = merge_listings(current, batch)
                 save_json(DATA_FILE, merged)
                 scrape_status["count"] = len(merged)
                 scrape_status["updated_at"] = datetime.now().isoformat(timespec="seconds")
-                scrape_status["last"] = f"saved {len(batch)} new listing(s)"
+                scrape_status["last"] = f"saved {added} new listing(s)"
+                return added
 
         def update_progress(message):
             scrape_status["current_step"] = message
@@ -344,7 +543,7 @@ def run_scraper():
         try:
             scrape_status["scraper_results"] = {}
 
-            # ── Phase 1: Tax delinquency PDFs via scrapers/ ──────────────────
+            # Phase 1: Tax delinquency PDFs via scrapers/
             if sources.get("include_tax_records") and not stop_event.is_set():
                 scraper_counties = [
                     sk for c in counties if c in COUNTY_SCRAPER_MAP
@@ -358,31 +557,27 @@ def run_scraper():
                         update_progress(f"Scraping: {sk}")
                         try:
                             recs = run_scrapers([sk])
+                            csv_file = _write_scrape_csv(sk, recs)
                             listings = property_records_to_listings(recs)
                             real = [r for r in recs if r.get("owner_name") or r.get("parcel_id") or r.get("property_address")]
                             stub_only = len(real) == 0
-                            scrape_status["scraper_results"][sk] = {
-                                "count": len(listings),
-                                "raw": len(recs),
-                                "status": "empty" if stub_only else "ok",
-                                "note": "stub/portal link only" if stub_only else f"{len(listings)} leads",
-                            }
-                            if listings:
-                                save_batch(listings)
+                            new_count = save_batch(listings) if listings else 0
+                            status = "empty" if stub_only else "ok"
+                            note = "stub/portal link only" if stub_only else f"{new_count} new / {len(listings)} kept / {len(recs)} raw"
+                            if csv_file:
+                                note += f" / CSV: {csv_file}"
+                            scrape_status["scraper_results"][sk] = source_result(
+                                sk, len(recs), len(listings), new_count, status, note
+                            )
                         except ScraperKilled:
-                            scrape_status["scraper_results"][sk] = {
-                                "count": 0, "raw": 0, "status": "error",
-                                "note": "killed mid-run",
-                            }
+                            scrape_status["scraper_results"][sk] = source_result(sk, 0, 0, 0, "error", "killed mid-run")
                             update_progress(f"{sk} killed mid-run")
                             break  # exit the per-scraper loop entirely
                         except Exception as e:
-                            scrape_status["scraper_results"][sk] = {
-                                "count": 0, "raw": 0, "status": "error", "note": str(e)[:120]
-                            }
+                            scrape_status["scraper_results"][sk] = source_result(sk, 0, 0, 0, "error", str(e)[:120])
                             update_progress(f"Error scraping {sk}: {e}")
 
-            # ── Phase 2: HUD + HomePath REO via scraper.py ───────────────────
+            # Phase 2: HUD + HomePath REO via scraper.py
             if not stop_event.is_set():
                 p2_before = scrape_status["count"]
                 results = scrape_sync(
@@ -396,7 +591,7 @@ def run_scraper():
                 if results:
                     with listing_lock:
                         current = load_json(DATA_FILE, [])
-                        merged = merge_listings(current, results)
+                        merged, _ = merge_listings(current, results)
                         save_json(DATA_FILE, merged)
                         scrape_status["count"] = len(merged)
                 p2_count = scrape_status["count"] - p2_before
@@ -470,3 +665,4 @@ def listings_csv():
 if __name__ == '__main__':
     print("Foreclosure Scraper running at http://127.0.0.1:8095")
     app.run(host='127.0.0.1', port=8095, debug=False, use_reloader=False)
+
