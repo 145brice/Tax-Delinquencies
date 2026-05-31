@@ -39,8 +39,55 @@ python scraper_runner.py
 
 # 4. Start the admin portal
 python app.py
-# Open http://localhost:5000
+# Open http://localhost:8095
 ```
+
+## Production Setup: Vercel UI + Python Worker
+
+Vercel is good for the storefront/admin UI, but it is not a good home for
+long-running scrapers. The recommended production setup is:
+
+1. Deploy this repo to Vercel for the public app.
+2. Deploy this same repo to a long-running Python host for scraping
+   (Render, Railway, Fly.io, or a VPS).
+3. Point Vercel at the worker with environment variables.
+
+### Worker Service
+
+Use this start command on the worker host:
+
+```bash
+gunicorn worker:app --workers 1 --threads 4 --timeout 900
+```
+
+Or use the included `Procfile` on hosts that detect it automatically.
+
+Set this environment variable on the worker:
+
+```bash
+WORKER_TOKEN=choose_a_long_random_secret
+```
+
+The worker keeps the full lead data and runs the slow scraping process.
+
+### Vercel
+
+Set these environment variables on Vercel:
+
+```bash
+SCRAPER_WORKER_URL=https://your-worker-service.example.com
+SCRAPER_WORKER_TOKEN=the_same_long_random_secret
+```
+
+With those set, the Vercel app:
+
+- Renders the storefront from the worker's latest results
+- Forwards Run Scraper / Stop / Status calls to the worker
+- Redirects Data Explorer to the worker so it can show worker-side CSVs
+- Keeps scraper jobs out of Vercel's serverless timeout limits
+
+Do not set `SCRAPER_WORKER_URL` on the worker itself. That variable is only
+for the Vercel UI side.
 
 ## Scraper CLI Usage
 
@@ -56,6 +103,9 @@ python scraper_runner.py --county sandiego_taxsale sandiego_legalnotices
 
 # Custom output path
 python scraper_runner.py --output my_output.csv
+
+# Respect the same search-depth concept used by the admin slider
+python scraper_runner.py --county riverside_legalnotices --lookback-days 90
 ```
 
 ## Admin Portal Features

@@ -9,6 +9,7 @@ import shutil
 from datetime import datetime
 from flask import Flask, render_template, request, jsonify, Response, redirect, url_for
 from dotenv import load_dotenv
+import requests
 import stripe
 from scraper import scrape_sync
 from scraper_runner import run_scrapers
@@ -92,6 +93,9 @@ def property_records_to_listings(records: list[dict]) -> list[dict]:
 
 app = Flask(__name__)
 stripe.api_key = os.getenv("STRIPE_SECRET_KEY", "")
+SCRAPER_WORKER_URL = os.getenv("SCRAPER_WORKER_URL", "").rstrip("/")
+SCRAPER_WORKER_TOKEN = os.getenv("SCRAPER_WORKER_TOKEN", "")
+WORKER_TOKEN = os.getenv("WORKER_TOKEN", "")
 scrape_status = {
     "running": False,
     "last": None,
@@ -107,6 +111,57 @@ listing_lock = threading.Lock()
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 IS_VERCEL = bool(os.getenv("VERCEL") or os.getenv("VERCEL_ENV"))
+USE_REMOTE_WORKER = bool(SCRAPER_WORKER_URL)
+
+def _auth_headers():
+    return {"X-Scraper-Token": SCRAPER_WORKER_TOKEN} if SCRAPER_WORKER_TOKEN else {}
+
+def _worker_enabled_response():
+    return {
+        "remote_worker": USE_REMOTE_WORKER,
+        "worker_url": SCRAPER_WORKER_URL if USE_REMOTE_WORKER else "",
+    }
+
+def _worker_request(method, path, **kwargs):
+    if not SCRAPER_WORKER_URL:
+        return None
+    headers = kwargs.pop("headers", {})
+    headers.update(_auth_headers())
+    return requests.request(
+        method,
+        f"{SCRAPER_WORKER_URL}{path}",
+        headers=headers,
+        timeout=kwargs.pop("timeout", 20),
+        **kwargs,
+    )
+
+def _authorized_worker_request():
+    if not WORKER_TOKEN:
+        return True
+    return request.headers.get("X-Scraper-Token") == WORKER_TOKEN
+
+def _authorized_raw_data_request():
+    expected = WORKER_TOKEN or (SCRAPER_WORKER_TOKEN if USE_REMOTE_WORKER else "")
+    if not expected:
+        return True
+    return request.headers.get("X-Scraper-Token") == expected
+
+def _remote_listings():
+    if not USE_REMOTE_WORKER:
+        return None
+    try:
+        resp = _worker_request("GET", "/api/listings", timeout=20)
+        resp.raise_for_status()
+        data = resp.json()
+        return data.get("listings", [])
+    except Exception:
+        return None
+
+def current_listings():
+    listings = _remote_listings()
+    if listings is not None:
+        return listings
+    return load_json(DATA_FILE, [])
 
 def _runtime_data_file(filename):
     """Use /tmp on Vercel (writable), project files locally."""
@@ -282,7 +337,7 @@ def _listing_price_cents(item):
 
 @app.route('/')
 def index():
-    listings = load_json(DATA_FILE, [])
+    listings = current_listings()
     display_listings = []
     for item in listings:
         masked_item = _backfill_fields(item.copy())
@@ -319,7 +374,7 @@ def create_checkout_session():
     if not selected_ids:
         return jsonify({"error": "Select at least one lead first."}), 400
 
-    listings = load_json(DATA_FILE, [])
+    listings = current_listings()
     selected = [item for item in listings if str(item.get("id")) in selected_ids]
     if not selected:
         return jsonify({"error": "Selected leads were not found."}), 400
@@ -414,6 +469,11 @@ def _load_csv_rows(filename):
 
 @app.route('/admin/data')
 def admin_data():
+    if USE_REMOTE_WORKER and request.args.get("local") != "1":
+        query = request.query_string.decode("utf-8")
+        suffix = f"?{query}" if query else ""
+        return redirect(f"{SCRAPER_WORKER_URL}/admin/data{suffix}", code=302)
+
     files = _list_csv_files()
     settings = normalize_settings(load_json(SETTINGS_FILE, {}))
     selected = request.args.get('file', '') or (files[0] if files else '')
@@ -469,7 +529,7 @@ def admin_data_download():
 
 @app.route('/csv-dash')
 def csv_dash():
-    listings = load_json(DATA_FILE, [])
+    listings = current_listings()
     settings = normalize_settings(load_json(SETTINGS_FILE, {}))
     return render_template('csv_dash.html', listings=listings, settings=settings)
 
@@ -491,6 +551,16 @@ def sources_json():
 
 @app.route('/api/scrape', methods=['POST'])
 def run_scraper():
+    if not _authorized_worker_request():
+        return jsonify({"status": "unauthorized"}), 401
+
+    if USE_REMOTE_WORKER:
+        try:
+            resp = _worker_request("POST", "/api/scrape", json=request.get_json(silent=True) or {}, timeout=20)
+            return Response(resp.content, status=resp.status_code, content_type=resp.headers.get("content-type"))
+        except Exception as e:
+            return jsonify({"status": "worker_error", "error": str(e)}), 502
+
     if scrape_status["running"]:
         return jsonify({"status": "already_running"})
 
@@ -617,10 +687,21 @@ def run_scraper():
     t.daemon = True
     scrape_control["thread"] = t
     t.start()
-    return jsonify({"status": "started", "counties": counties, "lookback_days": lookback})
+    return jsonify({"status": "started", "counties": counties, "lookback_days": lookback, **_worker_enabled_response()})
 
 @app.route('/api/scrape/stop', methods=['POST'])
 def stop_scraper():
+    if not _authorized_worker_request():
+        return jsonify({"status": "unauthorized"}), 401
+
+    if USE_REMOTE_WORKER:
+        suffix = "?force=true" if request.args.get("force") == "true" else ""
+        try:
+            resp = _worker_request("POST", f"/api/scrape/stop{suffix}", json=request.get_json(silent=True) or {}, timeout=20)
+            return Response(resp.content, status=resp.status_code, content_type=resp.headers.get("content-type"))
+        except Exception as e:
+            return jsonify({"status": "worker_error", "error": str(e)}), 502
+
     if not scrape_status["running"]:
         return jsonify({"status": "not_running"})
     force = (request.args.get("force") == "true" or
@@ -638,18 +719,38 @@ def stop_scraper():
 
 @app.route('/api/scrape/status')
 def scrape_status_check():
-    return jsonify(scrape_status)
+    if USE_REMOTE_WORKER:
+        try:
+            resp = _worker_request("GET", "/api/scrape/status", timeout=20)
+            return Response(resp.content, status=resp.status_code, content_type=resp.headers.get("content-type"))
+        except Exception as e:
+            return jsonify({"running": False, "last": f"worker_error: {e}", **_worker_enabled_response()}), 502
+    return jsonify({**scrape_status, **_worker_enabled_response()})
 
 @app.route('/api/listings')
 def listings_json():
+    if not _authorized_raw_data_request():
+        return jsonify({"status": "unauthorized"}), 401
+
+    if USE_REMOTE_WORKER:
+        try:
+            resp = _worker_request("GET", "/api/listings", timeout=20)
+            return Response(resp.content, status=resp.status_code, content_type=resp.headers.get("content-type"))
+        except Exception as e:
+            return jsonify({"count": 0, "listings": [], "error": str(e), **_worker_enabled_response()}), 502
     with listing_lock:
         listings = load_json(DATA_FILE, [])
-    return jsonify({"count": len(listings), "listings": listings})
+    return jsonify({"count": len(listings), "listings": listings, **_worker_enabled_response()})
 
 @app.route('/api/listings.csv')
 def listings_csv():
-    with listing_lock:
-        listings = load_json(DATA_FILE, [])
+    if not _authorized_raw_data_request():
+        return jsonify({"status": "unauthorized"}), 401
+
+    listings = _remote_listings()
+    if listings is None:
+        with listing_lock:
+            listings = load_json(DATA_FILE, [])
     output = io.StringIO()
     fieldnames = ["id", "address", "status", "price", "bid", "date", "county", "link", "source"]
     writer = csv.DictWriter(output, fieldnames=fieldnames)
@@ -665,6 +766,8 @@ def listings_csv():
     )
 
 if __name__ == '__main__':
-    print("Foreclosure Scraper running at http://127.0.0.1:8095")
-    app.run(host='127.0.0.1', port=8095, debug=False, use_reloader=False)
+    host = os.getenv("HOST", "127.0.0.1")
+    port = int(os.getenv("PORT", "8095"))
+    print(f"Foreclosure app running at http://{host}:{port}")
+    app.run(host=host, port=port, debug=False, use_reloader=False)
 
