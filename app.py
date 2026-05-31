@@ -205,6 +205,19 @@ def _is_publishable_listing(item):
     address = str(item.get("address") or "").strip()
     if len(address) < 8:
         return False
+    owner = _storefront_owner(item)
+    if not owner or "not listed" in owner.lower() or owner.lower() == "seller not listed":
+        return False
+    date_value = str(item.get("sale_date") or item.get("scraped_date") or item.get("date") or "").strip()
+    if not date_value:
+        return False
+    amount_value = str(item.get("amount_owed") or "").strip()
+    try:
+        bid_value = int(float(str(item.get("bid") or "0").replace(",", "")))
+    except ValueError:
+        bid_value = 0
+    if not amount_value and bid_value <= 0:
+        return False
     return True
 
 def publishable_storefront_listings(listings):
@@ -228,6 +241,44 @@ def _storefront_owner(item):
         return "Seller not listed"
     return ""
 
+def _source_listing_id(item):
+    link = str(item.get("link") or "").strip().rstrip("/")
+    if not link:
+        return ""
+    tail = link.rsplit("/", 1)[-1]
+    return tail if tail and tail not in {"hudhomestore.gov", "homepath.fanniemae.com"} else ""
+
+def _storefront_display_row(item):
+    public_item = _backfill_fields(dict(item))
+    status = str(public_item.get("status") or public_item.get("record_type") or "").lower()
+    source = str(public_item.get("source") or "").lower()
+    source_id = _source_listing_id(public_item)
+
+    public_item["owner"] = _storefront_owner(public_item)
+    public_item["scraped_date"] = public_item.get("scraped_date") or public_item.get("date")
+
+    if not public_item.get("amount_owed"):
+        try:
+            bid_value = int(float(str(public_item.get("bid") or "0").replace(",", "")))
+        except ValueError:
+            bid_value = 0
+        if bid_value > 0:
+            public_item["amount_owed"] = f"${bid_value:,}"
+
+    if "homepath" in source or "hud" in source:
+        public_item["parcel_id"] = public_item.get("parcel_id") or source_id or "REO listing"
+        public_item["case_number"] = public_item.get("case_number") or ""
+        public_item["sale_date"] = public_item.get("sale_date") or public_item.get("date") or public_item.get("scraped_date")
+    elif "tax" in status:
+        public_item["sale_date"] = public_item.get("sale_date") or public_item.get("date") or public_item.get("scraped_date")
+    elif "foreclosure" in status:
+        public_item["sale_date"] = public_item.get("sale_date") or public_item.get("date") or public_item.get("scraped_date")
+
+    if public_item.get("address"):
+        public_item["address"] = obfuscate_address(str(public_item["address"]))
+    public_item["street"] = ""
+    return public_item
+
 def _read_storefront_csv(default):
     if not os.path.exists(STOREFRONT_CSV):
         return default
@@ -250,11 +301,7 @@ def export_storefront_csv(listings):
         writer = csv.DictWriter(f, fieldnames=STOREFRONT_FIELDS)
         writer.writeheader()
         for item in rows:
-            public_item = _backfill_fields(dict(item))
-            public_item["owner"] = _storefront_owner(public_item)
-            if public_item.get("address"):
-                public_item["address"] = obfuscate_address(str(public_item["address"]))
-            public_item["street"] = ""
+            public_item = _storefront_display_row(item)
             writer.writerow({field: public_item.get(field, "") for field in STOREFRONT_FIELDS})
     return STOREFRONT_CSV
 
