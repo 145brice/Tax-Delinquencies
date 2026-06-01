@@ -183,7 +183,7 @@
         &#128722; <strong id="cart-count">0</strong> leads selected
         &nbsp;|&nbsp; Total: <strong>$<span id="cart-total">0</span></strong>
     </div>
-    <button class="btn-checkout" onclick="window.location.href='https://buy.stripe.com/7sY8wPcn7eGU0YTfBJ9Zm00'">Checkout &rarr;</button>
+    <button class="btn-checkout" onclick="checkout()">Checkout &rarr;</button>
 </div>
 
 <div class="toolbar">
@@ -437,10 +437,24 @@
         document.getElementById('cart-total').innerText = total;
     }
     async function checkout() {
-        const n = parseInt(document.getElementById('cart-count').innerText);
-        if (!n) return alert('Select at least one lead first.');
+        const checked = [...document.querySelectorAll('.lead-cb:checked')];
+        if (!checked.length) return alert('Select at least one lead first.');
 
-        window.location.href = 'https://buy.stripe.com/7sY8wPcn7eGU0YTfBJ9Zm00';
+        const lead_ids = checked.map(cb => cb.dataset.id);
+        try {
+            const resp = await fetch('/api/create-checkout-session', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ lead_ids })
+            });
+            const data = await resp.json();
+            if (!resp.ok || !data.url) {
+                return alert(data.error || 'Could not start checkout. Please try again.');
+            }
+            window.location.href = data.url;
+        } catch (err) {
+            alert('Could not reach checkout. Please try again.');
+        }
     }</script>
 </body>
 </html>
