@@ -521,8 +521,8 @@ def admin_bad_link_redirect(bad_path):
 def create_checkout_session():
     if not stripe.api_key:
         return jsonify({
-            "error": "Stripe is not configured. Set STRIPE_SECRET_KEY and restart the app."
-        }), 500
+            "url": "https://buy.stripe.com/7sY8wPcn7eGU0YTfBJ9Zm00"
+        })
 
     payload = request.get_json(silent=True) or {}
     selected_ids = {str(lead_id) for lead_id in payload.get("lead_ids", [])}
