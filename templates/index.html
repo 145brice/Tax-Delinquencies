@@ -440,21 +440,7 @@
         const n = parseInt(document.getElementById('cart-count').innerText);
         if (!n) return alert('Select at least one lead first.');
 
-        const leadIds = [...document.querySelectorAll('.lead-cb:checked')]
-            .map(cb => cb.dataset.id);
-
-        try {
-            const res = await fetch('/api/create-checkout-session', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ lead_ids: leadIds }),
-            });
-            const data = await res.json();
-            if (!res.ok) throw new Error(data.error || 'Checkout failed.');
-            window.location.href = data.url;
-        } catch (err) {
-            alert(err.message);
-        }
+        window.location.href = 'https://buy.stripe.com/7sY8wPcn7eGU0YTfBJ9Zm00';
     }</script>
 </body>
 </html>
