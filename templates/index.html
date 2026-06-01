@@ -183,7 +183,7 @@
         &#128722; <strong id="cart-count">0</strong> leads selected
         &nbsp;|&nbsp; Total: <strong>$<span id="cart-total">0</span></strong>
     </div>
-    <button class="btn-checkout" onclick="checkout()">Checkout &rarr;</button>
+    <button class="btn-checkout" onclick="window.location.href='https://buy.stripe.com/7sY8wPcn7eGU0YTfBJ9Zm00'">Checkout &rarr;</button>
 </div>
 
 <div class="toolbar">
@@ -222,10 +222,10 @@
             <th data-sort="owner">Owner</th>
             <th data-sort="parcel_id">Parcel/APN</th>
             <th data-sort="case_number">Case#</th>
-            <th data-sort="bid" data-numeric="true">Amount / Value</th>
-            <th data-sort="sale_date">Sale / Record Date</th>
-            <th data-sort="scraped_date">Scraped</th>
-            <th data-sort="price" data-numeric="true">Price</th>
+            <th data-sort="amount" data-type="money">Amount / Value</th>
+            <th data-sort="sale_date" data-type="date">Sale / Record Date</th>
+            <th data-sort="scraped_date" data-type="date">Scraped</th>
+            <th data-sort="price" data-type="money">Price</th>
             <th>Src</th>
         </tr>
     </thead>
@@ -243,6 +243,7 @@
             data-parcel_id="{{ item.parcel_id|lower }}"
             data-case_number="{{ item.case_number|lower }}"
             data-bid="{{ item.bid }}"
+            data-amount="{{ item.amount_owed or item.bid }}"
             data-price="{{ item.price }}"
             data-sale_date="{{ item.sale_date }}"
             data-scraped_date="{{ item.scraped_date }}">
@@ -308,6 +309,10 @@
         'cheatham':'Cheatham TN','san diego':'San Diego CA','los angeles':'Los Angeles CA',
         'orange':'Orange CA','riverside':'Riverside CA','miami-dade':'Miami-Dade FL',
         'harris':'Harris TX','fulton':'Fulton GA','cook':'Cook IL','maricopa':'Maricopa AZ',
+        'san bernardino':'San Bernardino CA','ventura':'Ventura CA',
+        'sacramento':'Sacramento CA','alameda':'Alameda CA','santa clara':'Santa Clara CA',
+        'kern':'Kern CA','fresno':'Fresno CA','contra costa':'Contra Costa CA',
+        'san mateo':'San Mateo CA',
     };
     const countySel = document.getElementById('county-filter');
     [...counties].sort().forEach(c => {
@@ -323,12 +328,45 @@
         stateSel.appendChild(opt);
     });
 
-    // â”€â”€ Sorting â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    // Sorting
+    function moneyValue(value) {
+        const cleaned = String(value || '').replace(/[^0-9.-]/g, '');
+        const parsed = parseFloat(cleaned);
+        return Number.isFinite(parsed) ? parsed : 0;
+    }
+
+    function dateValue(value) {
+        let text = String(value || '').trim();
+        if (!text) return 0;
+
+        const numericRange = text.match(/(\d{1,2})\/(\d{1,2})\s*-\s*\d{1,2}\/\d{1,2}\/(\d{4})/);
+        if (numericRange) text = `${numericRange[1]}/${numericRange[2]}/${numericRange[3]}`;
+
+        const range = text.match(/([A-Za-z]+)\s+(\d{1,2})\s*-\s*[A-Za-z]+\s+\d{1,2},\s+(\d{4})/);
+        if (range) text = `${range[1]} ${range[2]}, ${range[3]}`;
+
+        const ordinal = text.match(/(\d{1,2})(?:st|nd|rd|th)\s+day\s+of\s+([A-Za-z]+),\s+(\d{4})/i);
+        if (ordinal) text = `${ordinal[2]} ${ordinal[1]}, ${ordinal[3]}`;
+
+        const embedded = text.match(/[A-Za-z]+\s+\d{1,2},\s+\d{4}/);
+        if (embedded) text = embedded[0];
+
+        const parsed = Date.parse(text);
+        return Number.isFinite(parsed) ? parsed : 0;
+    }
+
+    function sortValue(row, col, type) {
+        const raw = row.dataset[col] || '';
+        if (type === 'money' || type === 'number') return moneyValue(raw);
+        if (type === 'date') return dateValue(raw);
+        return raw.toLocaleLowerCase();
+    }
+
     let sortCol = null, sortDir = 'asc';
     document.querySelectorAll('th[data-sort]').forEach(th => {
         th.addEventListener('click', () => {
             const col = th.dataset.sort;
-            const isNumeric = th.dataset.numeric === 'true';
+            const type = th.dataset.type || (th.dataset.numeric === 'true' ? 'number' : '');
             if (sortCol === col) {
                 sortDir = sortDir === 'asc' ? 'desc' : 'asc';
             } else {
@@ -339,9 +377,8 @@
 
             const visible = allRows.filter(r => r.style.display !== 'none');
             visible.sort((a, b) => {
-                let av = a.dataset[col] || '';
-                let bv = b.dataset[col] || '';
-                if (isNumeric) { av = parseFloat(av) || 0; bv = parseFloat(bv) || 0; }
+                const av = sortValue(a, col, type);
+                const bv = sortValue(b, col, type);
                 if (av < bv) return sortDir === 'asc' ? -1 : 1;
                 if (av > bv) return sortDir === 'asc' ?  1 : -1;
                 return 0;
@@ -351,7 +388,7 @@
         });
     });
 
-    // â”€â”€ Filtering â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    // Filtering
     function applyFilters() {
         const q = document.getElementById('search-input').value.toLowerCase().trim();
         const fc = document.getElementById('county-filter').value;
@@ -378,7 +415,7 @@
         applyFilters();
     }
 
-    // â”€â”€ Cart â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    // Cart
     function toggleRow(cb) {
         const tr = document.getElementById('row-' + cb.dataset.id);
         tr.classList.toggle('selected', cb.checked);
