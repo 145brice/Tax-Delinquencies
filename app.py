@@ -193,9 +193,62 @@ def _listing_sort_key(item):
 def sort_storefront_listings(listings):
     return sorted((item for item in listings if isinstance(item, dict)), key=_listing_sort_key)
 
+def _money_sort_value(value):
+    cleaned = re.sub(r"[^0-9.-]+", "", str(value or ""))
+    try:
+        return float(cleaned) if cleaned else 0.0
+    except ValueError:
+        return 0.0
+
+def _date_sort_value(value):
+    text = str(value or "").strip()
+    if not text:
+        return (1, datetime.min, "")
+
+    numeric_range = re.search(r"(\d{1,2})/(\d{1,2})\s*-\s*\d{1,2}/\d{1,2}/(\d{4})", text)
+    if numeric_range:
+        text = f"{numeric_range.group(1)}/{numeric_range.group(2)}/{numeric_range.group(3)}"
+
+    month_range = re.search(r"([A-Za-z]+)\s+(\d{1,2})\s*-\s*[A-Za-z]+\s+\d{1,2},\s+(\d{4})", text)
+    if month_range:
+        text = f"{month_range.group(1)} {month_range.group(2)}, {month_range.group(3)}"
+
+    ordinal = re.search(r"(\d{1,2})(?:st|nd|rd|th)\s+day\s+of\s+([A-Za-z]+),\s+(\d{4})", text, re.I)
+    if ordinal:
+        text = f"{ordinal.group(2)} {ordinal.group(1)}, {ordinal.group(3)}"
+
+    embedded = re.search(r"[A-Za-z]+\s+\d{1,2},\s+\d{4}", text)
+    if embedded:
+        text = embedded.group(0)
+
+    for fmt in ("%Y-%m-%d", "%m/%d/%Y", "%B %d, %Y", "%b %d, %Y"):
+        try:
+            return (0, datetime.strptime(text, fmt), "")
+        except ValueError:
+            pass
+    return (1, datetime.min, text.lower())
+
+def _csv_sort_value(row, column):
+    if column in {"amount_owed"}:
+        return _money_sort_value(row.get("amount_owed") or row.get("bid") or "")
+    if column in {"sale_date", "scraped_date"}:
+        return _date_sort_value(
+            row.get(column) or row.get("date") or row.get("scraped_date") or row.get("sale_date") or ""
+        )
+    value = row.get(column, "")
+    if column == "owner_name":
+        value = value or row.get("owner", "")
+    elif column == "property_address":
+        value = value or row.get("address", "")
+    elif column == "source_url":
+        value = value or row.get("link", "")
+    return str(value or "").lower()
+
 def _is_publishable_listing(item):
     if not isinstance(item, dict):
         return False
+    # Keep real scraped/source rows even when a county source does not expose
+    # owner, amount, or sale-date details. Only exclude known demos and blanks.
     if str(item.get("id") or "").strip() in {"1", "2", "3"}:
         return False
     if not str(item.get("county") or "").strip():
@@ -204,19 +257,6 @@ def _is_publishable_listing(item):
         return False
     address = str(item.get("address") or "").strip()
     if len(address) < 8:
-        return False
-    owner = _storefront_owner(item)
-    if not owner or "not listed" in owner.lower() or owner.lower() == "seller not listed":
-        return False
-    date_value = str(item.get("sale_date") or item.get("scraped_date") or item.get("date") or "").strip()
-    if not date_value:
-        return False
-    amount_value = str(item.get("amount_owed") or "").strip()
-    try:
-        bid_value = int(float(str(item.get("bid") or "0").replace(",", "")))
-    except ValueError:
-        bid_value = 0
-    if not amount_value and bid_value <= 0:
         return False
     return True
 
@@ -487,12 +527,11 @@ def _listing_price_cents(item):
 
 @app.route('/')
 def index():
-    listings = current_listings()
+    listings = publishable_storefront_listings(current_listings())
     display_listings = []
     for item in listings:
-        masked_item = _backfill_fields(item.copy())
-        masked_item["owner"] = _storefront_owner(masked_item)
-        masked_item['display_address'] = obfuscate_address(item['address'])
+        masked_item = _storefront_display_row(item)
+        masked_item['display_address'] = masked_item.get("address") or obfuscate_address(item.get('address', ''))
         display_listings.append(masked_item)
     return render_template('index.html', listings=display_listings, storefront_only=STOREFRONT_ONLY)
 
@@ -573,6 +612,14 @@ def checkout_success():
 def checkout_cancel():
     return render_template('checkout_status.html', title="Checkout canceled", message="Checkout was canceled. Your selected leads were not charged.")
 
+@app.route('/api/stripe-status')
+def stripe_status():
+    key = stripe.api_key or ""
+    return jsonify({
+        "stripe_configured": bool(key),
+        "key_prefix": (key[:8] if key else None),
+    })
+
 CSV_FIELDNAMES = [
     "county", "record_type", "owner_name", "property_address", "city",
     "state", "zip_code", "parcel_id", "tax_year", "amount_owed",
@@ -646,7 +693,7 @@ def admin_data():
         rows = [r for r in rows if any(filter_q in str(v).lower() for v in r.values())]
 
     if sort_col in CSV_FIELDNAMES:
-        rows = sorted(rows, key=lambda r: r.get(sort_col, '').lower(), reverse=(sort_dir == 'desc'))
+        rows = sorted(rows, key=lambda r: _csv_sort_value(r, sort_col), reverse=(sort_dir == 'desc'))
 
     all_rows = _load_csv_rows(selected) if selected else []
     counties = sorted({r.get('county', '') for r in all_rows if r.get('county')})
