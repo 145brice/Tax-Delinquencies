@@ -170,7 +170,11 @@ def _runtime_data_file(filename):
     os.makedirs(runtime_dir, exist_ok=True)
     runtime_file = os.path.join(runtime_dir, filename)
     bundled_file = os.path.join(BASE_DIR, filename)
-    if not os.path.exists(runtime_file) and os.path.exists(bundled_file):
+    if os.path.exists(bundled_file) and (
+        not os.path.exists(runtime_file)
+        or os.path.getsize(runtime_file) != os.path.getsize(bundled_file)
+        or os.path.getmtime(runtime_file) < os.path.getmtime(bundled_file)
+    ):
         shutil.copyfile(bundled_file, runtime_file)
     return runtime_file
 
@@ -350,8 +354,6 @@ def export_storefront_csv(listings):
     return STOREFRONT_CSV
 
 def load_json(file, default):
-    if IS_VERCEL and os.path.abspath(file) == os.path.abspath(DATA_FILE):
-        return _read_storefront_csv(default)
     if _sqlite_enabled() and os.path.abspath(file) == os.path.abspath(DATA_FILE):
         seed = default
         if os.path.exists(file):
