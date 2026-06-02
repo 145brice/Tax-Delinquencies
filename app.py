@@ -8,9 +8,12 @@ import io
 import shutil
 import sqlite3
 from datetime import datetime
-from flask import Flask, render_template, request, jsonify, Response, redirect, url_for
+from functools import wraps
+from flask import Flask, render_template, request, jsonify, Response, redirect, url_for, session
+from werkzeug.security import generate_password_hash, check_password_hash
 from dotenv import load_dotenv
 import stripe
+import db
 from scraper import scrape_sync
 from scraper_runner import run_scrapers
 from scrapers.base_scraper import request_kill, clear_kill, ScraperKilled
@@ -92,6 +95,7 @@ def property_records_to_listings(records: list[dict]) -> list[dict]:
     return listings
 
 app = Flask(__name__)
+app.secret_key = os.getenv("SECRET_KEY", "")
 stripe.api_key = os.getenv("STRIPE_SECRET_KEY", "")
 scrape_status = {
     "running": False,
@@ -556,12 +560,116 @@ def admin_bad_link_redirect(bad_path):
         return redirect(f"{url_for('admin_data')}?{query}", code=302)
     return "Not Found", 404
 
+# ---- Auth ------------------------------------------------------------------
+
+def current_user():
+    """Return the logged-in user row, or None. Cached per request."""
+    uid = session.get("user_id")
+    if not uid:
+        return None
+    if not db.is_configured():
+        return None
+    try:
+        db.init_db()
+        return db.get_user_by_id(uid)
+    except Exception:
+        return None
+
+
+@app.context_processor
+def inject_user():
+    user = current_user()
+    return {"current_user_email": user["email"] if user else None}
+
+
+def login_required(view):
+    @wraps(view)
+    def wrapped(*args, **kwargs):
+        if not current_user():
+            return redirect(url_for("login", next=request.path))
+        return view(*args, **kwargs)
+    return wrapped
+
+
+def _accounts_ready():
+    """True when both the DB and the session secret are configured."""
+    return db.is_configured() and bool(app.secret_key)
+
+
+@app.route('/register', methods=['GET', 'POST'])
+def register():
+    if not _accounts_ready():
+        return render_template('auth.html', mode='register',
+                               error="Accounts are not configured yet. Set DATABASE_URL and SECRET_KEY.")
+    if current_user():
+        return redirect(url_for('account'))
+    if request.method == 'POST':
+        email = (request.form.get('email') or '').strip().lower()
+        password = request.form.get('password') or ''
+        if not email or '@' not in email:
+            return render_template('auth.html', mode='register', error="Enter a valid email.", email=email)
+        if len(password) < 8:
+            return render_template('auth.html', mode='register', error="Password must be at least 8 characters.", email=email)
+        db.init_db()
+        user = db.create_user(email, generate_password_hash(password))
+        if not user:
+            return render_template('auth.html', mode='register', error="That email is already registered. Try logging in.", email=email)
+        session['user_id'] = user['id']
+        return redirect(url_for('account'))
+    return render_template('auth.html', mode='register')
+
+
+@app.route('/login', methods=['GET', 'POST'])
+def login():
+    if not _accounts_ready():
+        return render_template('auth.html', mode='login',
+                               error="Accounts are not configured yet. Set DATABASE_URL and SECRET_KEY.")
+    if current_user():
+        return redirect(url_for('account'))
+    if request.method == 'POST':
+        email = (request.form.get('email') or '').strip().lower()
+        password = request.form.get('password') or ''
+        db.init_db()
+        user = db.get_user_by_email(email)
+        if not user or not check_password_hash(user['password_hash'], password):
+            return render_template('auth.html', mode='login', error="Incorrect email or password.", email=email)
+        session['user_id'] = user['id']
+        nxt = request.args.get('next') or url_for('account')
+        if not nxt.startswith('/'):
+            nxt = url_for('account')
+        return redirect(nxt)
+    return render_template('auth.html', mode='login')
+
+
+@app.route('/logout', methods=['POST', 'GET'])
+def logout():
+    session.pop('user_id', None)
+    return redirect(url_for('index'))
+
+
+@app.route('/account')
+@login_required
+def account():
+    user = current_user()
+    orders = []
+    try:
+        orders = db.get_paid_orders_for_user(user['id'])
+    except Exception:
+        orders = []
+    return render_template('account.html', email=user['email'], orders=orders)
+
+
+# ---- Checkout --------------------------------------------------------------
+
 @app.route('/api/create-checkout-session', methods=['POST'])
 def create_checkout_session():
     if not stripe.api_key:
-        return jsonify({
-            "url": "https://buy.stripe.com/7sY8wPcn7eGU0YTfBJ9Zm00"
-        })
+        return jsonify({"error": "Payments are not configured yet."}), 503
+
+    user = current_user()
+    if not user:
+        return jsonify({"login_required": True,
+                        "error": "Please log in to purchase leads."}), 401
 
     payload = request.get_json(silent=True) or {}
     selected_ids = {str(lead_id) for lead_id in payload.get("lead_ids", [])}
@@ -579,9 +687,10 @@ def create_checkout_session():
 
     origin = request.host_url.rstrip("/")
     try:
-        session = stripe.checkout.Session.create(
+        checkout_session = stripe.checkout.Session.create(
             mode="payment",
             payment_method_types=["card"],
+            customer_email=user["email"],
             line_items=[{
                 "price_data": {
                     "currency": "usd",
@@ -593,20 +702,75 @@ def create_checkout_session():
                 "quantity": 1,
             }],
             metadata={
+                "user_id": str(user["id"]),
                 "lead_count": str(len(selected)),
                 "lead_ids": ",".join(str(item.get("id")) for item in selected)[:500],
             },
-            success_url=f"{origin}/checkout/success-session_id={{CHECKOUT_SESSION_ID}}",
+            success_url=f"{origin}/checkout/success?session_id={{CHECKOUT_SESSION_ID}}",
             cancel_url=f"{origin}/checkout/cancel",
         )
     except stripe.error.StripeError as exc:
         return jsonify({"error": str(exc)}), 502
 
-    return jsonify({"url": session.url})
+    # Record a pending order with a full snapshot of the purchased leads, so the
+    # buyer keeps access even if a lead later drops out of the storefront CSV.
+    try:
+        db.init_db()
+        db.create_pending_order(
+            user_id=user["id"],
+            email=user["email"],
+            stripe_session_id=checkout_session.id,
+            amount_cents=total_cents,
+            leads=selected,
+        )
+    except Exception:
+        pass  # Stripe is the source of truth; success/webhook reconciles status.
+
+    return jsonify({"url": checkout_session.url})
+
+
+def _fulfill_session(session_id):
+    """Mark the matching order paid if Stripe confirms payment. Idempotent."""
+    if not session_id or not stripe.api_key:
+        return False
+    try:
+        cs = stripe.checkout.Session.retrieve(session_id)
+    except stripe.error.StripeError:
+        return False
+    if cs.get("payment_status") != "paid":
+        return False
+    try:
+        db.init_db()
+        return db.mark_order_paid(session_id)
+    except Exception:
+        return False
+
 
 @app.route('/checkout/success')
 def checkout_success():
-    return render_template('checkout_status.html', title="Payment complete", message="Payment complete. Your lead purchase was received.")
+    session_id = request.args.get('session_id')
+    _fulfill_session(session_id)
+    if current_user():
+        return redirect(url_for('account'))
+    return render_template('checkout_status.html', title="Payment complete",
+                           message="Payment complete. Log in to view your purchased leads.")
+
+
+@app.route('/webhook/stripe', methods=['POST'])
+def stripe_webhook():
+    secret = os.getenv("STRIPE_WEBHOOK_SECRET", "")
+    if not secret:
+        return ("webhook not configured", 200)
+    payload = request.get_data()
+    sig = request.headers.get('Stripe-Signature', '')
+    try:
+        event = stripe.Webhook.construct_event(payload, sig, secret)
+    except (ValueError, stripe.error.SignatureVerificationError):
+        return ("invalid", 400)
+    if event.get("type") == "checkout.session.completed":
+        sess = event["data"]["object"]
+        _fulfill_session(sess.get("id"))
+    return ("ok", 200)
 
 @app.route('/checkout/cancel')
 def checkout_cancel():

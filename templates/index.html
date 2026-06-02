@@ -175,6 +175,15 @@
         <a href="/admin/data" class="nav-tab">Data Explorer</a>
         <a href="/admin" class="nav-tab">Admin</a>
         {% endif %}
+        {% if current_user_email %}
+        <a href="/account" class="nav-tab">My Purchases</a>
+        <form method="POST" action="/logout" style="margin:0;">
+            <button class="nav-tab" type="submit" style="background:none;cursor:pointer;font-family:inherit;">Log out</button>
+        </form>
+        {% else %}
+        <a href="/login" class="nav-tab">Log in</a>
+        <a href="/register" class="nav-tab">Register</a>
+        {% endif %}
     </div>
 </nav>
 
@@ -448,6 +457,10 @@
                 body: JSON.stringify({ lead_ids })
             });
             const data = await resp.json();
+            if (resp.status === 401 || data.login_required) {
+                window.location.href = '/login?next=/';
+                return;
+            }
             if (!resp.ok || !data.url) {
                 return alert(data.error || 'Could not start checkout. Please try again.');
             }

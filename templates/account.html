@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>My Purchases &middot; ForeclosureLeads Pro</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: 'Segoe UI', sans-serif; background: #0f1117; color: #e0e0e0; min-height: 100vh; font-size: 13px; }
+        .navbar {
+            background: #16181f; border-bottom: 1px solid #2a2d3a; padding: 0 24px;
+            display: flex; align-items: center; justify-content: space-between; height: 56px;
+            position: sticky; top: 0; z-index: 100;
+        }
+        .logo { font-size: 1.3rem; font-weight: 700; color: #fff; text-decoration: none; }
+        .logo span { color: #3b82f6; }
+        .nav-right { display: flex; align-items: center; gap: 12px; }
+        .nav-tab { color: #9ca3af; text-decoration: none; font-size: 0.9rem; padding: 6px 10px; border-radius: 999px; border: 1px solid transparent; }
+        .nav-tab:hover { color: #fff; border-color: #334155; background: #1e2130; }
+        .nav-tab.active { color: #fff; border-color: #2563eb; background: #1e3a5f; }
+        .email { color: #93c5fd; font-size: 0.85rem; }
+        .logout { background: none; border: 1px solid #334155; color: #9ca3af; padding: 6px 12px; border-radius: 6px; cursor: pointer; font-size: 0.85rem; }
+        .logout:hover { color: #fff; border-color: #475569; }
+
+        .page { max-width: 1200px; margin: 0 auto; padding: 28px 24px; }
+        h1 { color: #fff; font-size: 1.5rem; margin-bottom: 4px; }
+        .subtitle { color: #9ca3af; margin-bottom: 24px; }
+
+        .empty { text-align: center; color: #9ca3af; padding: 60px 20px; }
+        .empty a { color: #3b82f6; text-decoration: none; }
+
+        .order { background: #16181f; border: 1px solid #2a2d3a; border-radius: 10px; margin-bottom: 22px; overflow: hidden; }
+        .order-head {
+            display: flex; justify-content: space-between; align-items: center;
+            padding: 14px 18px; background: #1a1d27; border-bottom: 1px solid #2a2d3a;
+        }
+        .order-head .meta { color: #9ca3af; font-size: 0.85rem; }
+        .order-head .meta strong { color: #fff; }
+        .order-head .amount { color: #4ade80; font-weight: 700; font-size: 1rem; }
+
+        table { width: 100%; border-collapse: collapse; }
+        th { text-align: left; font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.04em;
+             color: #6b7280; padding: 10px 14px; border-bottom: 1px solid #2a2d3a; background: #13151c; }
+        td { padding: 11px 14px; border-bottom: 1px solid #1e2130; font-size: 0.85rem; }
+        tr:last-child td { border-bottom: none; }
+        tr:hover td { background: #1a1d27; }
+        .type-badge { background: #7c2d12; color: #fdba74; padding: 2px 8px; border-radius: 4px; font-size: 0.7rem; text-transform: uppercase; font-weight: 600; }
+        .addr { color: #fff; font-weight: 600; }
+    </style>
+</head>
+<body>
+<nav class="navbar">
+    <a href="/" class="logo">Foreclosure<span>Leads</span> Pro</a>
+    <div class="nav-right">
+        <a href="/" class="nav-tab">Storefront</a>
+        <a href="/account" class="nav-tab active">My Purchases</a>
+        <span class="email">{{ email }}</span>
+        <form method="POST" action="{{ url_for('logout') }}" style="margin:0;">
+            <button class="logout" type="submit">Log out</button>
+        </form>
+    </div>
+</nav>
+
+<div class="page">
+    <h1>My Purchases</h1>
+    <div class="subtitle">Full, unmasked details for every lead you've purchased.</div>
+
+    {% if not orders %}
+        <div class="empty">
+            You haven't purchased any leads yet.<br><br>
+            <a href="/">Browse the storefront &rarr;</a>
+        </div>
+    {% else %}
+        {% for order in orders %}
+        <div class="order">
+            <div class="order-head">
+                <div class="meta">
+                    <strong>{{ order.leads_json|length }} lead{{ 's' if order.leads_json|length != 1 else '' }}</strong>
+                    &nbsp;&middot;&nbsp; {{ order.created_at.strftime('%b %d, %Y') if order.created_at else '' }}
+                </div>
+                <div class="amount">${{ '%.2f'|format(order.amount_cents / 100) }}</div>
+            </div>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Type</th><th>County</th><th>State</th><th>City</th><th>Zip</th>
+                        <th>Address</th><th>Owner</th><th>Parcel/APN</th><th>Case #</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for lead in order.leads_json %}
+                    <tr>
+                        <td><span class="type-badge">{{ lead.status or lead.record_type or 'Lead' }}</span></td>
+                        <td>{{ (lead.county or '')|title }}</td>
+                        <td>{{ lead.state or '' }}</td>
+                        <td>{{ lead.city or '' }}</td>
+                        <td>{{ lead.zip or '' }}</td>
+                        <td class="addr">{{ lead.address or lead.street or '' }}</td>
+                        <td>{{ lead.owner or '—' }}</td>
+                        <td>{{ lead.parcel_id or '—' }}</td>
+                        <td>{{ lead.case_number or '—' }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% endfor %}
+    {% endif %}
+</div>
+</body>
+</html>

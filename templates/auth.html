@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ 'Create account' if mode == 'register' else 'Log in' }} &middot; ForeclosureLeads Pro</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: 'Segoe UI', sans-serif; background: #0f1117; color: #e0e0e0; min-height: 100vh; font-size: 14px; }
+        .navbar {
+            background: #16181f; border-bottom: 1px solid #2a2d3a;
+            padding: 0 24px; display: flex; align-items: center; height: 56px;
+        }
+        .logo { font-size: 1.3rem; font-weight: 700; color: #fff; text-decoration: none; }
+        .logo span { color: #3b82f6; }
+        .wrap { max-width: 380px; margin: 64px auto; padding: 0 20px; }
+        .card { background: #16181f; border: 1px solid #2a2d3a; border-radius: 10px; padding: 28px; }
+        h1 { font-size: 1.4rem; color: #fff; margin-bottom: 6px; }
+        .sub { color: #9ca3af; font-size: 0.85rem; margin-bottom: 22px; }
+        label { display: block; font-size: 0.8rem; color: #9ca3af; margin: 14px 0 6px; }
+        input {
+            width: 100%; background: #1e2130; border: 1px solid #2a2d3a; color: #e0e0e0;
+            padding: 10px 12px; border-radius: 6px; font-size: 0.9rem;
+        }
+        input:focus { outline: none; border-color: #2563eb; }
+        button {
+            width: 100%; margin-top: 22px; background: #2563eb; color: #fff; border: none;
+            padding: 11px; border-radius: 6px; font-size: 0.95rem; font-weight: 600; cursor: pointer;
+        }
+        button:hover { background: #1d4ed8; }
+        .error { background: #3b1d1d; border: 1px solid #7f1d1d; color: #fca5a5; padding: 10px 12px; border-radius: 6px; font-size: 0.85rem; margin-bottom: 16px; }
+        .alt { margin-top: 18px; text-align: center; font-size: 0.85rem; color: #9ca3af; }
+        .alt a { color: #3b82f6; text-decoration: none; }
+        .alt a:hover { text-decoration: underline; }
+    </style>
+</head>
+<body>
+<nav class="navbar"><a href="/" class="logo">Foreclosure<span>Leads</span> Pro</a></nav>
+<div class="wrap">
+    <div class="card">
+        {% if mode == 'register' %}
+            <h1>Create your account</h1>
+            <div class="sub">Sign up to purchase leads and access them anytime.</div>
+        {% else %}
+            <h1>Log in</h1>
+            <div class="sub">Access the leads you've purchased.</div>
+        {% endif %}
+
+        {% if error %}<div class="error">{{ error }}</div>{% endif %}
+
+        <form method="POST" action="{{ url_for('register' if mode == 'register' else 'login') }}{% if request.args.get('next') %}?next={{ request.args.get('next') }}{% endif %}">
+            <label for="email">Email</label>
+            <input id="email" name="email" type="email" value="{{ email or '' }}" required autofocus>
+            <label for="password">Password</label>
+            <input id="password" name="password" type="password" required
+                   {% if mode == 'register' %}minlength="8" placeholder="At least 8 characters"{% endif %}>
+            <button type="submit">{{ 'Create account' if mode == 'register' else 'Log in' }}</button>
+        </form>
+
+        {% if mode == 'register' %}
+            <div class="alt">Already have an account? <a href="{{ url_for('login') }}">Log in</a></div>
+        {% else %}
+            <div class="alt">New here? <a href="{{ url_for('register') }}">Create an account</a></div>
+        {% endif %}
+    </div>
+</div>
+</body>
+</html>
