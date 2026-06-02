@@ -14,27 +14,44 @@ import psycopg
 from psycopg.rows import dict_row
 from psycopg.types.json import Jsonb
 
-DATABASE_URL = os.getenv("DATABASE_URL", "")
+# Accept whichever connection-string env var is present. Vercel Postgres / Neon
+# integrations set POSTGRES_URL (pooled, serverless-friendly); a manual setup may
+# use DATABASE_URL. Pooled URLs are preferred for short-lived serverless conns.
+_DB_URL_ENV_VARS = (
+    "DATABASE_URL",
+    "POSTGRES_URL",
+    "POSTGRES_PRISMA_URL",
+    "POSTGRES_URL_NON_POOLING",
+)
 
 _init_lock = threading.Lock()
 _initialized = False
 
 
 class DatabaseNotConfigured(RuntimeError):
-    """Raised when DATABASE_URL is missing."""
+    """Raised when no database connection string is set."""
+
+
+def _database_url():
+    for name in _DB_URL_ENV_VARS:
+        value = os.getenv(name)
+        if value:
+            return value
+    return ""
 
 
 def is_configured():
-    return bool(DATABASE_URL)
+    return bool(_database_url())
 
 
 def get_conn():
-    if not DATABASE_URL:
+    url = _database_url()
+    if not url:
         raise DatabaseNotConfigured(
-            "Database is not configured. Set DATABASE_URL and restart the app."
+            "Database is not configured. Set DATABASE_URL (or POSTGRES_URL) and restart the app."
         )
     # One connection per call keeps things simple and serverless-friendly.
-    return psycopg.connect(DATABASE_URL, row_factory=dict_row)
+    return psycopg.connect(url, row_factory=dict_row)
 
 
 def init_db():
