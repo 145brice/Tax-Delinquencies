@@ -784,6 +784,28 @@ def stripe_status():
         "key_prefix": (key[:8] if key else None),
     })
 
+@app.route('/api/accounts-status')
+def accounts_status():
+    """Diagnostic: confirms the DB env var is set, the session secret is set,
+    and that we can actually connect to Postgres and create the tables."""
+    db_url_set = db.is_configured()
+    secret_set = bool(app.secret_key)
+    db_connected = False
+    detail = None
+    if db_url_set:
+        try:
+            db.init_db()
+            db_connected = True
+        except Exception as exc:  # surface a short, password-free reason
+            detail = type(exc).__name__ + ": " + str(exc)[:200]
+    return jsonify({
+        "accounts_ready": bool(db_url_set and secret_set and db_connected),
+        "db_url_set": db_url_set,
+        "secret_key_set": secret_set,
+        "db_connected": db_connected,
+        "detail": detail,
+    })
+
 CSV_FIELDNAMES = [
     "county", "record_type", "owner_name", "property_address", "city",
     "state", "zip_code", "parcel_id", "tax_year", "amount_owed",
