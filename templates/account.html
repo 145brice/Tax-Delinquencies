@@ -46,6 +46,8 @@
         tr:hover td { background: #1a1d27; }
         .type-badge { background: #7c2d12; color: #fdba74; padding: 2px 8px; border-radius: 4px; font-size: 0.7rem; text-transform: uppercase; font-weight: 600; }
         .addr { color: #fff; font-weight: 600; }
+        .contact { color: #dbeafe; font-weight: 600; }
+        .pending { color: #facc15; font-size: 0.78rem; font-weight: 700; text-transform: uppercase; }
     </style>
 </head>
 <body>
@@ -84,7 +86,7 @@
                 <thead>
                     <tr>
                         <th>Type</th><th>County</th><th>State</th><th>City</th><th>Zip</th>
-                        <th>Address</th><th>Owner</th><th>Parcel/APN</th><th>Case #</th>
+                        <th>Address</th><th>Phone</th><th>Email</th><th>Mailing Address</th><th>Owner</th><th>Parcel/APN</th><th>Case #</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -96,6 +98,21 @@
                         <td>{{ lead.city or '' }}</td>
                         <td>{{ lead.zip or '' }}</td>
                         <td class="addr">{{ lead.address or lead.street or '' }}</td>
+                        <td class="contact">
+                            {% if lead.primary_phone %}
+                                {{ lead.primary_phone }}{% if lead.phone_2 %}<br>{{ lead.phone_2 }}{% endif %}
+                            {% else %}
+                                <span class="pending">Pending</span>
+                            {% endif %}
+                        </td>
+                        <td class="contact">
+                            {% if lead.email_1 %}
+                                {{ lead.email_1 }}{% if lead.email_2 %}<br>{{ lead.email_2 }}{% endif %}
+                            {% else %}
+                                <span class="pending">Pending</span>
+                            {% endif %}
+                        </td>
+                        <td>{{ lead.mailing_address or 'Pending' }}</td>
                         <td>{{ lead.owner or '—' }}</td>
                         <td>{{ lead.parcel_id or '—' }}</td>
                         <td>{{ lead.case_number or '—' }}</td>

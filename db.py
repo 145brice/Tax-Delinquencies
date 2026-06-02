@@ -182,3 +182,46 @@ def get_paid_orders_for_user(user_id):
             (user_id,),
         )
         return cur.fetchall()
+
+
+def get_paid_orders():
+    """All paid orders, newest first, for the manual skip trace queue."""
+    with get_conn() as conn, conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT id, user_id, email, amount_cents, leads_json, created_at
+            FROM orders
+            WHERE status = 'paid'
+            ORDER BY created_at DESC
+            """
+        )
+        return cur.fetchall()
+
+
+def update_order_lead_contacts(order_id, lead_id, contact_fields):
+    """Update one purchased lead snapshot inside an order's JSON payload."""
+    with get_conn() as conn, conn.cursor() as cur:
+        cur.execute(
+            "SELECT leads_json FROM orders WHERE id = %s AND status = 'paid'",
+            (order_id,),
+        )
+        row = cur.fetchone()
+        if not row:
+            return False
+
+        leads = list(row["leads_json"] or [])
+        updated = False
+        for lead in leads:
+            if str(lead.get("id")) == str(lead_id):
+                lead.update(contact_fields)
+                updated = True
+                break
+        if not updated:
+            return False
+
+        cur.execute(
+            "UPDATE orders SET leads_json = %s WHERE id = %s",
+            (Jsonb(leads), order_id),
+        )
+        conn.commit()
+        return True

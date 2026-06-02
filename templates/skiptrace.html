@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Skip Trace Queue &middot; ForeclosureLeads Pro</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: 'Segoe UI', sans-serif; background: #0f1117; color: #e0e0e0; min-height: 100vh; font-size: 13px; }
+        .navbar {
+            background: #16181f; border-bottom: 1px solid #2a2d3a; padding: 0 24px;
+            display: flex; align-items: center; justify-content: space-between; min-height: 56px;
+            position: sticky; top: 0; z-index: 100;
+        }
+        .logo { font-size: 1.3rem; font-weight: 700; color: #fff; text-decoration: none; }
+        .logo span { color: #3b82f6; }
+        .nav-right { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+        .nav-tab { color: #9ca3af; text-decoration: none; font-size: 0.9rem; padding: 6px 10px; border-radius: 999px; border: 1px solid transparent; }
+        .nav-tab:hover, .nav-tab.active { color: #fff; border-color: #2563eb; background: #1e3a5f; }
+        .page { max-width: 1440px; margin: 0 auto; padding: 28px 24px; }
+        h1 { color: #fff; font-size: 1.5rem; margin-bottom: 4px; }
+        .subtitle { color: #9ca3af; margin-bottom: 24px; }
+        .empty { text-align: center; color: #9ca3af; padding: 60px 20px; background: #16181f; border: 1px solid #2a2d3a; border-radius: 8px; }
+        .lead-card { background: #16181f; border: 1px solid #2a2d3a; border-radius: 8px; margin-bottom: 16px; overflow: hidden; }
+        .lead-head { display: flex; justify-content: space-between; gap: 16px; padding: 14px 16px; background: #1a1d27; border-bottom: 1px solid #2a2d3a; }
+        .lead-title { color: #fff; font-weight: 700; }
+        .lead-meta { color: #9ca3af; font-size: 0.82rem; margin-top: 4px; }
+        .status { border-radius: 999px; padding: 4px 10px; font-weight: 700; font-size: 0.72rem; text-transform: uppercase; align-self: flex-start; }
+        .status.pending { background: #3f2f12; color: #facc15; }
+        .status.completed { background: #12351f; color: #4ade80; }
+        .lead-body { display: grid; grid-template-columns: minmax(260px, 1fr) minmax(320px, 1.3fr); gap: 18px; padding: 16px; }
+        .facts { color: #cbd5e1; line-height: 1.6; }
+        .facts strong { color: #fff; }
+        .lookup { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
+        .lookup a { color: #dbeafe; background: #1e3a5f; border: 1px solid #2563eb; border-radius: 6px; padding: 7px 10px; text-decoration: none; font-weight: 700; font-size: 0.78rem; }
+        form { display: grid; grid-template-columns: repeat(2, minmax(150px, 1fr)); gap: 10px; }
+        label { color: #9ca3af; font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.04em; }
+        input, textarea { width: 100%; margin-top: 4px; border: 1px solid #2a2d3a; border-radius: 6px; background: #0f1117; color: #fff; padding: 9px 10px; font: inherit; }
+        textarea { min-height: 74px; resize: vertical; }
+        .wide { grid-column: 1 / -1; }
+        button { justify-self: start; border: 0; border-radius: 6px; padding: 9px 14px; background: #2563eb; color: #fff; font-weight: 800; cursor: pointer; }
+        button:hover { background: #1d4ed8; }
+        @media (max-width: 820px) {
+            .lead-body { grid-template-columns: 1fr; }
+            form { grid-template-columns: 1fr; }
+        }
+    </style>
+</head>
+<body>
+<nav class="navbar">
+    <a href="/" class="logo">Foreclosure<span>Leads</span> Pro</a>
+    <div class="nav-right">
+        <a href="/" class="nav-tab">Storefront</a>
+        <a href="/account" class="nav-tab">My Purchases</a>
+        <a href="/admin/skiptrace" class="nav-tab active">Skip Trace Queue</a>
+    </div>
+</nav>
+
+<div class="page">
+    <h1>Skip Trace Queue</h1>
+    <div class="subtitle">Paid leads only. Use the lookup links, then save phone and email results into the buyer's purchased lead record.</div>
+
+    {% if not queue %}
+        <div class="empty">No paid leads are waiting for skip trace yet.</div>
+    {% else %}
+        {% for item in queue %}
+        {% set lead = item.lead %}
+        {% set order = item.order %}
+        <section class="lead-card">
+            <div class="lead-head">
+                <div>
+                    <div class="lead-title">{{ lead.owner or 'Owner not listed' }}</div>
+                    <div class="lead-meta">
+                        Order #{{ order.id }} &middot; {{ order.email }} &middot; Lead {{ lead.id }} &middot;
+                        {{ order.created_at.strftime('%b %d, %Y') if order.created_at else '' }}
+                    </div>
+                </div>
+                <div class="status {{ item.status }}">{{ item.status }}</div>
+            </div>
+            <div class="lead-body">
+                <div class="facts">
+                    <div><strong>Address:</strong> {{ lead.address or lead.street or '-' }}</div>
+                    <div><strong>City/State:</strong> {{ lead.city or '-' }}, {{ lead.state or '-' }} {{ lead.zip or '' }}</div>
+                    <div><strong>County:</strong> {{ (lead.county or '-')|title }}</div>
+                    <div><strong>Parcel/APN:</strong> {{ lead.parcel_id or '-' }}</div>
+                    <div><strong>Amount:</strong> {{ lead.amount_owed or ('$' ~ "{:,}".format(lead.bid|int) if lead.bid else '-') }}</div>
+                    <div class="lookup">
+                        <a href="{{ item.links.name }}" target="_blank" rel="noopener">Name Search</a>
+                        {% if item.links.address %}
+                        <a href="{{ item.links.address }}" target="_blank" rel="noopener">Address Search</a>
+                        {% endif %}
+                        {% if lead.link %}
+                        <a href="{{ lead.link }}" target="_blank" rel="noopener">Source</a>
+                        {% endif %}
+                    </div>
+                </div>
+                <form method="POST" action="{{ url_for('admin_skiptrace_update') }}">
+                    <input type="hidden" name="order_id" value="{{ order.id }}">
+                    <input type="hidden" name="lead_id" value="{{ lead.id }}">
+                    <label>Primary Phone
+                        <input name="primary_phone" value="{{ lead.primary_phone or '' }}" placeholder="(555) 555-5555">
+                    </label>
+                    <label>Phone 2
+                        <input name="phone_2" value="{{ lead.phone_2 or '' }}">
+                    </label>
+                    <label>Email 1
+                        <input name="email_1" value="{{ lead.email_1 or '' }}" placeholder="name@example.com">
+                    </label>
+                    <label>Email 2
+                        <input name="email_2" value="{{ lead.email_2 or '' }}">
+                    </label>
+                    <label class="wide">Mailing Address
+                        <input name="mailing_address" value="{{ lead.mailing_address or '' }}">
+                    </label>
+                    <label class="wide">Notes
+                        <textarea name="skiptrace_notes">{{ lead.skiptrace_notes or '' }}</textarea>
+                    </label>
+                    <button type="submit">Save Contact Info</button>
+                </form>
+            </div>
+        </section>
+        {% endfor %}
+    {% endif %}
+</div>
+</body>
+</html>

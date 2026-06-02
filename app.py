@@ -661,6 +661,108 @@ def account():
     return render_template('account.html', email=user['email'], orders=orders)
 
 
+def _skiptrace_status(lead):
+    if lead.get("primary_phone") or lead.get("email_1"):
+        return lead.get("skiptrace_status") or "completed"
+    return lead.get("skiptrace_status") or "pending"
+
+
+def _cyberbackgroundchecks_links(lead):
+    owner = str(lead.get("owner") or "").strip()
+    address = str(lead.get("address") or lead.get("street") or "").strip()
+    city = str(lead.get("city") or "").strip()
+    state = str(lead.get("state") or "").strip()
+    base = "https://www.google.com/search?q="
+    parts = ["site:cyberbackgroundchecks.com"]
+    if owner:
+        parts.append(f'"{owner}"')
+    if city:
+        parts.append(f'"{city}"')
+    if state:
+        parts.append(f'"{state}"')
+    name_query = " ".join(parts)
+
+    address_query = ""
+    if address:
+        address_query = f'site:cyberbackgroundchecks.com "{address}"'
+
+    from urllib.parse import quote_plus
+    return {
+        "name": base + quote_plus(name_query),
+        "address": base + quote_plus(address_query) if address_query else "",
+    }
+
+
+def _skiptrace_admin_allowed():
+    token = os.getenv("SKIPTRACE_ADMIN_TOKEN", "")
+    if not token:
+        return False
+    if session.get("skiptrace_admin"):
+        return True
+    supplied = request.args.get("token") or request.form.get("token")
+    if supplied and supplied == token:
+        session["skiptrace_admin"] = True
+        return True
+    return False
+
+
+@app.route('/admin/skiptrace')
+def admin_skiptrace():
+    if not _skiptrace_admin_allowed():
+        return render_template('skiptrace_login.html', token_configured=bool(os.getenv("SKIPTRACE_ADMIN_TOKEN", "")))
+    if not _accounts_ready():
+        return render_template('checkout_status.html', title="Accounts not configured",
+                               message="Set DATABASE_URL and SECRET_KEY before using the skip trace queue.")
+    try:
+        db.init_db()
+        orders = db.get_paid_orders()
+    except Exception as exc:
+        return render_template('checkout_status.html', title="Skip trace unavailable",
+                               message=f"Could not load paid orders: {type(exc).__name__}")
+
+    queue = []
+    for order in orders:
+        for lead in order.get("leads_json") or []:
+            queue.append({
+                "order": order,
+                "lead": lead,
+                "status": _skiptrace_status(lead),
+                "links": _cyberbackgroundchecks_links(lead),
+            })
+    return render_template('skiptrace.html', queue=queue)
+
+
+@app.route('/admin/skiptrace/update', methods=['POST'])
+def admin_skiptrace_update():
+    if not _skiptrace_admin_allowed():
+        return render_template('skiptrace_login.html', token_configured=bool(os.getenv("SKIPTRACE_ADMIN_TOKEN", "")))
+    order_id = request.form.get("order_id")
+    lead_id = request.form.get("lead_id")
+    contact_fields = {
+        "primary_phone": (request.form.get("primary_phone") or "").strip(),
+        "phone_2": (request.form.get("phone_2") or "").strip(),
+        "email_1": (request.form.get("email_1") or "").strip(),
+        "email_2": (request.form.get("email_2") or "").strip(),
+        "mailing_address": (request.form.get("mailing_address") or "").strip(),
+        "skiptrace_notes": (request.form.get("skiptrace_notes") or "").strip(),
+        "skiptrace_source": "CyberBackgroundChecks",
+        "skiptraced_at": datetime.now().isoformat(timespec="seconds"),
+    }
+    contact_fields["skiptrace_status"] = (
+        "completed" if contact_fields["primary_phone"] or contact_fields["email_1"] else "pending"
+    )
+    try:
+        db.init_db()
+        updated = db.update_order_lead_contacts(order_id, lead_id, contact_fields)
+    except Exception as exc:
+        return render_template('checkout_status.html', title="Skip trace update failed",
+                               message=f"Could not update contact fields: {type(exc).__name__}")
+    if not updated:
+        return render_template('checkout_status.html', title="Lead not found",
+                               message="That paid order or lead could not be found.")
+    return redirect(url_for('admin_skiptrace'))
+
+
 # ---- Checkout --------------------------------------------------------------
 
 @app.route('/api/create-checkout-session', methods=['POST'])
