@@ -667,6 +667,8 @@ def account():
 def create_checkout_session():
     if not stripe.api_key:
         return jsonify({"error": "Payments are not configured yet."}), 503
+    if not _accounts_ready():
+        return jsonify({"error": "Accounts are not configured yet. Set DATABASE_URL and SECRET_KEY."}), 503
 
     user = current_user()
     if not user:
@@ -718,15 +720,17 @@ def create_checkout_session():
     # buyer keeps access even if a lead later drops out of the storefront CSV.
     try:
         db.init_db()
-        db.create_pending_order(
+        order_id = db.create_pending_order(
             user_id=user["id"],
             email=user["email"],
             stripe_session_id=checkout_session.id,
             amount_cents=total_cents,
             leads=selected,
         )
-    except Exception:
-        pass  # Stripe is the source of truth; success/webhook reconciles status.
+    except Exception as exc:
+        return jsonify({"error": f"Could not record this order before checkout: {type(exc).__name__}"}), 503
+    if not order_id:
+        return jsonify({"error": "Could not record this order before checkout."}), 503
 
     return jsonify({"url": checkout_session.url})
 
@@ -783,6 +787,7 @@ def stripe_status():
     key = stripe.api_key or ""
     return jsonify({
         "stripe_configured": bool(key),
+        "webhook_configured": bool(os.getenv("STRIPE_WEBHOOK_SECRET", "")),
         "key_prefix": (key[:8] if key else None),
     })
 
@@ -805,6 +810,31 @@ def accounts_status():
         "db_url_set": db_url_set,
         "secret_key_set": secret_set,
         "db_connected": db_connected,
+        "detail": detail,
+    })
+
+@app.route('/api/checkout-status')
+def checkout_status_api():
+    """Diagnostic for the full purchase-unlock flow."""
+    db_url_set = db.is_configured()
+    secret_set = bool(app.secret_key)
+    stripe_set = bool(stripe.api_key)
+    webhook_set = bool(os.getenv("STRIPE_WEBHOOK_SECRET", ""))
+    db_connected = False
+    detail = None
+    if db_url_set:
+        try:
+            db.init_db()
+            db_connected = True
+        except Exception as exc:
+            detail = type(exc).__name__ + ": " + str(exc)[:200]
+    return jsonify({
+        "checkout_ready": bool(stripe_set and db_url_set and secret_set and db_connected),
+        "stripe_secret_key_set": stripe_set,
+        "stripe_webhook_secret_set": webhook_set,
+        "database_url_set": db_url_set,
+        "secret_key_set": secret_set,
+        "database_connected": db_connected,
         "detail": detail,
     })
 
