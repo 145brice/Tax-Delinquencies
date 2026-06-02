@@ -51,7 +51,10 @@ def get_conn():
             "Database is not configured. Set DATABASE_URL (or POSTGRES_URL) and restart the app."
         )
     # One connection per call keeps things simple and serverless-friendly.
-    return psycopg.connect(url, row_factory=dict_row)
+    # prepare_threshold=None disables server-side prepared statements, which are
+    # incompatible with transaction-mode poolers like Supabase's Supavisor /
+    # PgBouncer (port 6543). Harmless on direct/session connections too.
+    return psycopg.connect(url, row_factory=dict_row, prepare_threshold=None)
 
 
 def init_db():
