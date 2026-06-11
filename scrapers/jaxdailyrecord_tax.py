@@ -8,7 +8,7 @@ from .base_scraper import BaseScraper, PropertyRecord, log
 
 DUVAL_RE_TAX_URL = "https://legals.jaxdailyrecord.com/re_tax/retax.php"
 DUVAL_RE_TAX_SEARCH_URL = "https://legals.jaxdailyrecord.com/re_tax/retax_search.php"
-MAX_RECORDS = 1000
+MAX_RECORDS = 10000
 
 _TOTAL_RE = re.compile(r"Found\s+(\d+)\s+Records", re.I)
 _NOTICE_TAX_YEAR_RE = re.compile(r"pay the amount due for\s+(\d{4})\s+delinquent", re.I)
