@@ -60,6 +60,26 @@ def _extract_amount(text: str) -> str:
     return ""
 
 
+# Boilerplate that follows the name in a trustee-sale notice — cut everything from here on.
+_OWNER_STOP = re.compile(
+    r"\b(?:Duly\s+Appointed|as\s+Trustee|Trustee|Beneficiary|Property\s+Address|"
+    r"A\.?P\.?N|WHOSE\s+ADDRESS|Date\s+of\s+Sale|will\s+(?:be\s+)?s(?:old|ell)|"
+    r"under\s+(?:a|the)\s+Deed|recorded\s+on|dated|NOTICE)\b", re.I)
+# Vesting / marital descriptors that trail the name — strip from the descriptor onward.
+_VESTING = re.compile(
+    r",?\s*(?:"
+    r"an?\s*married\s+\w+"          # "a married woman", "amarried woman" (notice typos)
+    r"|an?\s+(?:un)?married\s+\w+"
+    r"|a\s+widow(?:er)?"
+    r"|an?\s+single\s+\w+"
+    r"|as\s+(?:his|her|their)\s+sole"
+    r"|as\s+joint\s+tenants"
+    r"|as\s+(?:sole|community|separate)"
+    r"|trustee[s]?\s+of"
+    r"|husband\s+and\s+wife"
+    r").*$", re.I)
+
+
 def _extract_owner(text: str) -> str:
     if not text:
         return ""
@@ -68,7 +88,8 @@ def _extract_owner(text: str) -> str:
         if not m:
             continue
         raw = re.sub(r"\s+", " ", m.group(1)).strip(" ,.;")
-        raw = re.split(r"\b(?:Trustee|Beneficiary|Property Address|APN|NOTICE)\b", raw, 1, flags=re.I)[0]
+        raw = _OWNER_STOP.split(raw, 1)[0]      # drop trailing trustee boilerplate
+        raw = _VESTING.sub("", raw)             # drop "a widower / married / sole & separate"
         raw = raw.strip(" ,.;")
         if 2 < len(raw) <= 100:
             return raw
