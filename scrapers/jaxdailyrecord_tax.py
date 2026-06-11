@@ -23,6 +23,19 @@ _ROW_RE = re.compile(
 )
 _LEGAL_START_RE = re.compile(r"\b\d{1,2}-\d[A-Z]-\d{2}E\b")
 
+_MONTHS = {m.lower(): i for i, m in enumerate(
+    ["January", "February", "March", "April", "May", "June", "July",
+     "August", "September", "October", "November", "December"], 1)}
+_ORDINAL_DATE_RE = re.compile(r"(\d{1,2})(?:st|nd|rd|th)\s+day of\s+([A-Za-z]+),?\s+(\d{4})", re.I)
+
+
+def _iso_date(value: str) -> str:
+    """Convert 'Nth day of Month, YYYY' to 'YYYY-MM-DD'; pass through if unparseable."""
+    m = _ORDINAL_DATE_RE.search(value or "")
+    if m and m.group(2).lower() in _MONTHS:
+        return f"{int(m.group(3)):04d}-{_MONTHS[m.group(2).lower()]:02d}-{int(m.group(1)):02d}"
+    return value or ""
+
 
 def _clean(v: str) -> str:
     return re.sub(r"\s+", " ", (v or "").replace("\xa0", " ")).strip(" ,.;")
@@ -71,7 +84,7 @@ class DuvalJaxDailyRecordRealEstateTaxScraper(BaseScraper):
         notice_tax_year_match = _NOTICE_TAX_YEAR_RE.search(notice_text)
         notice_tax_year = notice_tax_year_match.group(1) if notice_tax_year_match else ""
         sale_date_match = _SALE_DATE_RE.search(notice_text)
-        sale_date = sale_date_match.group(1) if sale_date_match else ""
+        sale_date = _iso_date(sale_date_match.group(1)) if sale_date_match else ""
 
         records: list[PropertyRecord] = []
         for match in _ROW_RE.finditer(text):
