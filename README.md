@@ -23,6 +23,82 @@ Scrapes county-level **tax delinquent properties** and **pre-foreclosure / trust
 
 Upcoming SD tax-sale parcel lists are gated behind a registered bidder account; the scraper emits a single record linking to the auction portal for those. Auction.com listings are JS-only and not yet supported.
 
+> The tables above are a partial snapshot. **`scrapers/source_registry.py` is the
+> single source of truth** for which counties/sources exist. Current coverage
+> also includes: CA (Los Angeles, Orange, Riverside, San Bernardino, Ventura,
+> Sacramento, Alameda, Santa Clara, Kern, Fresno, Contra Costa, San Mateo),
+> AZ (Maricopa — trustee sales + two legal-notice papers), TX (Harris tax sale),
+> FL northeast (Duval/St. Johns/Nassau/Clay via Jax Daily Record), and
+> **MI (Barry — tax-foreclosure auction + Hastings Banner foreclosure notices)**.
+
+## Repository Structure
+
+```text
+app.py                     Flask app: storefront + admin portal + scrape API
+scraper_runner.py          CLI/entry that runs registry scrapers and writes CSV
+scraper.py                 Legacy Playwright scrapers (Davidson/Wilson/HUD)
+scrapers/
+  base_scraper.py          BaseScraper: polite HTTP, UA rotation, PDF/OCR, PropertyRecord
+  ca_legalnotices_base.py  Shared base for CA capublicnotice.com county scrapers
+  source_registry.py       SOURCES + UI_COUNTY_SOURCES — the source of truth
+  <county>_*.py            One module per county/source scraper class
+templates/                 Jinja templates (index = storefront; admin = local-only)
+data/                      Output CSVs + storefront_listings.csv deploy artifact
+```
+
+How a source is wired (each new county touches these):
+1. A scraper class in `scrapers/<county>_<type>.py` returning `PropertyRecord`s.
+2. A `SourceDefinition` entry in `source_registry.py` `SOURCES` (+ region).
+3. A UI key in `UI_COUNTY_SOURCES` mapping `<county>-<state>` → source keys.
+4. (Local UI only) a checkbox in `templates/admin.html`; optional label in `index.html`.
+
+The two record types are `Tax Delinquent` and `Pre-Foreclosure`. For a county
+with both a tax-foreclosure and a mortgage/sheriff source, keep them as separate
+sources so the property sets do not overlap (e.g. Barry MI).
+
+## Branching & Deployment Model
+
+| Branch | Role | Deploys to |
+|--------|------|------------|
+| `master` | Working branch — where development is committed | nothing (no auto-deploy) |
+| `main` | Production storefront branch | **Vercel** (auto-deploy on push) |
+
+- **Vercel is storefront-only.** `app.py` sets `STOREFRONT_ONLY = IS_VERCEL`,
+  where `IS_VERCEL` is auto-detected from the `VERCEL`/`VERCEL_ENV` env vars.
+  Admin, Data Explorer, scraper controls, raw listings JSON, and CSV exports are
+  disabled automatically when running on Vercel. Nothing you push can flip this —
+  it is environment-detected, not committed.
+- **Scrapers/admin run locally** (and, once stood up, on **Railway**). The
+  registry can grow freely without affecting the live store.
+- **Updating the store** = push `main` with a refreshed `data/storefront_listings.csv`.
+  Pushing only `master` lands code in the repo and leaves Vercel untouched.
+
+### Push playbook
+
+```bash
+# Land backend/scraper work without redeploying the store:
+git add scrapers/...            # only the coherent code set
+git commit -m "..."
+git push origin master          # main/Vercel untouched
+
+# Update the live store (when ready):
+git checkout main && git merge master   # or cherry-pick
+git push origin main            # triggers Vercel deploy
+```
+
+When committing the registry, **include every scraper it imports** — a clean
+checkout (e.g. a Vercel build) imports `source_registry.py` at startup, so a
+missing module crashes the deploy even though Vercel never runs the scrapers.
+
+### Push history
+
+- **2026-06-10** — Added Barry County MI (tax-foreclosure auction via
+  tax-sale.info + Hastings Banner foreclosure notices via mipublicnotices.com).
+  Also committed previously-untracked CA/AZ/TX scrapers the registry already
+  imported, so the import resolves on a clean checkout. **Pushed to `master`
+  only; `main`/Vercel left untouched** (rest of the stack stays local until
+  Railway is up). Commit `6795239`.
+
 ## Setup
 
 ```bash
