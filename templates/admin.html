@@ -148,6 +148,9 @@
         <a href="/" class="nav-tab">Storefront</a>
         <a href="/admin/data" class="nav-tab">Data Explorer</a>
         <a href="/admin" class="nav-tab active">Admin</a>
+        <a href="/admin/skiptrace" class="nav-tab">Skip Trace</a>
+        <a href="/admin/skiptrace/control" class="nav-tab">Auto Run</a>
+        <a href="/admin/trace" class="nav-tab">Trace Export</a>
     </div>
 </nav>
 
@@ -258,6 +261,70 @@
             <label class="county-item">
                 <input type="checkbox" name="county" value="clay-fl" {% if 'clay-fl' in settings.counties %}checked{% endif %}>
                 <div><div class="county-name">Clay</div><div class="county-state">Florida (Northeast)</div></div>
+            </label>
+            <label class="county-item">
+                <input type="checkbox" name="county" value="barry-mi" {% if 'barry-mi' in settings.counties %}checked{% endif %}>
+                <div><div class="county-name">Barry (Hastings)</div><div class="county-state">Michigan</div></div>
+            </label>
+            <label class="county-item">
+                <input type="checkbox" name="county" value="wayne-mi" {% if 'wayne-mi' in settings.counties %}checked{% endif %}>
+                <div><div class="county-name">Wayne (Detroit)</div><div class="county-state">Michigan</div></div>
+            </label>
+            <label class="county-item">
+                <input type="checkbox" name="county" value="macomb-mi" {% if 'macomb-mi' in settings.counties %}checked{% endif %}>
+                <div><div class="county-name">Macomb (Warren)</div><div class="county-state">Michigan</div></div>
+            </label>
+            <label class="county-item">
+                <input type="checkbox" name="county" value="oakland-mi" {% if 'oakland-mi' in settings.counties %}checked{% endif %}>
+                <div><div class="county-name">Oakland (Pontiac)</div><div class="county-state">Michigan</div></div>
+            </label>
+            <label class="county-item">
+                <input type="checkbox" name="county" value="genesee-mi" {% if 'genesee-mi' in settings.counties %}checked{% endif %}>
+                <div><div class="county-name">Genesee (Flint)</div><div class="county-state">Michigan</div></div>
+            </label>
+            <label class="county-item">
+                <input type="checkbox" name="county" value="ingham-mi" {% if 'ingham-mi' in settings.counties %}checked{% endif %}>
+                <div><div class="county-name">Ingham (Lansing)</div><div class="county-state">Michigan</div></div>
+            </label>
+            <label class="county-item">
+                <input type="checkbox" name="county" value="kent-mi" {% if 'kent-mi' in settings.counties %}checked{% endif %}>
+                <div><div class="county-name">Kent (Grand Rapids)</div><div class="county-state">Michigan</div></div>
+            </label>
+            <label class="county-item">
+                <input type="checkbox" name="county" value="jackson-mi" {% if 'jackson-mi' in settings.counties %}checked{% endif %}>
+                <div><div class="county-name">Jackson</div><div class="county-state">Michigan</div></div>
+            </label>
+            <label class="county-item">
+                <input type="checkbox" name="county" value="muskegon-mi" {% if 'muskegon-mi' in settings.counties %}checked{% endif %}>
+                <div><div class="county-name">Muskegon</div><div class="county-state">Michigan</div></div>
+            </label>
+            <label class="county-item">
+                <input type="checkbox" name="county" value="kalamazoo-mi" {% if 'kalamazoo-mi' in settings.counties %}checked{% endif %}>
+                <div><div class="county-name">Kalamazoo</div><div class="county-state">Michigan</div></div>
+            </label>
+            <label class="county-item">
+                <input type="checkbox" name="county" value="calhoun-mi" {% if 'calhoun-mi' in settings.counties %}checked{% endif %}>
+                <div><div class="county-name">Calhoun (Battle Creek)</div><div class="county-state">Michigan</div></div>
+            </label>
+            <label class="county-item">
+                <input type="checkbox" name="county" value="berrien-mi" {% if 'berrien-mi' in settings.counties %}checked{% endif %}>
+                <div><div class="county-name">Berrien (Benton Harbor)</div><div class="county-state">Michigan</div></div>
+            </label>
+            <label class="county-item">
+                <input type="checkbox" name="county" value="washtenaw-mi" {% if 'washtenaw-mi' in settings.counties %}checked{% endif %}>
+                <div><div class="county-name">Washtenaw (Ann Arbor)</div><div class="county-state">Michigan</div></div>
+            </label>
+            <label class="county-item">
+                <input type="checkbox" name="county" value="livingston-mi" {% if 'livingston-mi' in settings.counties %}checked{% endif %}>
+                <div><div class="county-name">Livingston (Howell)</div><div class="county-state">Michigan</div></div>
+            </label>
+            <label class="county-item">
+                <input type="checkbox" name="county" value="ottawa-mi" {% if 'ottawa-mi' in settings.counties %}checked{% endif %}>
+                <div><div class="county-name">Ottawa (Holland)</div><div class="county-state">Michigan</div></div>
+            </label>
+            <label class="county-item">
+                <input type="checkbox" name="county" value="saginaw-mi" {% if 'saginaw-mi' in settings.counties %}checked{% endif %}>
+                <div><div class="county-name">Saginaw</div><div class="county-state">Michigan</div></div>
             </label>
         </div>
     </div>

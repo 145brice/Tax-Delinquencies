@@ -3,6 +3,23 @@ from dataclasses import dataclass
 from scrapers.alameda_legalnotices import AlamedaLegalNoticesScraper
 from scrapers.barry_legalnotices import BarryLegalNoticesScraper
 from scrapers.barry_taxforeclosure import BarryTaxForeclosureScraper
+from scrapers.mi_legalnotices_counties import (
+    BerienLegalNoticesScraper,
+    CalhounLegalNoticesScraper,
+    GenesseeLegalNoticesScraper,
+    InghamLegalNoticesScraper,
+    JacksonLegalNoticesScraper,
+    KalamazooLegalNoticesScraper,
+    KentLegalNoticesScraper,
+    LivingstonLegalNoticesScraper,
+    MacombLegalNoticesScraper,
+    MuskegonLegalNoticesScraper,
+    OaklandLegalNoticesScraper,
+    OttawaLegalNoticesScraper,
+    SaginawLegalNoticesScraper,
+    WashtenawLegalNoticesScraper,
+    WayneLegalNoticesScraper,
+)
 from scrapers.cheatham import CheathamScraper
 from scrapers.harris_taxsale import HarrisTaxSaleScraper
 from scrapers.maricopa_azcapitoltimes import MaricopaAzCapitolTimesScraper
@@ -151,6 +168,82 @@ SOURCES = {
         BarryLegalNoticesScraper,
         "https://www.mipublicnotices.com/",
     ),
+    # ── Michigan statewide — mipublicnotices.com ──────────────────────────
+    "wayne_legalnotices": SourceDefinition(
+        "wayne_legalnotices", "Wayne County MI foreclosure notices",
+        "wayne_mi", "Legal notices", WayneLegalNoticesScraper,
+        "https://www.mipublicnotices.com/",
+    ),
+    "macomb_legalnotices": SourceDefinition(
+        "macomb_legalnotices", "Macomb County MI foreclosure notices",
+        "macomb_mi", "Legal notices", MacombLegalNoticesScraper,
+        "https://www.mipublicnotices.com/",
+    ),
+    "oakland_legalnotices": SourceDefinition(
+        "oakland_legalnotices", "Oakland County MI foreclosure notices",
+        "oakland_mi", "Legal notices", OaklandLegalNoticesScraper,
+        "https://www.mipublicnotices.com/",
+    ),
+    "genesee_legalnotices": SourceDefinition(
+        "genesee_legalnotices", "Genesee County MI foreclosure notices",
+        "genesee_mi", "Legal notices", GenesseeLegalNoticesScraper,
+        "https://www.mipublicnotices.com/",
+    ),
+    "ingham_legalnotices": SourceDefinition(
+        "ingham_legalnotices", "Ingham County MI foreclosure notices",
+        "ingham_mi", "Legal notices", InghamLegalNoticesScraper,
+        "https://www.mipublicnotices.com/",
+    ),
+    "kent_legalnotices": SourceDefinition(
+        "kent_legalnotices", "Kent County MI foreclosure notices",
+        "kent_mi", "Legal notices", KentLegalNoticesScraper,
+        "https://www.mipublicnotices.com/",
+    ),
+    "jackson_legalnotices": SourceDefinition(
+        "jackson_legalnotices", "Jackson County MI foreclosure notices",
+        "jackson_mi", "Legal notices", JacksonLegalNoticesScraper,
+        "https://www.mipublicnotices.com/",
+    ),
+    "muskegon_legalnotices": SourceDefinition(
+        "muskegon_legalnotices", "Muskegon County MI foreclosure notices",
+        "muskegon_mi", "Legal notices", MuskegonLegalNoticesScraper,
+        "https://www.mipublicnotices.com/",
+    ),
+    "kalamazoo_legalnotices": SourceDefinition(
+        "kalamazoo_legalnotices", "Kalamazoo County MI foreclosure notices",
+        "kalamazoo_mi", "Legal notices", KalamazooLegalNoticesScraper,
+        "https://www.mipublicnotices.com/",
+    ),
+    "calhoun_legalnotices": SourceDefinition(
+        "calhoun_legalnotices", "Calhoun County MI foreclosure notices",
+        "calhoun_mi", "Legal notices", CalhounLegalNoticesScraper,
+        "https://www.mipublicnotices.com/",
+    ),
+    "berrien_legalnotices": SourceDefinition(
+        "berrien_legalnotices", "Berrien County MI foreclosure notices",
+        "berrien_mi", "Legal notices", BerienLegalNoticesScraper,
+        "https://www.mipublicnotices.com/",
+    ),
+    "washtenaw_legalnotices": SourceDefinition(
+        "washtenaw_legalnotices", "Washtenaw County MI foreclosure notices",
+        "washtenaw_mi", "Legal notices", WashtenawLegalNoticesScraper,
+        "https://www.mipublicnotices.com/",
+    ),
+    "livingston_legalnotices": SourceDefinition(
+        "livingston_legalnotices", "Livingston County MI foreclosure notices",
+        "livingston_mi", "Legal notices", LivingstonLegalNoticesScraper,
+        "https://www.mipublicnotices.com/",
+    ),
+    "ottawa_legalnotices": SourceDefinition(
+        "ottawa_legalnotices", "Ottawa County MI foreclosure notices",
+        "ottawa_mi", "Legal notices", OttawaLegalNoticesScraper,
+        "https://www.mipublicnotices.com/",
+    ),
+    "saginaw_legalnotices": SourceDefinition(
+        "saginaw_legalnotices", "Saginaw County MI foreclosure notices",
+        "saginaw_mi", "Legal notices", SaginawLegalNoticesScraper,
+        "https://www.mipublicnotices.com/",
+    ),
 }
 
 
@@ -181,6 +274,21 @@ UI_COUNTY_SOURCES = {
     "harris": ["harris_taxsale"],
     "maricopa": ["maricopa_trusteesale", "maricopa_azcapitoltimes"],
     "barry-mi": ["barry_taxforeclosure", "barry_legalnotices"],
+    "wayne-mi": ["wayne_legalnotices"],
+    "macomb-mi": ["macomb_legalnotices"],
+    "oakland-mi": ["oakland_legalnotices"],
+    "genesee-mi": ["genesee_legalnotices"],
+    "ingham-mi": ["ingham_legalnotices"],
+    "kent-mi": ["kent_legalnotices"],
+    "jackson-mi": ["jackson_legalnotices"],
+    "muskegon-mi": ["muskegon_legalnotices"],
+    "kalamazoo-mi": ["kalamazoo_legalnotices"],
+    "calhoun-mi": ["calhoun_legalnotices"],
+    "berrien-mi": ["berrien_legalnotices"],
+    "washtenaw-mi": ["washtenaw_legalnotices"],
+    "livingston-mi": ["livingston_legalnotices"],
+    "ottawa-mi": ["ottawa_legalnotices"],
+    "saginaw-mi": ["saginaw_legalnotices"],
     "duval-fl": ["duval_jaxdailyrecord", "duval_jaxdailyrecord_retax"],
     "stjohns-fl": ["stjohns_jaxdailyrecord"],
     "nassau-fl": ["nassau_jaxdailyrecord"],
