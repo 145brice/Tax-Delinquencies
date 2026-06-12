@@ -1,0 +1,357 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pricing — ForeclosureLeads Pro</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: 'Segoe UI', sans-serif; background: #0f1117; color: #e0e0e0; min-height: 100vh; }
+
+        .navbar {
+            background: #16181f; border-bottom: 1px solid #2a2d3a;
+            padding: 0 32px; display: flex; align-items: center;
+            justify-content: space-between; height: 64px;
+        }
+        .logo { font-size: 1.4rem; font-weight: 700; color: #fff; }
+        .logo span { color: #3b82f6; }
+        .nav-right { display: flex; align-items: center; gap: 16px; }
+        .nav-tab { color: #9ca3af; text-decoration: none; font-size: 0.9rem; padding: 6px 10px; border-radius: 999px; border: 1px solid transparent; }
+        .nav-tab:hover { color: #fff; border-color: #334155; background: #1e2130; }
+        .nav-tab.active { color: #fff; border-color: #2563eb; background: #1e3a5f; }
+
+        .hero {
+            text-align: center; padding: 80px 24px 60px;
+            background: radial-gradient(ellipse 80% 40% at 50% 0%, #1e3a5f44, transparent);
+        }
+        .hero h1 { font-size: clamp(2rem, 5vw, 3rem); font-weight: 800; line-height: 1.15; margin-bottom: 16px; }
+        .hero h1 span { color: #3b82f6; }
+        .hero p { font-size: 1.1rem; color: #9ca3af; max-width: 560px; margin: 0 auto 32px; }
+
+        .trial-banner {
+            display: inline-flex; align-items: center; gap: 12px;
+            background: linear-gradient(135deg, #1e3a5f, #1d4ed8);
+            border: 1px solid #3b82f6; border-radius: 14px;
+            padding: 18px 32px; margin-bottom: 16px;
+        }
+        .trial-price { font-size: 2.8rem; font-weight: 800; color: #fff; line-height: 1; }
+        .trial-price sup { font-size: 1.2rem; vertical-align: top; margin-top: 6px; }
+        .trial-info { text-align: left; }
+        .trial-info strong { display: block; font-size: 1rem; color: #fff; }
+        .trial-info span { font-size: 0.82rem; color: #93c5fd; }
+
+        .trial-includes {
+            display: flex; gap: 10px; justify-content: center; flex-wrap: wrap;
+            margin-bottom: 32px;
+        }
+        .trial-chip {
+            background: #1e2130; border: 1px solid #2a2d3a; border-radius: 999px;
+            padding: 6px 14px; font-size: 0.82rem; color: #9ca3af;
+        }
+        .trial-chip strong { color: #e0e0e0; }
+
+        .btn-trial {
+            background: #2563eb; color: #fff; border: none; border-radius: 10px;
+            padding: 15px 40px; font-size: 1rem; font-weight: 700; cursor: pointer;
+            text-decoration: none; display: inline-block;
+            transition: background 0.2s, transform 0.1s;
+        }
+        .btn-trial:hover { background: #1d4ed8; transform: translateY(-1px); }
+        .no-cc { font-size: 0.78rem; color: #4b5563; margin-top: 10px; }
+
+        /* Pricing section */
+        .section { max-width: 960px; margin: 0 auto; padding: 0 24px 80px; }
+        .section-title {
+            text-align: center; font-size: 1.5rem; font-weight: 700;
+            margin-bottom: 8px;
+        }
+        .section-sub { text-align: center; color: #6b7280; font-size: 0.95rem; margin-bottom: 40px; }
+
+        .plan-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 20px; }
+
+        .plan-card {
+            background: #16181f; border: 1px solid #22253a; border-radius: 16px;
+            padding: 32px 28px; position: relative;
+        }
+        .plan-card.featured {
+            border-color: #2563eb;
+            background: linear-gradient(160deg, #16181f 60%, #1e3a5f22);
+        }
+        .featured-label {
+            position: absolute; top: -12px; left: 50%; transform: translateX(-50%);
+            background: #2563eb; color: #fff; font-size: 0.72rem; font-weight: 700;
+            padding: 4px 14px; border-radius: 999px; white-space: nowrap;
+        }
+        .plan-name { font-size: 0.8rem; font-weight: 700; color: #6b7280; text-transform: uppercase; letter-spacing: .1em; margin-bottom: 10px; }
+        .plan-price { font-size: 2.6rem; font-weight: 800; color: #fff; line-height: 1; margin-bottom: 4px; }
+        .plan-price sup { font-size: 1.1rem; vertical-align: top; margin-top: 8px; }
+        .plan-price sub { font-size: 1rem; color: #6b7280; font-weight: 400; }
+        .plan-desc { font-size: 0.85rem; color: #9ca3af; margin-bottom: 24px; padding-bottom: 24px; border-bottom: 1px solid #1e2130; }
+
+        .feature-list { list-style: none; display: flex; flex-direction: column; gap: 12px; }
+        .feature-list li { display: flex; gap: 10px; align-items: flex-start; font-size: 0.88rem; }
+        .feature-list li .check { color: #22c55e; font-size: 1rem; flex-shrink: 0; margin-top: 1px; }
+        .feature-list li .x { color: #4b5563; flex-shrink: 0; margin-top: 1px; }
+        .feature-list li span { color: #9ca3af; }
+        .feature-list li strong { color: #e0e0e0; }
+
+        /* Add-on county row */
+        .addon-row {
+            background: #16181f; border: 1px solid #22253a; border-radius: 12px;
+            display: flex; align-items: center; justify-content: space-between;
+            padding: 20px 28px; margin-bottom: 16px; flex-wrap: wrap; gap: 12px;
+        }
+        .addon-label { font-size: 1rem; font-weight: 600; }
+        .addon-price { font-size: 1.6rem; font-weight: 800; color: #3b82f6; }
+        .addon-sub { font-size: 0.8rem; color: #6b7280; margin-top: 2px; }
+
+        /* Skip trace section */
+        .trace-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; margin-bottom: 40px; }
+        .trace-card {
+            background: #16181f; border: 1px solid #22253a; border-radius: 12px;
+            padding: 22px 20px; text-align: center;
+        }
+        .trace-amount { font-size: 2rem; font-weight: 800; color: #3b82f6; }
+        .trace-label { font-size: 0.8rem; color: #6b7280; margin-top: 4px; }
+        .trace-note { font-size: 0.78rem; color: #4b5563; margin-top: 8px; }
+
+        /* FAQ */
+        .faq { max-width: 680px; margin: 0 auto; }
+        .faq-item { border-bottom: 1px solid #1e2130; padding: 18px 0; }
+        .faq-item:last-child { border-bottom: none; }
+        .faq-q { font-weight: 600; color: #e0e0e0; cursor: pointer; display: flex; justify-content: space-between; align-items: center; gap: 10px; }
+        .faq-q .chevron { color: #4b5563; transition: transform 0.2s; flex-shrink: 0; }
+        .faq-q.open .chevron { transform: rotate(180deg); }
+        .faq-a { font-size: 0.88rem; color: #9ca3af; margin-top: 10px; line-height: 1.6; display: none; }
+        .faq-a.open { display: block; }
+
+        .cta-bottom {
+            text-align: center; padding: 60px 24px 80px;
+            border-top: 1px solid #1e2130;
+        }
+        .cta-bottom h2 { font-size: 1.8rem; font-weight: 700; margin-bottom: 10px; }
+        .cta-bottom p { color: #9ca3af; margin-bottom: 28px; }
+    </style>
+</head>
+<body>
+
+<nav class="navbar">
+    <div class="logo">Foreclosure<span>Leads</span> Pro</div>
+    <div class="nav-right">
+        <a href="/" class="nav-tab">Storefront</a>
+        <a href="/pricing" class="nav-tab active">Pricing</a>
+        {% if not storefront_only %}
+        <a href="/admin/data" class="nav-tab">Data Explorer</a>
+        <a href="/admin" class="nav-tab">Admin</a>
+        {% endif %}
+        {% if current_user_email %}
+        <a href="/account" class="nav-tab">My Purchases</a>
+        <form method="POST" action="/logout" style="margin:0;">
+            <button class="nav-tab" type="submit" style="background:none;cursor:pointer;font-family:inherit;">Log out</button>
+        </form>
+        {% else %}
+        <a href="/login" class="nav-tab">Log in</a>
+        <a href="/register" class="nav-tab">Register</a>
+        {% endif %}
+    </div>
+</nav>
+
+<!-- HERO -->
+<div class="hero">
+    <h1>County-exclusive leads.<br><span>Priced to close deals.</span></h1>
+    <p>Fresh tax-delinquent and pre-foreclosure contacts, scraped weekly from public records. Skip trace included.</p>
+
+    <div>
+        <div class="trial-banner">
+            <div class="trial-price"><sup>$</sup>1</div>
+            <div class="trial-info">
+                <strong>7-Day Trial</strong>
+                <span>Get in, see real leads, no commitment</span>
+            </div>
+        </div>
+    </div>
+
+    <div class="trial-includes">
+        <span class="trial-chip"><strong>5–10</strong> live leads</span>
+        <span class="trial-chip"><strong>5–10</strong> free skip traces</span>
+        <span class="trial-chip">1 county, 7 days</span>
+        <span class="trial-chip">No build fee</span>
+        <span class="trial-chip">Cancel anytime</span>
+    </div>
+
+    <a href="/register" class="btn-trial">Start $1 Trial</a>
+    <p class="no-cc">No setup fee. No contracts. Billed $1 today.</p>
+</div>
+
+<!-- PLANS -->
+<div class="section">
+    <h2 class="section-title">County Subscription</h2>
+    <p class="section-sub">Lock in a county. Get every new lead the moment we pull it.</p>
+
+    <div class="plan-grid" style="margin-bottom:32px;">
+
+        <div class="plan-card featured">
+            <div class="featured-label">Most Popular</div>
+            <div class="plan-name">First County</div>
+            <div class="plan-price"><sup>$</sup>199<sub>/mo</sub></div>
+            <div class="plan-desc">Your flagship territory — full lead feed, weekly refresh, skip traces included.</div>
+            <ul class="feature-list">
+                <li><span class="check">✓</span> <span>All leads for <strong>1 county</strong></span></li>
+                <li><span class="check">✓</span> <span>Weekly data refresh</span></li>
+                <li><span class="check">✓</span> <span><strong>25 skip traces/month</strong> included</span></li>
+                <li><span class="check">✓</span> <span>Owner names + contact data</span></li>
+                <li><span class="check">✓</span> <span>Tax-delinquent &amp; pre-foreclosure</span></li>
+                <li><span class="check">✓</span> <span>No overlap with other subscribers</span></li>
+            </ul>
+        </div>
+
+        <div class="plan-card">
+            <div class="plan-name">Additional County</div>
+            <div class="plan-price"><sup>$</sup>99<sub>/mo each</sub></div>
+            <div class="plan-desc">Expand your territory — each additional county at a flat rate.</div>
+            <ul class="feature-list">
+                <li><span class="check">✓</span> <span>All leads for <strong>each additional county</strong></span></li>
+                <li><span class="check">✓</span> <span>Same weekly refresh</span></li>
+                <li><span class="check">✓</span> <span>Skip trace allotment shared across all counties</span></li>
+                <li><span class="check">✓</span> <span>Stack as many counties as you want</span></li>
+                <li><span class="check">✓</span> <span>No overlap guarantee per county</span></li>
+            </ul>
+        </div>
+
+        <div class="plan-card">
+            <div class="plan-name">Trial</div>
+            <div class="plan-price"><sup>$</sup>1<sub>/7 days</sub></div>
+            <div class="plan-desc">See the data before you commit. Converts to full plan after 7 days.</div>
+            <ul class="feature-list">
+                <li><span class="check">✓</span> <span><strong>5–10 live leads</strong> unlocked</span></li>
+                <li><span class="check">✓</span> <span><strong>5–10 free skip traces</strong></span></li>
+                <li><span class="check">✓</span> <span>1 county access</span></li>
+                <li><span class="check">✓</span> <span>No build fee, no contract</span></li>
+                <li><span class="check">✓</span> <span>Cancel before day 7, pay nothing more</span></li>
+            </ul>
+        </div>
+
+    </div>
+
+    <!-- Pricing example -->
+    <div style="background:#13151c;border:1px solid #1e2130;border-radius:12px;padding:20px 24px;margin-bottom:40px;">
+        <div style="font-size:0.8rem;color:#6b7280;font-weight:700;text-transform:uppercase;letter-spacing:.07em;margin-bottom:14px;">Example: 3-county plan</div>
+        <div style="display:flex;flex-direction:column;gap:8px;font-size:0.9rem;">
+            <div style="display:flex;justify-content:space-between;"><span>1st county (Wayne, MI)</span><strong>$199/mo</strong></div>
+            <div style="display:flex;justify-content:space-between;"><span>2nd county (Macomb, MI)</span><strong>$99/mo</strong></div>
+            <div style="display:flex;justify-content:space-between;"><span>3rd county (Oakland, MI)</span><strong>$99/mo</strong></div>
+            <div style="display:flex;justify-content:space-between;border-top:1px solid #22253a;padding-top:8px;margin-top:4px;"><strong>Total</strong><strong style="color:#3b82f6;">$397/mo</strong></div>
+        </div>
+        <div style="font-size:0.78rem;color:#4b5563;margin-top:10px;">Includes 25 free skip traces/month. ~1,900 new leads every 90 days across these three counties alone.</div>
+    </div>
+</div>
+
+<!-- SKIP TRACE -->
+<div class="section">
+    <h2 class="section-title">Skip Trace</h2>
+    <p class="section-sub">Every subscription includes skip traces. Need more? Add them à la carte.</p>
+
+    <div class="trace-grid">
+        <div class="trace-card">
+            <div class="trace-amount">25</div>
+            <div class="trace-label">Free skip traces / month</div>
+            <div class="trace-note">Included with every subscription. Rolls over within the billing period.</div>
+        </div>
+        <div class="trace-card">
+            <div class="trace-amount" style="color:#facc15;">$5</div>
+            <div class="trace-label">Per additional skip trace</div>
+            <div class="trace-note">Premium 3rd-party data. Phone, email, relatives. Billed on use.</div>
+        </div>
+        <div class="trace-card">
+            <div class="trace-amount" style="color:#86efac;">Free</div>
+            <div class="trace-label">In-tool Google skip trace</div>
+            <div class="trace-note">Built-in name-search tool at no cost. Good for quick lookups.</div>
+        </div>
+    </div>
+</div>
+
+<!-- FAQ -->
+<div class="section">
+    <h2 class="section-title">Common Questions</h2>
+    <p class="section-sub"></p>
+    <div class="faq">
+
+        <div class="faq-item">
+            <div class="faq-q" onclick="toggleFaq(this)">
+                What does "no overlap" mean?
+                <span class="chevron">▼</span>
+            </div>
+            <div class="faq-a">
+                If you subscribe to Wayne County, no other subscriber gets the same leads from Wayne. Each county is exclusive to one active subscriber at a time. If a county is taken, you'll see it greyed out in the storefront.
+            </div>
+        </div>
+
+        <div class="faq-item">
+            <div class="faq-q" onclick="toggleFaq(this)">
+                How often does the data refresh?
+                <span class="chevron">▼</span>
+            </div>
+            <div class="faq-a">
+                Most counties refresh weekly — we re-pull public notice filings every 7 days. Florida counties (Duval, Clay, Nassau, St. Johns) refresh daily because the Jax Daily Record posts new filings every business day. Tennessee and Texas tax lists update monthly, Barry County tax auction quarterly.
+            </div>
+        </div>
+
+        <div class="faq-item">
+            <div class="faq-q" onclick="toggleFaq(this)">
+                What's included in the 7-day trial?
+                <span class="chevron">▼</span>
+            </div>
+            <div class="faq-a">
+                You get access to 5–10 fully unlocked leads (real addresses, owner names, contact info where available) plus 5–10 skip trace lookups. One county, 7 days. No build fee, no setup cost — just $1. If you cancel before day 7 you won't be charged again.
+            </div>
+        </div>
+
+        <div class="faq-item">
+            <div class="faq-q" onclick="toggleFaq(this)">
+                Can I add or swap counties mid-month?
+                <span class="chevron">▼</span>
+            </div>
+            <div class="faq-a">
+                Yes. You can add new counties at any time — you'll be charged a prorated amount for the remainder of your billing cycle. Swapping (dropping one, adding another) works the same way. Contact us and we'll sort it out.
+            </div>
+        </div>
+
+        <div class="faq-item">
+            <div class="faq-q" onclick="toggleFaq(this)">
+                What are the available counties right now?
+                <span class="chevron">▼</span>
+            </div>
+            <div class="faq-a">
+                We currently cover <strong>{{ county_count }}</strong> counties across Michigan, California, Florida, Texas, Arizona, and Tennessee. Michigan coverage is the deepest: Wayne, Macomb, Oakland, Genesee, Ingham, Kent, Jackson, Muskegon, Kalamazoo, Calhoun, Berrien, Washtenaw, Livingston, Ottawa, Saginaw, and Barry. Check the storefront to see current lead counts per county.
+            </div>
+        </div>
+
+        <div class="faq-item">
+            <div class="faq-q" onclick="toggleFaq(this)">
+                Is there a build fee or setup cost?
+                <span class="chevron">▼</span>
+            </div>
+            <div class="faq-a">
+                No build fee at this time. The $1 trial gets you in the door, and monthly subscriptions start at $199 for your first county. That's it.
+            </div>
+        </div>
+
+    </div>
+</div>
+
+<!-- BOTTOM CTA -->
+<div class="cta-bottom">
+    <h2>Ready to start closing?</h2>
+    <p>Try it for $1. No contracts. No setup fees.</p>
+    <a href="/register" class="btn-trial">Start $1 Trial</a>
+</div>
+
+<script>
+function toggleFaq(el) {
+    const a = el.nextElementSibling;
+    el.classList.toggle('open');
+    a.classList.toggle('open');
+}
+</script>
+</body>
+</html>

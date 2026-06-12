@@ -1,0 +1,328 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>County Schedule — ForeclosureLeads Pro</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: 'Segoe UI', sans-serif; background: #0f1117; color: #e0e0e0; min-height: 100vh; }
+
+        .navbar {
+            background: #16181f;
+            border-bottom: 1px solid #2a2d3a;
+            padding: 0 32px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            height: 64px;
+        }
+        .logo { font-size: 1.4rem; font-weight: 700; color: #fff; }
+        .logo span { color: #3b82f6; }
+        .nav-tab { color: #9ca3af; text-decoration: none; font-size: 0.9rem; padding: 6px 10px; border-radius: 999px; border: 1px solid transparent; }
+        .nav-tab:hover { color: #fff; border-color: #334155; background: #1e2130; }
+        .nav-tab.active { color: #fff; border-color: #2563eb; background: #1e3a5f; }
+
+        .page { max-width: 1100px; margin: 40px auto; padding: 0 24px 60px; }
+        h1 { font-size: 1.6rem; margin-bottom: 6px; }
+        .subtitle { color: #6b7280; font-size: 0.9rem; margin-bottom: 32px; }
+
+        /* Summary cards */
+        .summary-row { display: flex; gap: 14px; flex-wrap: wrap; margin-bottom: 28px; }
+        .stat-card {
+            background: #16181f; border: 1px solid #22253a; border-radius: 10px;
+            padding: 18px 24px; min-width: 140px; flex: 1;
+        }
+        .stat-num { font-size: 2rem; font-weight: 700; color: #3b82f6; }
+        .stat-label { font-size: 0.78rem; color: #6b7280; margin-top: 4px; text-transform: uppercase; letter-spacing: .06em; }
+
+        /* Filter bar */
+        .filter-bar { display: flex; gap: 10px; margin-bottom: 16px; flex-wrap: wrap; align-items: center; }
+        .filter-bar select, .filter-bar input {
+            background: #1e2130; border: 1px solid #2a2d3a; color: #e0e0e0;
+            border-radius: 8px; padding: 8px 12px; font-size: 0.85rem;
+        }
+        .filter-bar select:focus, .filter-bar input:focus { outline: none; border-color: #3b82f6; }
+
+        /* Table */
+        .table-wrap { overflow-x: auto; border-radius: 12px; border: 1px solid #22253a; }
+        table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
+        thead th {
+            background: #1a1f2e; color: #9ca3af; font-size: 0.72rem;
+            text-transform: uppercase; letter-spacing: .07em;
+            padding: 12px 14px; text-align: left; white-space: nowrap;
+            cursor: pointer; user-select: none;
+        }
+        thead th:hover { color: #fff; background: #222740; }
+        thead th.sorted::after { content: ' ▼'; color: #3b82f6; }
+        thead th.sorted-asc::after { content: ' ▲'; color: #3b82f6; }
+        tbody td { padding: 11px 14px; border-top: 1px solid #1e2130; vertical-align: middle; }
+        tbody tr:hover { background: #161b2b; }
+
+        /* Frequency badges */
+        .badge {
+            display: inline-block; padding: 3px 10px; border-radius: 999px;
+            font-size: 0.72rem; font-weight: 700; white-space: nowrap;
+        }
+        .badge-daily    { background: #14532d; color: #86efac; }
+        .badge-weekly   { background: #1e3a5f; color: #93c5fd; }
+        .badge-monthly  { background: #78350f; color: #fcd34d; }
+        .badge-quarterly{ background: #1f2937; color: #9ca3af; }
+
+        /* Lead count */
+        .lead-count { font-weight: 700; color: #f0f0f0; }
+        .lead-count.zero { color: #4b5563; }
+
+        /* Last scraped */
+        .date-ok    { color: #86efac; }
+        .date-stale { color: #fcd34d; }
+        .date-never { color: #4b5563; }
+
+        /* Run button */
+        .btn-run-county {
+            background: #1e3a5f; color: #93c5fd; border: 1px solid #2563eb;
+            border-radius: 6px; padding: 5px 12px; font-size: 0.78rem; font-weight: 700;
+            cursor: pointer; white-space: nowrap;
+        }
+        .btn-run-county:hover { background: #1d4ed8; color: #fff; }
+        .btn-run-county:disabled { background: #1a1f2e; color: #374151; border-color: #374151; cursor: not-allowed; }
+        .btn-run-county.running { background: #7f1d1d; color: #fca5a5; border-color: #dc2626; }
+
+        .region-header td {
+            background: #13151c; color: #4b5563; font-size: 0.72rem;
+            text-transform: uppercase; letter-spacing: .1em; padding: 8px 14px;
+            font-weight: 700; border-top: 1px solid #1e2130;
+        }
+
+        .toast {
+            position: fixed; bottom: 24px; right: 24px;
+            background: #1e3a5f; border: 1px solid #2563eb; color: #93c5fd;
+            border-radius: 10px; padding: 12px 20px; font-size: 0.85rem;
+            z-index: 99; display: none; box-shadow: 0 4px 24px #0006;
+        }
+        .toast.error { background: #7f1d1d; border-color: #dc2626; color: #fca5a5; }
+
+        .source-pills { display: flex; gap: 4px; flex-wrap: wrap; }
+        .source-pill {
+            background: #1e2130; color: #9ca3af; border: 1px solid #2a2d3a;
+            border-radius: 4px; padding: 2px 7px; font-size: 0.7rem; white-space: nowrap;
+        }
+    </style>
+</head>
+<body>
+
+<nav class="navbar">
+    <div class="logo">Foreclosure<span>Leads</span> Pro</div>
+    <div style="display:flex;gap:18px;align-items:center;">
+        <a href="/" class="nav-tab">Storefront</a>
+        <a href="/admin/data" class="nav-tab">Data Explorer</a>
+        <a href="/admin" class="nav-tab">Admin</a>
+        <a href="/admin/counties" class="nav-tab active">Counties</a>
+        <a href="/admin/skiptrace" class="nav-tab">Skip Trace</a>
+        <a href="/admin/skiptrace/control" class="nav-tab">Auto Run</a>
+        <a href="/admin/trace" class="nav-tab">Trace Export</a>
+    </div>
+</nav>
+
+<div class="page">
+    <h1>County Schedule</h1>
+    <p class="subtitle">All registered counties, their scrape frequency, current lead counts, and last-scraped dates.</p>
+
+    <div class="summary-row">
+        <div class="stat-card">
+            <div class="stat-num">{{ total_counties }}</div>
+            <div class="stat-label">Counties tracked</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-num">{{ "{:,}".format(total_leads) }}</div>
+            <div class="stat-label">Total leads live</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-num">{{ daily_count }}</div>
+            <div class="stat-label">Daily cadence</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-num">{{ weekly_count }}</div>
+            <div class="stat-label">Weekly cadence</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-num">{{ monthly_count }}</div>
+            <div class="stat-label">Monthly cadence</div>
+        </div>
+    </div>
+
+    <div class="filter-bar">
+        <select id="state-filter" onchange="filterTable()">
+            <option value="">All states</option>
+            {% for state in states %}
+            <option value="{{ state }}">{{ state }}</option>
+            {% endfor %}
+        </select>
+        <select id="freq-filter" onchange="filterTable()">
+            <option value="">All frequencies</option>
+            <option value="Daily">Daily</option>
+            <option value="Weekly">Weekly</option>
+            <option value="Monthly">Monthly</option>
+            <option value="Quarterly">Quarterly</option>
+        </select>
+        <input type="text" id="search-input" placeholder="Search county..." oninput="filterTable()">
+    </div>
+
+    <div class="table-wrap">
+        <table id="county-table">
+            <thead>
+                <tr>
+                    <th onclick="sortTable(0)">County</th>
+                    <th onclick="sortTable(1)">State</th>
+                    <th onclick="sortTable(2)">Frequency</th>
+                    <th onclick="sortTable(3)" style="text-align:right;">Leads</th>
+                    <th onclick="sortTable(4)">Last Scraped</th>
+                    <th>Sources</th>
+                    <th>Action</th>
+                </tr>
+            </thead>
+            <tbody id="county-tbody">
+            {% set ns = namespace(cur_region='') %}
+            {% for row in schedule %}
+            {% if row.region != ns.cur_region %}
+            {% set ns.cur_region = row.region %}
+            <tr class="region-header"><td colspan="7">{{ row.region }}</td></tr>
+            {% endif %}
+            <tr data-state="{{ row.state }}" data-freq="{{ row.frequency.split('/')[0].strip() }}" data-label="{{ row.label|lower }}">
+                <td><strong>{{ row.label }}</strong></td>
+                <td>{{ row.state }}</td>
+                <td>
+                    {% set f = row.frequency.split('/')[0].strip() %}
+                    {% if f == 'Daily' %}
+                    <span class="badge badge-daily">Daily</span>
+                    {% elif f == 'Weekly' %}
+                    <span class="badge badge-weekly">Weekly</span>
+                    {% elif f == 'Monthly' %}
+                    <span class="badge badge-monthly">Monthly</span>
+                    {% else %}
+                    <span class="badge badge-quarterly">{{ row.frequency }}</span>
+                    {% endif %}
+                    {% if '/' in row.frequency %}
+                    <span style="font-size:0.7rem;color:#6b7280;margin-left:4px;">{{ row.freq_note }}</span>
+                    {% endif %}
+                </td>
+                <td style="text-align:right;">
+                    <span class="lead-count {% if row.lead_count == 0 %}zero{% endif %}">
+                        {{ "{:,}".format(row.lead_count) }}
+                    </span>
+                </td>
+                <td>
+                    {% if row.last_scraped %}
+                    {% set days_ago = row.days_since_scraped %}
+                    {% if days_ago <= 7 %}
+                    <span class="date-ok">{{ row.last_scraped }}</span>
+                    {% elif days_ago <= 35 %}
+                    <span class="date-stale">{{ row.last_scraped }}</span>
+                    {% else %}
+                    <span style="color:#ef4444;">{{ row.last_scraped }}</span>
+                    {% endif %}
+                    <span style="font-size:0.72rem;color:#4b5563;margin-left:4px;">
+                        {% if days_ago == 0 %}today{% elif days_ago == 1 %}1d ago{% else %}{{ days_ago }}d ago{% endif %}
+                    </span>
+                    {% else %}
+                    <span class="date-never">never</span>
+                    {% endif %}
+                </td>
+                <td>
+                    <div class="source-pills">
+                        {% for src in row.source_keys %}
+                        <span class="source-pill">{{ src }}</span>
+                        {% endfor %}
+                    </div>
+                </td>
+                <td>
+                    <button class="btn-run-county"
+                            onclick="runCounty('{{ row.ui_key }}', this)"
+                            title="Scrape {{ row.label }} now">
+                        Run
+                    </button>
+                </td>
+            </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+function showToast(msg, isError) {
+    const t = document.getElementById('toast');
+    t.textContent = msg;
+    t.className = 'toast' + (isError ? ' error' : '');
+    t.style.display = 'block';
+    clearTimeout(t._timer);
+    t._timer = setTimeout(() => t.style.display = 'none', 4000);
+}
+
+function runCounty(uiKey, btn) {
+    btn.disabled = true;
+    btn.textContent = 'Running…';
+    btn.classList.add('running');
+    fetch('/api/scrape', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({counties: [uiKey], lookback_days: 90, include_tax_records: true}),
+    })
+    .then(r => r.json())
+    .then(d => {
+        if (d.status === 'started') {
+            showToast('Scraper started for ' + uiKey + '. Check Admin for progress.');
+        } else if (d.status === 'already_running') {
+            showToast('A scrape is already running — stop it first.', true);
+        } else {
+            showToast(JSON.stringify(d), true);
+        }
+        setTimeout(() => { btn.disabled = false; btn.textContent = 'Run'; btn.classList.remove('running'); }, 3000);
+    })
+    .catch(e => {
+        showToast('Error: ' + e, true);
+        btn.disabled = false; btn.textContent = 'Run'; btn.classList.remove('running');
+    });
+}
+
+function filterTable() {
+    const stateVal = document.getElementById('state-filter').value.toLowerCase();
+    const freqVal  = document.getElementById('freq-filter').value.toLowerCase();
+    const search   = document.getElementById('search-input').value.toLowerCase();
+    document.querySelectorAll('#county-tbody tr').forEach(row => {
+        if (row.classList.contains('region-header')) { row.style.display = ''; return; }
+        const state = (row.dataset.state || '').toLowerCase();
+        const freq  = (row.dataset.freq  || '').toLowerCase();
+        const label = (row.dataset.label || '').toLowerCase();
+        const show  = (!stateVal || state === stateVal)
+                   && (!freqVal  || freq.startsWith(freqVal))
+                   && (!search   || label.includes(search));
+        row.style.display = show ? '' : 'none';
+    });
+}
+
+let sortDir = {};
+function sortTable(col) {
+    const tbody = document.getElementById('county-tbody');
+    const rows  = Array.from(tbody.querySelectorAll('tr:not(.region-header)'));
+    const dir   = (sortDir[col] = -(sortDir[col] || -1));
+    rows.sort((a, b) => {
+        const av = a.cells[col]?.textContent.trim() || '';
+        const bv = b.cells[col]?.textContent.trim() || '';
+        const an = parseFloat(av.replace(/,/g, ''));
+        const bn = parseFloat(bv.replace(/,/g, ''));
+        if (!isNaN(an) && !isNaN(bn)) return (an - bn) * dir;
+        return av.localeCompare(bv) * dir;
+    });
+    // Re-insert sorted rows, preserving region headers at appropriate positions
+    rows.forEach(r => tbody.appendChild(r));
+    document.querySelectorAll('thead th').forEach((th, i) => {
+        th.classList.remove('sorted', 'sorted-asc');
+        if (i === col) th.classList.add(dir === 1 ? 'sorted' : 'sorted-asc');
+    });
+}
+</script>
+</body>
+</html>

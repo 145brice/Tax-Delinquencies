@@ -18,6 +18,7 @@ from scraper import scrape_sync
 from scraper_runner import run_scrapers
 from scrapers.base_scraper import request_kill, clear_kill, ScraperKilled
 from scrapers.source_registry import SOURCE_METADATA, UI_COUNTY_SOURCES
+from scrapers import skiptrace_control as skiptrace_ctl
 
 load_dotenv()
 
@@ -236,6 +237,43 @@ def _date_sort_value(value):
             pass
     return (1, datetime.min, text.lower())
 
+_MONTH_MAP = {}
+for _i, _name in enumerate(["january", "february", "march", "april", "may", "june", "july",
+                            "august", "september", "october", "november", "december"], 1):
+    _MONTH_MAP[_name] = _i
+    _MONTH_MAP[_name[:3]] = _i
+_MONTH_MAP["sept"] = 9
+
+
+def _parse_sale_date(text, fallback_year=None):
+    """Best-effort normalize a messy sale/record date to a sortable ISO string.
+    Handles '2026-07-21', '7/21/2026', 'July 21, 2026', 'June, 2026',
+    '28th day of June, 2026', 'July 21' (+fallback year). Returns '' if unparseable."""
+    s = str(text or "").strip()
+    if not s:
+        return ""
+    m = re.search(r"(\d{4})-(\d{2})(?:-(\d{2}))?", s)            # already ISO
+    if m:
+        return f"{m.group(1)}-{m.group(2)}" + (f"-{m.group(3)}" if m.group(3) else "")
+    m = re.search(r"\b(\d{1,2})/(\d{1,2})/(\d{2,4})\b", s)        # m/d/y
+    if m:
+        mo, da, yr = int(m.group(1)), int(m.group(2)), int(m.group(3))
+        yr += 2000 if yr < 100 else 0
+        return f"{yr:04d}-{mo:02d}-{da:02d}"
+    monnum = next((_MONTH_MAP[t.lower()] for t in re.findall(r"[A-Za-z]+", s)
+                   if t.lower() in _MONTH_MAP), None)                # month name
+    if monnum:
+        ym = re.search(r"\b(20\d{2})\b", s)
+        yr = int(ym.group(1)) if ym else (int(fallback_year) if fallback_year else None)
+        dm = re.search(r"\b(\d{1,2})(?:st|nd|rd|th)?\b", s)
+        da = int(dm.group(1)) if dm and 1 <= int(dm.group(1)) <= 31 else None
+        if yr and da:
+            return f"{yr:04d}-{monnum:02d}-{da:02d}"
+        if yr:
+            return f"{yr:04d}-{monnum:02d}"
+    return ""
+
+
 def _csv_sort_value(row, column):
     if column in {"amount_owed"}:
         return _money_sort_value(row.get("amount_owed") or row.get("bid") or "")
@@ -325,6 +363,21 @@ def _storefront_display_row(item):
     if public_item.get("address"):
         public_item["address"] = obfuscate_address(str(public_item["address"]))
     public_item["street"] = ""
+
+    # Privacy: the public storefront shows ONLY the area-code teaser. Strip the full
+    # skip-trace contact data so it never reaches the page source / the Vercel site.
+    digits = re.sub(r"\D", "", str(public_item.get("primary_phone") or ""))
+    if len(digits) >= 10:
+        area = digits[-10:][:3]
+        public_item["phone_prefix"] = area
+        public_item["phone_display"] = f"({area}) ★★★-★★★★"
+    else:
+        public_item["phone_prefix"] = ""
+        public_item["phone_display"] = ""
+    for private_field in ("primary_phone", "phone_2", "email_1", "email_2",
+                          "mailing_address", "skiptrace_notes", "skiptrace_source",
+                          "skiptraced_at"):
+        public_item.pop(private_field, None)
     return public_item
 
 def _read_storefront_csv(default):
@@ -667,29 +720,114 @@ def _skiptrace_status(lead):
     return lead.get("skiptrace_status") or "pending"
 
 
+def _skiptrace_search_owner(owner):
+    text = re.sub(r"\([^)]*\)", " ", str(owner or ""))
+    text = re.sub(r"\b(ETUX|ET UX|ET AL|AKA)\b", " ", text, flags=re.I)
+    text = re.sub(r"\s+", " ", text).strip(" ,")
+    if "," in text:
+        last, rest = text.split(",", 1)
+        text = f"{rest.strip()} {last.strip()}"
+    text = re.sub(r"[^A-Za-z0-9\s.'-]", " ", text)
+    return re.sub(r"\s+", " ", text).strip()
+
+
+def _skiptrace_search_address(address):
+    text = str(address or "")
+    text = re.sub(r"\{[^}]*\}", " ", text)
+    text = re.sub(r"C:\\.*", " ", text)
+    text = re.sub(r"\s+\.\d+\b", " ", text)
+    text = re.sub(r"\s+\d+/\d+/\d{4}.*", " ", text)
+    text = re.sub(r"\s+", " ", text).strip(" ,")
+    return text
+
+
+def _skiptrace_city_state(lead):
+    city = str(lead.get("city") or "").strip()
+    state = str(lead.get("state") or "").strip()
+    address = str(lead.get("address") or "").strip()
+    parts = [part.strip() for part in address.split(",") if part.strip()]
+    if len(parts) >= 2:
+        city = city or parts[-2]
+        state_match = re.match(r"([A-Za-z]{2})\b", parts[-1])
+        state = state or (state_match.group(1).upper() if state_match else parts[-1])
+    return city, state
+
+
+def _skiptrace_lead_score(item):
+    address = str(item.get("address") or "").strip().lower()
+    clean_address = _skiptrace_search_address(address).lower()
+    owner = str(item.get("owner") or "").strip().lower()
+    source = str(item.get("source") or "").strip().lower()
+    score = 0
+    if re.search(r"^[1-9]\d*\s+[a-z]", clean_address):
+        score += 8
+    if re.search(r"\d+\s+[a-z]", clean_address):
+        score += 4
+    if not clean_address.startswith("apn "):
+        score += 2
+    if source and " co." in source:
+        score += 1
+    if re.search(r"\b(llc|inc|trust|estate|heirs|association|gp|group|builders|housing solutions)\b", owner):
+        score -= 8
+    if re.search(r"&|/|\band\b", owner):
+        score -= 5
+    if re.search(r"\blot\b|\boff\b|apn|c:\\|documents|\\users\\|\.doc|housing solutions|development", address):
+        score -= 8
+    if clean_address.startswith("0 "):
+        score -= 4
+    return score
+
+
 def _cyberbackgroundchecks_links(lead):
     owner = str(lead.get("owner") or "").strip()
     address = str(lead.get("address") or lead.get("street") or "").strip()
-    city = str(lead.get("city") or "").strip()
-    state = str(lead.get("state") or "").strip()
+    city, state = _skiptrace_city_state(lead)
     base = "https://www.google.com/search?q="
-    parts = ["site:cyberbackgroundchecks.com"]
-    if owner:
-        parts.append(f'"{owner}"')
-    if city:
-        parts.append(f'"{city}"')
-    if state:
-        parts.append(f'"{state}"')
-    name_query = " ".join(parts)
 
-    address_query = ""
-    if address:
-        address_query = f'site:cyberbackgroundchecks.com "{address}"'
+    searchable_owner = _skiptrace_search_owner(owner)
+    searchable_address = _skiptrace_search_address(address)
+
+    name_parts = [f'"{searchable_owner}"' if searchable_owner else "", city, state]
+    name_query = " ".join(part for part in name_parts if part).strip()
+
+    address_parts = [f'"{searchable_address}"' if searchable_address else "", city, state]
+    address_query = " ".join(part for part in address_parts if part).strip()
+
+    combined_parts = [
+        f'"{searchable_owner}"' if searchable_owner else "",
+        f'"{searchable_address}"' if searchable_address else "",
+        city,
+        state,
+    ]
+    web_query = " ".join(part for part in combined_parts if part).strip()
+
+    cbc_query = " ".join(part for part in ["site:cyberbackgroundchecks.com", searchable_owner, city, state] if part)
+    cbc_search_text = " ".join(part for part in [searchable_owner, city, state] if part).strip()
+    city_state = ", ".join(part for part in [city, state] if part)
+    tps_base = "https://www.truepeoplesearch.com"
+    tps_meta_query = " ".join(
+        part for part in ["site:truepeoplesearch.com", searchable_owner, searchable_address, city, state]
+        if part
+    )
 
     from urllib.parse import quote_plus
     return {
-        "name": base + quote_plus(name_query),
+        "name": base + quote_plus(name_query) if name_query else "",
         "address": base + quote_plus(address_query) if address_query else "",
+        "web": base + quote_plus(web_query) if web_query.strip() else "",
+        "cbc": base + quote_plus(cbc_query) if cbc_query.strip() else "",
+        "cbc_home": "https://www.cyberbackgroundchecks.com/",
+        "cbc_search_text": cbc_search_text,
+        "address_search_text": searchable_address,
+        "tps_name": (
+            f"{tps_base}/results?name={quote_plus(searchable_owner)}&citystatezip={quote_plus(city_state)}"
+            if searchable_owner else ""
+        ),
+        "tps_address": (
+            f"{tps_base}/resultaddress?streetaddress={quote_plus(searchable_address)}&citystatezip={quote_plus(city_state)}"
+            if searchable_address else ""
+        ),
+        "tps_meta": base + quote_plus(tps_meta_query) if tps_meta_query.strip() else "",
     }
 
 
@@ -706,16 +844,89 @@ def _skiptrace_admin_allowed():
     return False
 
 
+def _skiptrace_dev_enabled():
+    return _sqlite_enabled() and not db.is_configured()
+
+
+def _skiptrace_dev_orders(force_real=False):
+    orders = None if force_real else _sqlite_get("skiptrace_dev_orders", None)
+    if not orders:
+        sample_leads = []
+        listings = publishable_storefront_listings(current_listings())
+        preferred = [
+            item for item in listings
+            if str(item.get("owner") or "").strip()
+            and "fannie" not in str(item.get("owner") or "").lower()
+            and "homepath" not in str(item.get("source") or "").lower()
+        ]
+
+        preferred = sorted(preferred, key=_skiptrace_lead_score, reverse=True)
+        for item in (preferred or listings)[:5]:
+            lead = dict(item)
+            lead.setdefault("mailing_address", "")
+            lead.setdefault("primary_phone", "")
+            lead.setdefault("phone_2", "")
+            lead.setdefault("email_1", "")
+            lead.setdefault("email_2", "")
+            lead.setdefault("skiptrace_notes", "")
+            lead.setdefault("skiptrace_status", "pending")
+            sample_leads.append(lead)
+        orders = [{
+            "id": "local-dev-order-1",
+            "user_id": 0,
+            "email": "local-test@foreclosureleads.dev",
+            "amount_cents": len(sample_leads) * 500,
+            "created_at": datetime.now().isoformat(timespec="seconds"),
+            "leads_json": sample_leads,
+        }]
+        _sqlite_set("skiptrace_dev_orders", orders)
+
+    normalized = []
+    for order in orders:
+        order_copy = dict(order)
+        created = order_copy.get("created_at")
+        if isinstance(created, str):
+            try:
+                order_copy["created_at"] = datetime.fromisoformat(created)
+            except ValueError:
+                order_copy["created_at"] = None
+        normalized.append(order_copy)
+    return normalized
+
+
+def _skiptrace_dev_update(order_id, lead_id, contact_fields):
+    orders = _sqlite_get("skiptrace_dev_orders", [])
+    updated = False
+    for order in orders:
+        if str(order.get("id")) != str(order_id):
+            continue
+        for lead in order.get("leads_json") or []:
+            if str(lead.get("id")) == str(lead_id):
+                lead.update(contact_fields)
+                updated = True
+                break
+        if updated:
+            break
+    if not updated:
+        return False
+    _sqlite_set("skiptrace_dev_orders", orders)
+    return True
+
+
 @app.route('/admin/skiptrace')
 def admin_skiptrace():
-    if not _skiptrace_admin_allowed():
-        return render_template('skiptrace_login.html', token_configured=bool(os.getenv("SKIPTRACE_ADMIN_TOKEN", "")))
-    if not _accounts_ready():
+    if STOREFRONT_ONLY:
+        return redirect(url_for('index'), code=302)
+    dev_mode = _skiptrace_dev_enabled()
+    if not _accounts_ready() and not dev_mode:
         return render_template('checkout_status.html', title="Accounts not configured",
                                message="Set DATABASE_URL and SECRET_KEY before using the skip trace queue.")
     try:
-        db.init_db()
-        orders = db.get_paid_orders()
+        if dev_mode:
+            orders = _skiptrace_dev_orders()
+        else:
+            db.init_db()
+            orders = db.get_paid_orders()
     except Exception as exc:
         return render_template('checkout_status.html', title="Skip trace unavailable",
                                message=f"Could not load paid orders: {type(exc).__name__}")
@@ -729,13 +940,22 @@ def admin_skiptrace():
                 "status": _skiptrace_status(lead),
                 "links": _cyberbackgroundchecks_links(lead),
             })
-    return render_template('skiptrace.html', queue=queue)
+    return render_template('skiptrace.html', queue=queue, dev_mode=dev_mode)
+
+
+@app.route('/admin/skiptrace/run', methods=['POST'])
+def admin_skiptrace_run():
+    if STOREFRONT_ONLY:
+        return redirect(url_for('index'), code=302)
+    if _skiptrace_dev_enabled():
+        _skiptrace_dev_orders(force_real=True)
+    return redirect(url_for('admin_skiptrace'))
 
 
 @app.route('/admin/skiptrace/update', methods=['POST'])
 def admin_skiptrace_update():
-    if not _skiptrace_admin_allowed():
-        return render_template('skiptrace_login.html', token_configured=bool(os.getenv("SKIPTRACE_ADMIN_TOKEN", "")))
+    if STOREFRONT_ONLY:
+        return redirect(url_for('index'), code=302)
     order_id = request.form.get("order_id")
     lead_id = request.form.get("lead_id")
     contact_fields = {
@@ -751,9 +971,13 @@ def admin_skiptrace_update():
     contact_fields["skiptrace_status"] = (
         "completed" if contact_fields["primary_phone"] or contact_fields["email_1"] else "pending"
     )
+    dev_mode = _skiptrace_dev_enabled()
     try:
-        db.init_db()
-        updated = db.update_order_lead_contacts(order_id, lead_id, contact_fields)
+        if dev_mode:
+            updated = _skiptrace_dev_update(order_id, lead_id, contact_fields)
+        else:
+            db.init_db()
+            updated = db.update_order_lead_contacts(order_id, lead_id, contact_fields)
     except Exception as exc:
         return render_template('checkout_status.html', title="Skip trace update failed",
                                message=f"Could not update contact fields: {type(exc).__name__}")
@@ -761,6 +985,203 @@ def admin_skiptrace_update():
         return render_template('checkout_status.html', title="Lead not found",
                                message="That paid order or lead could not be found.")
     return redirect(url_for('admin_skiptrace'))
+
+
+# ---- Skip trace control panel (local-only background runner) ---------------
+
+def _skiptrace_county_options():
+    """Every county in listings.json, with how many leads have owner names (traceable)
+    vs total. Counties with no owner names are returned too (UI greys them out)."""
+    counts = {}
+    for item in current_listings():
+        county = str(item.get("county") or "").strip()
+        if not county:
+            continue
+        bucket = counts.setdefault(county, {"county": county, "total": 0, "traceable": 0, "pending": 0})
+        bucket["total"] += 1
+        if str(item.get("owner") or "").strip():
+            bucket["traceable"] += 1
+            if not (str(item.get("primary_phone") or "").strip() or str(item.get("email_1") or "").strip()):
+                bucket["pending"] += 1
+    out = sorted(counts.values(), key=lambda c: (-c["pending"], -c["traceable"]))
+    for c in out:
+        c["traced"] = c["traceable"] - c["pending"]          # leads that now have a number
+        c["done"] = c["traceable"] > 0 and c["pending"] == 0  # whole county traced
+    return out
+
+
+@app.route('/admin/skiptrace/control')
+def admin_skiptrace_control():
+    if STOREFRONT_ONLY:
+        return redirect(url_for('index'), code=302)
+    return render_template('skiptrace_control.html',
+                           counties=_skiptrace_county_options(),
+                           is_vercel=IS_VERCEL,
+                           status=skiptrace_ctl.status())
+
+
+@app.route('/admin/skiptrace/status')
+def admin_skiptrace_status():
+    if STOREFRONT_ONLY:
+        return jsonify({"error": "not available"}), 403
+    return jsonify(skiptrace_ctl.status())
+
+
+@app.route('/admin/skiptrace/start', methods=['POST'])
+def admin_skiptrace_start():
+    if STOREFRONT_ONLY:
+        return jsonify({"error": "not available"}), 403
+    if IS_VERCEL:
+        return jsonify({"ok": False, "message": "The runner only works on your local machine, not the server."}), 400
+    try:
+        limit = int(request.form.get("limit") or 0)
+    except ValueError:
+        limit = 0
+    ok, msg = skiptrace_ctl.start(
+        county=(request.form.get("county") or "").strip(),
+        limit=limit,
+        pace=(request.form.get("pace") or "normal"),
+        breaks=(request.form.get("breaks") or "normal"),
+        skip_traced=(request.form.get("skip_traced") == "on"),
+        write=(request.form.get("write") == "on"),
+        engine=(request.form.get("engine") or "ddg"),
+    )
+    return jsonify({"ok": ok, "message": msg, "status": skiptrace_ctl.status()})
+
+
+@app.route('/admin/skiptrace/stop-after', methods=['POST'])
+def admin_skiptrace_stop_after():
+    if STOREFRONT_ONLY:
+        return jsonify({"error": "not available"}), 403
+    ok, msg = skiptrace_ctl.stop_after()
+    return jsonify({"ok": ok, "message": msg, "status": skiptrace_ctl.status()})
+
+
+@app.route('/admin/skiptrace/kill', methods=['POST'])
+def admin_skiptrace_kill():
+    if STOREFRONT_ONLY:
+        return jsonify({"error": "not available"}), 403
+    ok, msg = skiptrace_ctl.kill_now()
+    return jsonify({"ok": ok, "message": msg, "status": skiptrace_ctl.status()})
+
+
+# ---- Trace Export (organize leads into upload-ready CSVs by category/month) --
+
+TRACE_TYPES = ["normal", "advanced", "parcel"]
+TRACE_LABELS = {
+    "normal": "Normal Trace",
+    "advanced": "Advanced Trace",
+    "parcel": "Parcel Trace (APN)",
+}
+TRACE_BLURB = {
+    "normal": "Has an owner name — needs phones & emails.",
+    "advanced": "No owner name — find the owner, then contacts.",
+    "parcel": "Only an APN — look up owner by Parcel ID + County + State.",
+}
+# Columns written to each category's upload CSV.
+TRACE_COLUMNS = {
+    "normal": ["lead_id", "owner", "address", "city", "state", "zip", "county"],
+    "advanced": ["lead_id", "address", "city", "state", "zip", "county"],
+    "parcel": ["lead_id", "parcel_id", "county", "state", "address"],
+}
+
+
+def _trace_type(lead):
+    """Route a lead to the category it qualifies for (cheapest-applicable order)."""
+    owner = str(lead.get("owner") or "").strip()
+    street = str(lead.get("street") or "").strip()
+    addr = str(lead.get("address") or "").strip()
+    apn = str(lead.get("parcel_id") or "").strip()
+    has_real_addr = bool(street) or (bool(addr) and not addr.upper().lstrip().startswith("APN"))
+    if owner:
+        return "normal"
+    if has_real_addr:
+        return "advanced"
+    if apn:
+        return "parcel"
+    return ""
+
+
+def _lead_month(lead):
+    """Month the notice/sale was ISSUED (parsed from the sale/record date), not scraped.
+    Falls back to scrape month only when no issued date is parseable."""
+    yr = str(lead.get("scraped_date") or "")[:4] or None
+    for raw in (lead.get("sale_date"), lead.get("date")):
+        iso = _parse_sale_date(raw, fallback_year=yr)
+        if iso:
+            return iso[:7]
+    iso = _parse_sale_date(lead.get("scraped_date"))
+    return iso[:7] if iso else "undated"
+
+
+def _trace_full():
+    """Every county with per-category totals AND a per-month breakdown, in one pass."""
+    counties = {}
+    for lead in current_listings():
+        county = str(lead.get("county") or "").strip()
+        ttype = _trace_type(lead)
+        if not county or not ttype:
+            continue
+        mo = _lead_month(lead)
+        c = counties.setdefault(county, {"county": county, "total": 0,
+                                         "normal": 0, "advanced": 0, "parcel": 0, "_months": {}})
+        c["total"] += 1
+        c[ttype] += 1
+        m = c["_months"].setdefault(mo, {"month": mo, "total": 0,
+                                         "normal": 0, "advanced": 0, "parcel": 0})
+        m["total"] += 1
+        m[ttype] += 1
+    out = []
+    for c in sorted(counties.values(), key=lambda c: c["county"].lower()):   # by county A->Z
+        months = list(c.pop("_months").values())
+        real = sorted((m for m in months if m["month"] != "undated"),
+                      key=lambda m: m["month"], reverse=True)               # newest issued first
+        und = [m for m in months if m["month"] == "undated"]
+        c["months"] = real + und
+        out.append(c)
+    return out
+
+
+def _trace_select(county, ttype, month):
+    out = []
+    for lead in current_listings():
+        if county and str(lead.get("county") or "").strip().lower() != county.lower():
+            continue
+        if _trace_type(lead) != ttype:
+            continue
+        if month and month != "all" and _lead_month(lead) != month:
+            continue
+        out.append(lead)
+    return out
+
+
+@app.route('/admin/trace')
+def admin_trace():
+    if STOREFRONT_ONLY:
+        return redirect(url_for('index'), code=302)
+    return render_template('trace.html', counties=_trace_full(),
+                           types=TRACE_TYPES, type_labels=TRACE_LABELS, type_blurb=TRACE_BLURB)
+
+
+@app.route('/admin/trace/export')
+def admin_trace_export():
+    if STOREFRONT_ONLY:
+        return redirect(url_for('index'), code=302)
+    county = (request.args.get("county") or "").strip()
+    ttype = (request.args.get("type") or "").strip()
+    month = (request.args.get("month") or "all").strip()
+    if ttype not in TRACE_TYPES:
+        return Response("Unknown trace type.", status=400, mimetype="text/plain")
+    leads = _trace_select(county, ttype, month)
+    cols = TRACE_COLUMNS[ttype]
+    out = io.StringIO()
+    writer = csv.DictWriter(out, fieldnames=cols)
+    writer.writeheader()
+    for lead in leads:
+        writer.writerow({c: (lead.get("id") if c == "lead_id" else lead.get(c, "")) for c in cols})
+    fname = f"{(county or 'all')}_{ttype}_{month}.csv".replace(" ", "-").lower()
+    return Response(out.getvalue(), mimetype="text/csv",
+                    headers={"Content-Disposition": f"attachment; filename={fname}"})
 
 
 # ---- Checkout --------------------------------------------------------------
@@ -951,7 +1372,7 @@ CSV_LABELS = {
     "zip_code": "ZIP", "parcel_id": "Parcel ID", "tax_year": "Tax Year",
     "amount_owed": "Amount Owed", "sale_date": "Sale / Record Date",
     "case_number": "Case #", "source_url": "Source", "scraped_date": "Scraped Date",
-    "notes": "Notes",
+    "notes": "Notes", "sale_date_iso": "Sale Date (sortable)",
 }
 
 def _list_csv_files():
@@ -988,6 +1409,129 @@ def _load_csv_rows(filename):
             rows.append(row)
     return rows
 
+@app.route('/pricing')
+def pricing():
+    from scrapers.source_registry import UI_COUNTY_SOURCES
+    county_count = len(UI_COUNTY_SOURCES)
+    return render_template('pricing.html', county_count=county_count)
+
+
+# ── County schedule ──────────────────────────────────────────────────────────
+
+_COUNTY_SCHEDULE = [
+    # Florida — Daily (Jax Daily Record posts every business day)
+    {"ui_key":"duval-fl",    "label":"Duval (Jacksonville)", "state":"FL", "region":"Florida (Northeast)", "frequency":"Daily",    "freq_note":"Jax Daily Record, weekdays",         "listing_names":["duval"],       "source_keys":["duval_jaxdailyrecord","duval_jaxdailyrecord_retax"]},
+    {"ui_key":"clay-fl",     "label":"Clay",                 "state":"FL", "region":"Florida (Northeast)", "frequency":"Daily",    "freq_note":"Jax Daily Record, weekdays",         "listing_names":["clay"],        "source_keys":["clay_jaxdailyrecord"]},
+    {"ui_key":"nassau-fl",   "label":"Nassau",               "state":"FL", "region":"Florida (Northeast)", "frequency":"Daily",    "freq_note":"Jax Daily Record, weekdays",         "listing_names":["nassau"],      "source_keys":["nassau_jaxdailyrecord"]},
+    {"ui_key":"stjohns-fl",  "label":"St. Johns",            "state":"FL", "region":"Florida (Northeast)", "frequency":"Daily",    "freq_note":"Jax Daily Record, weekdays",         "listing_names":["st. johns"],   "source_keys":["stjohns_jaxdailyrecord"]},
+    # Michigan — Weekly (mipublicnotices.com, new filings weekly)
+    {"ui_key":"wayne-mi",       "label":"Wayne (Detroit)",       "state":"MI", "region":"Michigan", "frequency":"Weekly", "freq_note":"~971 leads/90d", "listing_names":["wayne"],      "source_keys":["wayne_legalnotices"]},
+    {"ui_key":"macomb-mi",      "label":"Macomb (Warren)",       "state":"MI", "region":"Michigan", "frequency":"Weekly", "freq_note":"~467 leads/90d", "listing_names":["macomb"],     "source_keys":["macomb_legalnotices"]},
+    {"ui_key":"oakland-mi",     "label":"Oakland (Pontiac)",     "state":"MI", "region":"Michigan", "frequency":"Weekly", "freq_note":"~444 leads/90d", "listing_names":["oakland"],    "source_keys":["oakland_legalnotices"]},
+    {"ui_key":"genesee-mi",     "label":"Genesee (Flint)",       "state":"MI", "region":"Michigan", "frequency":"Weekly", "freq_note":"~243 leads/90d", "listing_names":["genesee"],    "source_keys":["genesee_legalnotices"]},
+    {"ui_key":"ingham-mi",      "label":"Ingham (Lansing)",      "state":"MI", "region":"Michigan", "frequency":"Weekly", "freq_note":"~168 leads/90d", "listing_names":["ingham"],     "source_keys":["ingham_legalnotices"]},
+    {"ui_key":"kent-mi",        "label":"Kent (Grand Rapids)",   "state":"MI", "region":"Michigan", "frequency":"Weekly", "freq_note":"~140 leads/90d", "listing_names":["kent"],       "source_keys":["kent_legalnotices"]},
+    {"ui_key":"jackson-mi",     "label":"Jackson",               "state":"MI", "region":"Michigan", "frequency":"Weekly", "freq_note":"~109 leads/90d", "listing_names":["jackson"],    "source_keys":["jackson_legalnotices"]},
+    {"ui_key":"muskegon-mi",    "label":"Muskegon",              "state":"MI", "region":"Michigan", "frequency":"Weekly", "freq_note":"~95 leads/90d",  "listing_names":["muskegon"],   "source_keys":["muskegon_legalnotices"]},
+    {"ui_key":"kalamazoo-mi",   "label":"Kalamazoo",             "state":"MI", "region":"Michigan", "frequency":"Weekly", "freq_note":"~69 leads/90d",  "listing_names":["kalamazoo"],  "source_keys":["kalamazoo_legalnotices"]},
+    {"ui_key":"calhoun-mi",     "label":"Calhoun (Battle Creek)","state":"MI", "region":"Michigan", "frequency":"Weekly", "freq_note":"~74 leads/90d",  "listing_names":["calhoun"],    "source_keys":["calhoun_legalnotices"]},
+    {"ui_key":"berrien-mi",     "label":"Berrien (Benton Harbor)","state":"MI","region":"Michigan", "frequency":"Weekly", "freq_note":"~62 leads/90d",  "listing_names":["berrien"],    "source_keys":["berrien_legalnotices"]},
+    {"ui_key":"washtenaw-mi",   "label":"Washtenaw (Ann Arbor)", "state":"MI", "region":"Michigan", "frequency":"Weekly", "freq_note":"~59 leads/90d",  "listing_names":["washtenaw"],  "source_keys":["washtenaw_legalnotices"]},
+    {"ui_key":"livingston-mi",  "label":"Livingston (Howell)",   "state":"MI", "region":"Michigan", "frequency":"Weekly", "freq_note":"~42 leads/90d",  "listing_names":["livingston"], "source_keys":["livingston_legalnotices"]},
+    {"ui_key":"ottawa-mi",      "label":"Ottawa (Holland)",      "state":"MI", "region":"Michigan", "frequency":"Weekly", "freq_note":"~32 leads/90d",  "listing_names":["ottawa"],     "source_keys":["ottawa_legalnotices"]},
+    {"ui_key":"saginaw-mi",     "label":"Saginaw",               "state":"MI", "region":"Michigan", "frequency":"Weekly", "freq_note":"~3 leads/90d",   "listing_names":["saginaw"],    "source_keys":["saginaw_legalnotices"]},
+    {"ui_key":"barry-mi",       "label":"Barry (Hastings)",      "state":"MI", "region":"Michigan", "frequency":"Weekly / Quarterly", "freq_note":"Notices: weekly | Tax auction: quarterly", "listing_names":["barry"], "source_keys":["barry_legalnotices","barry_taxforeclosure"]},
+    # California — Weekly (trustee-sale notices filed weekly with county recorder)
+    {"ui_key":"sandiego",       "label":"San Diego",             "state":"CA", "region":"California", "frequency":"Weekly", "freq_note":"Trustee-sale notices", "listing_names":["san diego"],     "source_keys":["sandiego_legalnotices","sandiego_taxsale"]},
+    {"ui_key":"losangeles",     "label":"Los Angeles",           "state":"CA", "region":"California", "frequency":"Weekly", "freq_note":"Trustee-sale notices", "listing_names":["los angeles"],   "source_keys":["losangeles_legalnotices"]},
+    {"ui_key":"orange",         "label":"Orange",                "state":"CA", "region":"California", "frequency":"Weekly", "freq_note":"Trustee-sale notices", "listing_names":["orange"],        "source_keys":["orange_legalnotices","orange_taxsale"]},
+    {"ui_key":"riverside",      "label":"Riverside",             "state":"CA", "region":"California", "frequency":"Weekly", "freq_note":"Trustee-sale notices", "listing_names":["riverside"],     "source_keys":["riverside_legalnotices"]},
+    {"ui_key":"sanbernardino",  "label":"San Bernardino",        "state":"CA", "region":"California", "frequency":"Weekly", "freq_note":"Trustee-sale notices", "listing_names":["san bernardino"],"source_keys":["sanbernardino_legalnotices"]},
+    {"ui_key":"ventura",        "label":"Ventura",               "state":"CA", "region":"California", "frequency":"Weekly", "freq_note":"Trustee-sale notices", "listing_names":["ventura"],       "source_keys":["ventura_legalnotices"]},
+    {"ui_key":"sacramento",     "label":"Sacramento",            "state":"CA", "region":"California", "frequency":"Weekly", "freq_note":"Trustee-sale notices", "listing_names":["sacramento"],    "source_keys":["sacramento_legalnotices"]},
+    {"ui_key":"alameda",        "label":"Alameda (Oakland)",     "state":"CA", "region":"California", "frequency":"Weekly", "freq_note":"Trustee-sale notices", "listing_names":["alameda"],       "source_keys":["alameda_legalnotices"]},
+    {"ui_key":"santaclara",     "label":"Santa Clara (San Jose)","state":"CA", "region":"California", "frequency":"Weekly", "freq_note":"Trustee-sale notices", "listing_names":["santa clara"],   "source_keys":["santaclara_legalnotices"]},
+    {"ui_key":"kern",           "label":"Kern (Bakersfield)",    "state":"CA", "region":"California", "frequency":"Weekly", "freq_note":"Trustee-sale notices", "listing_names":["kern"],          "source_keys":["kern_legalnotices"]},
+    {"ui_key":"fresno",         "label":"Fresno",                "state":"CA", "region":"California", "frequency":"Weekly", "freq_note":"Trustee-sale notices", "listing_names":["fresno"],        "source_keys":["fresno_legalnotices"]},
+    {"ui_key":"contracosta",    "label":"Contra Costa",          "state":"CA", "region":"California", "frequency":"Weekly", "freq_note":"Trustee-sale notices", "listing_names":["contra costa"],  "source_keys":["contracosta_legalnotices"]},
+    {"ui_key":"sanmateo",       "label":"San Mateo",             "state":"CA", "region":"California", "frequency":"Weekly", "freq_note":"Trustee-sale notices", "listing_names":["san mateo"],     "source_keys":["sanmateo_legalnotices"]},
+    # Arizona — Weekly
+    {"ui_key":"maricopa-az",    "label":"Maricopa (Phoenix)",    "state":"AZ", "region":"Arizona", "frequency":"Weekly", "freq_note":"Trustee sales published weekly", "listing_names":["maricopa"], "source_keys":["maricopa_trusteesale","maricopa_azcapitoltimes","maricopa_recordreporter"]},
+    # Texas — Monthly
+    {"ui_key":"harris-tx",      "label":"Harris (Houston)",      "state":"TX", "region":"Texas", "frequency":"Monthly", "freq_note":"Delinquent tax list updates ~monthly", "listing_names":["harris"], "source_keys":["harris_taxsale"]},
+    # Tennessee — Monthly
+    {"ui_key":"davidson",       "label":"Davidson (Nashville)",  "state":"TN", "region":"Tennessee", "frequency":"Monthly", "freq_note":"Chancery Court posts lists ~monthly", "listing_names":["davidson"],   "source_keys":["davidson"]},
+    {"ui_key":"williamson",     "label":"Williamson (Franklin)", "state":"TN", "region":"Tennessee", "frequency":"Monthly", "freq_note":"County delinquent tax list ~monthly",  "listing_names":["williamson"], "source_keys":["williamson"]},
+    {"ui_key":"rutherford",     "label":"Rutherford (Murfreesboro)","state":"TN","region":"Tennessee","frequency":"Monthly","freq_note":"RC Chancery Court ~monthly",            "listing_names":["rutherford"], "source_keys":["rutherford"]},
+    {"ui_key":"wilson-tn",      "label":"Wilson (Lebanon)",      "state":"TN", "region":"Tennessee", "frequency":"Monthly", "freq_note":"Chancery Court ~monthly",              "listing_names":["wilson"],     "source_keys":["wilson"]},
+    {"ui_key":"sumner",         "label":"Sumner (Gallatin)",     "state":"TN", "region":"Tennessee", "frequency":"Monthly", "freq_note":"Chancery Court ~monthly",              "listing_names":["sumner"],     "source_keys":["sumner"]},
+    {"ui_key":"robertson",      "label":"Robertson (Springfield)","state":"TN","region":"Tennessee", "frequency":"Monthly", "freq_note":"Court auctions ~monthly",              "listing_names":["robertson"],  "source_keys":["robertson"]},
+    {"ui_key":"cheatham",       "label":"Cheatham (Ashland City)","state":"TN","region":"Tennessee", "frequency":"Monthly", "freq_note":"Tax sales ~monthly",                  "listing_names":["cheatham"],   "source_keys":["cheatham"]},
+]
+
+
+def _build_county_schedule():
+    """Attach live stats (lead count, last scraped) from listings.json to each schedule row."""
+    from datetime import date as _date
+    today = _date.today()
+    # Bypass load_json/SQLite — read the flat file directly so manual data
+    # pushes (listings.json written outside the app) are always reflected.
+    _json_path = os.path.join(BASE_DIR, 'listings.json')
+    try:
+        with open(_json_path, 'r', encoding='utf-8-sig') as _f:
+            listings = json.load(_f)
+    except (OSError, json.JSONDecodeError):
+        listings = []
+    # Build a dict: normalized county name → {count, last_scraped}
+    stats = {}
+    for item in listings:
+        key = (item.get("county") or "").strip().lower()
+        if not key:
+            continue
+        scraped = (item.get("scraped_date") or item.get("date") or "")[:10]
+        if key not in stats:
+            stats[key] = {"count": 0, "last_scraped": ""}
+        stats[key]["count"] += 1
+        if scraped and scraped > stats[key]["last_scraped"]:
+            stats[key]["last_scraped"] = scraped
+
+    enriched = []
+    for row in _COUNTY_SCHEDULE:
+        count = sum(stats.get(n.lower(), {}).get("count", 0) for n in row["listing_names"])
+        last = max((stats.get(n.lower(), {}).get("last_scraped", "") for n in row["listing_names"]), default="")
+        days_since = 0
+        if last:
+            try:
+                from datetime import datetime as _dt
+                days_since = (today - _dt.strptime(last, "%Y-%m-%d").date()).days
+            except ValueError:
+                pass
+        enriched.append({**row, "lead_count": count, "last_scraped": last, "days_since_scraped": days_since})
+    return enriched
+
+
+@app.route('/admin/counties')
+def admin_counties():
+    if STOREFRONT_ONLY:
+        return redirect(url_for('index'), code=302)
+    schedule = _build_county_schedule()
+    total_leads = sum(r["lead_count"] for r in schedule)
+    states = sorted({r["state"] for r in schedule})
+    daily_count   = sum(1 for r in schedule if r["frequency"].startswith("Daily"))
+    weekly_count  = sum(1 for r in schedule if r["frequency"].startswith("Weekly"))
+    monthly_count = sum(1 for r in schedule if r["frequency"].startswith("Monthly"))
+    return render_template(
+        'admin_counties.html',
+        schedule=schedule,
+        total_counties=len(schedule),
+        total_leads=total_leads,
+        states=states,
+        daily_count=daily_count,
+        weekly_count=weekly_count,
+        monthly_count=monthly_count,
+    )
+
+
 @app.route('/admin/data')
 def admin_data():
     if STOREFRONT_ONLY:
@@ -1005,6 +1549,11 @@ def admin_data():
     rows = _load_csv_rows(selected) if selected else []
     total = len(rows)
 
+    # Normalize the messy sale/record date into a clean, sortable ISO column.
+    for r in rows:
+        yr = (str(r.get("scraped_date") or "")[:4] or None)
+        r["sale_date_iso"] = _parse_sale_date(r.get("sale_date") or r.get("date"), fallback_year=yr)
+
     if filter_county:
         rows = [r for r in rows if filter_county in r.get('county', '').lower()]
     if filter_type:
@@ -1012,7 +1561,8 @@ def admin_data():
     if filter_q:
         rows = [r for r in rows if any(filter_q in str(v).lower() for v in r.values())]
 
-    if sort_col in CSV_FIELDNAMES:
+    display_fields = list(CSV_FIELDNAMES) + ["sale_date_iso"]
+    if sort_col in display_fields:
         rows = sorted(rows, key=lambda r: _csv_sort_value(r, sort_col), reverse=(sort_dir == 'desc'))
 
     all_rows = _load_csv_rows(selected) if selected else []
@@ -1023,7 +1573,7 @@ def admin_data():
         'admin_data.html',
         rows=rows, total=total, filtered=len(rows),
         files=files, selected=selected,
-        fieldnames=CSV_FIELDNAMES, column_labels=CSV_LABELS,
+        fieldnames=display_fields, column_labels=CSV_LABELS,
         filter_county=request.args.get('filter_county', ''),
         filter_type=request.args.get('filter_type', ''),
         filter_q=request.args.get('q', ''),

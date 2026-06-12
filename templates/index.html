@@ -83,6 +83,21 @@
         }
         .btn-clear:hover { color: #fff; border-color: #6b7280; }
 
+        /* Pager */
+        .pager { color: #9aa3b2; }
+        .pager-input {
+            width: 56px; text-align: center;
+            background: #1e2130; border: 1px solid #2a2d3a; color: #e0e0e0;
+            padding: 5px 6px; border-radius: 6px; font-size: 0.82rem; outline: none;
+        }
+        .pager-input:focus { border-color: #3b82f6; }
+        .pager .btn-clear:disabled { opacity: 0.35; cursor: default; }
+        .pager .btn-clear:disabled:hover { color: #9ca3af; border-color: #374151; }
+        .pager-bottom {
+            position: sticky; bottom: 0; z-index: 5;
+            background: #13151c; border-top: 1px solid #1e2130;
+        }
+
         /* Table */
         .table-wrap {
             overflow: auto;
@@ -171,6 +186,7 @@
     <div class="logo">Foreclosure<span>Leads</span> Pro</div>
     <div class="nav-right">
         <a href="/" class="nav-tab active">Storefront</a>
+        <a href="/pricing" class="nav-tab">Pricing</a>
         {% if not storefront_only %}
         <a href="/admin/data" class="nav-tab">Data Explorer</a>
         <a href="/admin" class="nav-tab">Admin</a>
@@ -204,13 +220,28 @@
         <option value="">All types</option>
         <option value="Auction">Auction</option>
         <option value="Pre-foreclosure">Pre-Foreclosure</option>
-        <option value="Tax Lien">Tax Lien</option>
+        <option value="Tax Lien">Tax Delinquent</option>
     </select>
     <select id="state-filter" onchange="applyFilters()">
         <option value="">All states</option>
     </select>
     <button class="btn-clear" onclick="clearFilters()">Clear</button>
-    <div style="margin-left:auto; display:flex; gap:10px;">
+    <div style="margin-left:auto; display:flex; gap:10px; align-items:center;">
+        <label style="display:flex; align-items:center; gap:6px; font-size:13px;">Per page
+            <select id="page-size" onchange="changePageSize()">
+                <option value="10">10</option>
+                <option value="25">25</option>
+                <option value="100" selected>100</option>
+            </select>
+        </label>
+        <div class="pager pager-top" style="display:flex; gap:8px; align-items:center;">
+            <button class="btn-clear pager-prev" onclick="gotoPage(currentPage - 1)">&lsaquo; Prev</button>
+            <span class="pager-indicator" style="font-size:13px; white-space:nowrap;">Page
+                <input type="number" class="pager-input" min="1" value="1"
+                    onchange="jumpToPage(this)" onkeydown="if(event.key==='Enter'){jumpToPage(this);}">
+                of <span class="pager-pages">1</span></span>
+            <button class="btn-clear pager-next" onclick="gotoPage(currentPage + 1)">Next &rsaquo;</button>
+        </div>
         <span class="stat-pill">Showing <strong id="visible-count">0</strong> / <strong id="total-count">0</strong></span>
         <span class="stat-pill"><strong id="county-count">0</strong> counties</span>
     </div>
@@ -229,6 +260,7 @@
             <th data-sort="zip">ZIP</th>
             <th data-sort="address">Address (masked)</th>
             <th data-sort="owner">Owner</th>
+            <th data-sort="phone" title="Area code shown; full number revealed after purchase">Phone</th>
             <th data-sort="parcel_id">Parcel/APN</th>
             <th data-sort="case_number">Case#</th>
             <th data-sort="amount" data-type="money">Amount / Value</th>
@@ -265,7 +297,7 @@
                 {% elif item.status == 'Pre-foreclosure' %}
                     <span class="badge badge-pre-foreclosure">Pre-Foreclosure</span>
                 {% else %}
-                    <span class="badge badge-tax-lien">Tax Lien</span>
+                    <span class="badge badge-tax-lien">Tax Delinquent</span>
                 {% endif %}
             </td>
             <td><span class="badge-county">{{ item.county or '-' }}</span></td>
@@ -274,6 +306,7 @@
             <td>{{ item.zip or '' }}</td>
             <td title="Full address revealed after purchase">{{ item.display_address }}</td>
             <td>{{ item.owner or '-' }}</td>
+            <td title="Full number revealed after purchase">{{ item.phone_display or '-' }}</td>
             <td>{{ item.parcel_id or '-' }}</td>
             <td>{{ item.case_number or '-' }}</td>
             <td>{{ item.amount_owed or ('$' ~ "{:,}".format(item.bid|int) if item.bid else '-') }}</td>
@@ -301,11 +334,60 @@
 {% endif %}
 </div>
 
+{% if listings %}
+<div class="pager pager-bottom" style="display:flex; gap:12px; align-items:center; justify-content:center; padding:16px;">
+    <button class="btn-clear pager-prev" onclick="gotoPage(currentPage - 1)">&lsaquo; Prev</button>
+    <span class="pager-indicator" style="font-size:13px; white-space:nowrap;">Page
+        <input type="number" class="pager-input" min="1" value="1"
+            onchange="jumpToPage(this)" onkeydown="if(event.key==='Enter'){jumpToPage(this);}">
+        of <span class="pager-pages">1</span></span>
+    <button class="btn-clear pager-next" onclick="gotoPage(currentPage + 1)">Next &rsaquo;</button>
+</div>
+{% endif %}
+
 <script>
     const allRows = [...document.querySelectorAll('#leads-body tr')];
     const totalCount = allRows.length;
-    document.getElementById('total-count').innerText = totalCount;
-    document.getElementById('visible-count').innerText = totalCount;
+
+    // Pagination state — operates on the current filtered + sorted set
+    let pageSize = 100;
+    let currentPage = 1;
+    let filteredRows = allRows.slice();
+
+    function renderPage() {
+        const body = document.getElementById('leads-body');
+        if (!body) return;
+        allRows.forEach(r => r.style.display = 'none');
+        const total = filteredRows.length;
+        const pages = Math.max(1, Math.ceil(total / pageSize));
+        currentPage = Math.min(Math.max(currentPage, 1), pages);
+        const start = (currentPage - 1) * pageSize;
+        const pageRows = filteredRows.slice(start, start + pageSize);
+        // appendChild reorders the DOM so the page renders in sorted order
+        pageRows.forEach(r => { r.style.display = ''; body.appendChild(r); });
+
+        document.getElementById('visible-count').innerText =
+            total ? `${start + 1}–${start + pageRows.length}` : '0';
+        document.getElementById('total-count').innerText = total;
+        document.querySelectorAll('.pager-input').forEach(el => { el.value = currentPage; el.max = pages; });
+        document.querySelectorAll('.pager-pages').forEach(el => el.innerText = pages);
+        document.querySelectorAll('.pager-prev').forEach(b => b.disabled = currentPage <= 1);
+        document.querySelectorAll('.pager-next').forEach(b => b.disabled = currentPage >= pages);
+    }
+    function gotoPage(p) {
+        currentPage = p;
+        renderPage();
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+    function jumpToPage(input) {
+        const p = parseInt(input.value, 10);
+        if (Number.isFinite(p)) gotoPage(p);  // renderPage clamps to valid range
+    }
+    function changePageSize() {
+        pageSize = parseInt(document.getElementById('page-size').value, 10) || 100;
+        currentPage = 1;
+        renderPage();
+    }
 
     // Populate county + state dropdowns dynamically
     const counties = new Set(allRows.map(r => r.dataset.county).filter(Boolean));
@@ -321,7 +403,7 @@
         'san bernardino':'San Bernardino CA','ventura':'Ventura CA',
         'sacramento':'Sacramento CA','alameda':'Alameda CA','santa clara':'Santa Clara CA',
         'kern':'Kern CA','fresno':'Fresno CA','contra costa':'Contra Costa CA',
-        'san mateo':'San Mateo CA',
+        'san mateo':'San Mateo CA','barry':'Barry MI',
     };
     const countySel = document.getElementById('county-filter');
     [...counties].sort().forEach(c => {
@@ -384,16 +466,14 @@
             document.querySelectorAll('th[data-sort]').forEach(t => t.classList.remove('sorted-asc','sorted-desc'));
             th.classList.add(sortDir === 'asc' ? 'sorted-asc' : 'sorted-desc');
 
-            const visible = allRows.filter(r => r.style.display !== 'none');
-            visible.sort((a, b) => {
+            filteredRows.sort((a, b) => {
                 const av = sortValue(a, col, type);
                 const bv = sortValue(b, col, type);
                 if (av < bv) return sortDir === 'asc' ? -1 : 1;
                 if (av > bv) return sortDir === 'asc' ?  1 : -1;
                 return 0;
             });
-            const body = document.getElementById('leads-body');
-            visible.forEach(r => body.appendChild(r));
+            renderPage();
         });
     });
 
@@ -403,18 +483,16 @@
         const fc = document.getElementById('county-filter').value;
         const fs = document.getElementById('status-filter').value;
         const fst = document.getElementById('state-filter').value;
-        let visible = 0;
-        allRows.forEach(r => {
+        filteredRows = allRows.filter(r => {
             const matchQ = !q || ['address','owner','parcel_id','city','county','case_number','zip']
                 .some(k => (r.dataset[k] || '').includes(q));
             const matchC  = !fc  || r.dataset.county === fc;
             const matchS  = !fs  || r.dataset.status === fs;
             const matchSt = !fst || r.dataset.state  === fst;
-            const show = matchQ && matchC && matchS && matchSt;
-            r.style.display = show ? '' : 'none';
-            if (show) visible++;
+            return matchQ && matchC && matchS && matchSt;
         });
-        document.getElementById('visible-count').innerText = visible;
+        currentPage = 1;
+        renderPage();
     }
     function clearFilters() {
         document.getElementById('search-input').value = '';
@@ -468,7 +546,10 @@
         } catch (err) {
             alert('Could not reach checkout. Please try again.');
         }
-    }</script>
+    }
+
+    // Initial paginated render
+    renderPage();</script>
 </body>
 </html>
 
