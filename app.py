@@ -1884,7 +1884,7 @@ def listings_csv():
     )
 
 if __name__ == '__main__':
-    host = os.getenv("HOST", "127.0.0.1")
+    host = os.getenv("HOST", "0.0.0.0")
     port = int(os.getenv("PORT", "8095"))
     print(f"Foreclosure app running at http://{host}:{port}")
     app.run(host=host, port=port, debug=False, use_reloader=False)
