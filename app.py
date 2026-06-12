@@ -661,7 +661,27 @@ def current_user():
 @app.context_processor
 def inject_user():
     user = current_user()
-    return {"current_user_email": user["email"] if user else None}
+    accounts_ready = _accounts_ready()
+    database_configured = db.is_configured()
+    secret_key_set = bool(app.secret_key)
+    stripe_configured = bool(stripe.api_key)
+    appwrite_endpoint_set = bool(os.getenv("APPWRITE_ENDPOINT", ""))
+    appwrite_project_set = bool(os.getenv("APPWRITE_PROJECT_ID", ""))
+    appwrite_key_set = bool(os.getenv("APPWRITE_API_KEY", ""))
+    appwrite_configured = bool(appwrite_endpoint_set and appwrite_project_set and appwrite_key_set)
+    return {
+        "current_user_email": user["email"] if user else None,
+        "accounts_ready": accounts_ready,
+        "checkout_ready": bool(accounts_ready and stripe_configured),
+        "appwrite_pending": not appwrite_configured,
+        "database_configured": database_configured,
+        "secret_key_set": secret_key_set,
+        "stripe_configured": stripe_configured,
+        "appwrite_endpoint_set": appwrite_endpoint_set,
+        "appwrite_project_set": appwrite_project_set,
+        "appwrite_key_set": appwrite_key_set,
+        "appwrite_configured": appwrite_configured,
+    }
 
 
 @app.route('/healthz')
@@ -687,7 +707,7 @@ def _accounts_ready():
 def register():
     if not _accounts_ready():
         return render_template('auth.html', mode='register',
-                               error="Accounts are not configured yet. Set DATABASE_URL and SECRET_KEY.")
+                               error="Accounts are not configured yet. Set Appwrite env vars and SECRET_KEY.")
     if current_user():
         return redirect(url_for('account'))
     if request.method == 'POST':
@@ -698,7 +718,10 @@ def register():
         if len(password) < 8:
             return render_template('auth.html', mode='register', error="Password must be at least 8 characters.", email=email)
         db.init_db()
-        user = db.create_user(email, generate_password_hash(password))
+        user = db.create_user(
+            email,
+            generate_password_hash(password),
+        )
         if not user:
             return render_template('auth.html', mode='register', error="That email is already registered. Try logging in.", email=email)
         session['user_id'] = user['id']
@@ -710,7 +733,7 @@ def register():
 def login():
     if not _accounts_ready():
         return render_template('auth.html', mode='login',
-                               error="Accounts are not configured yet. Set DATABASE_URL and SECRET_KEY.")
+                               error="Accounts are not configured yet. Set Appwrite env vars and SECRET_KEY.")
     if current_user():
         return redirect(url_for('account'))
     if request.method == 'POST':
@@ -952,7 +975,7 @@ def admin_skiptrace():
     dev_mode = _skiptrace_dev_enabled()
     if not _accounts_ready() and not dev_mode:
         return render_template('checkout_status.html', title="Accounts not configured",
-                               message="Set DATABASE_URL and SECRET_KEY before using the skip trace queue.")
+                               message="Set Appwrite env vars and SECRET_KEY before using the skip trace queue.")
     try:
         if dev_mode:
             orders = _skiptrace_dev_orders()
@@ -1228,7 +1251,7 @@ def create_checkout_session():
     if not stripe.api_key:
         return jsonify({"error": "Payments are not configured yet."}), 503
     if not _accounts_ready():
-        return jsonify({"error": "Accounts are not configured yet. Set DATABASE_URL and SECRET_KEY."}), 503
+        return jsonify({"error": "Accounts are not configured yet. Set Appwrite env vars and SECRET_KEY."}), 503
 
     user = current_user()
     if not user:
@@ -1353,48 +1376,53 @@ def stripe_status():
 
 @app.route('/api/accounts-status')
 def accounts_status():
-    """Diagnostic: confirms the DB env var is set, the session secret is set,
-    and that we can actually connect to Postgres and create the tables."""
-    db_url_set = db.is_configured()
+    """Diagnostic for Appwrite/Postgres accounts."""
+    backend_configured = db.is_configured()
+    appwrite_configured = db.appwrite_configured()
     secret_set = bool(app.secret_key)
-    db_connected = False
+    backend_connected = False
     detail = None
-    if db_url_set:
+    if backend_configured:
         try:
             db.init_db()
-            db_connected = True
+            backend_connected = True
         except Exception as exc:  # surface a short, password-free reason
             detail = type(exc).__name__ + ": " + str(exc)[:200]
     return jsonify({
-        "accounts_ready": bool(db_url_set and secret_set and db_connected),
-        "db_url_set": db_url_set,
+        "accounts_ready": bool(backend_configured and secret_set and backend_connected),
+        "backend": "appwrite" if appwrite_configured else "postgres" if backend_configured else None,
+        "appwrite_configured": appwrite_configured,
+        "backend_configured": backend_configured,
         "secret_key_set": secret_set,
-        "db_connected": db_connected,
+        "backend_connected": backend_connected,
         "detail": detail,
     })
 
 @app.route('/api/checkout-status')
 def checkout_status_api():
     """Diagnostic for the full purchase-unlock flow."""
-    db_url_set = db.is_configured()
+    backend_configured = db.is_configured()
+    appwrite_configured = db.appwrite_configured()
     secret_set = bool(app.secret_key)
     stripe_set = bool(stripe.api_key)
     webhook_set = bool(os.getenv("STRIPE_WEBHOOK_SECRET", ""))
-    db_connected = False
+    backend_connected = False
     detail = None
-    if db_url_set:
+    if backend_configured:
         try:
             db.init_db()
-            db_connected = True
+            backend_connected = True
         except Exception as exc:
             detail = type(exc).__name__ + ": " + str(exc)[:200]
     return jsonify({
-        "checkout_ready": bool(stripe_set and db_url_set and secret_set and db_connected),
+        "checkout_ready": bool(stripe_set and backend_configured and secret_set and backend_connected),
         "stripe_secret_key_set": stripe_set,
         "stripe_webhook_secret_set": webhook_set,
-        "database_url_set": db_url_set,
+        "backend": "appwrite" if appwrite_configured else "postgres" if backend_configured else None,
+        "appwrite_configured": appwrite_configured,
+        "backend_configured": backend_configured,
         "secret_key_set": secret_set,
-        "database_connected": db_connected,
+        "backend_connected": backend_connected,
         "detail": detail,
     })
 

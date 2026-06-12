@@ -124,6 +124,26 @@ Vercel serves only the buyer-facing storefront. Admin, Data Explorer, scraper
 controls, raw listings JSON, and CSV exports are disabled automatically on
 Vercel.
 
+Buyer accounts, saved purchases, and Stripe unlock records are stored in
+Appwrite Databases. Configure these environment variables locally and in
+Vercel:
+
+```text
+APPWRITE_ENDPOINT=https://nyc.cloud.appwrite.io/v1
+APPWRITE_PROJECT_ID=<project id>
+APPWRITE_API_KEY=<server api key>
+APPWRITE_DATABASE_ID=tax_delinquencies
+APPWRITE_USERS_COLLECTION_ID=users
+APPWRITE_ORDERS_COLLECTION_ID=orders
+SECRET_KEY=<long random flask session secret>
+STRIPE_SECRET_KEY=<stripe secret key>
+STRIPE_WEBHOOK_SECRET=<stripe webhook secret>
+```
+
+The app creates the `tax_delinquencies` database plus `users` and `orders`
+collections if they do not exist. Keep API keys in `.env` or Vercel env vars;
+never commit them.
+
 Run the Python app locally for scraping and data work:
 
 ```bash

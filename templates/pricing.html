@@ -19,6 +19,10 @@
         .nav-tab { color: #9ca3af; text-decoration: none; font-size: 0.9rem; padding: 6px 10px; border-radius: 999px; border: 1px solid transparent; }
         .nav-tab:hover { color: #fff; border-color: #334155; background: #1e2130; }
         .nav-tab.active { color: #fff; border-color: #2563eb; background: #1e3a5f; }
+        .setup-pill {
+            color: #fbbf24; border: 1px solid #5f4318; background: #221b0f;
+            border-radius: 999px; padding: 6px 10px; font-size: 0.8rem; font-weight: 700;
+        }
 
         .hero {
             text-align: center; padding: 80px 24px 60px;
@@ -57,6 +61,7 @@
             transition: background 0.2s, transform 0.1s;
         }
         .btn-trial:hover { background: #1d4ed8; transform: translateY(-1px); }
+        .btn-trial.disabled { background: #334155; color: #94a3b8; cursor: not-allowed; pointer-events: none; transform: none; }
         .no-cc { font-size: 0.78rem; color: #4b5563; margin-top: 10px; }
 
         /* Pricing section */
@@ -150,8 +155,12 @@
             <button class="nav-tab" type="submit" style="background:none;cursor:pointer;font-family:inherit;">Log out</button>
         </form>
         {% else %}
+        {% if accounts_ready %}
         <a href="/login" class="nav-tab">Log in</a>
         <a href="/register" class="nav-tab">Register</a>
+        {% else %}
+        <span class="setup-pill">Appwrite pending</span>
+        {% endif %}
         {% endif %}
     </div>
 </nav>
@@ -179,8 +188,13 @@
         <span class="trial-chip">Cancel anytime</span>
     </div>
 
+    {% if checkout_ready %}
     <a href="/register" class="btn-trial">Start $1 Trial</a>
     <p class="no-cc">No setup fee. No contracts. Billed $1 today.</p>
+    {% else %}
+    <a href="/" class="btn-trial disabled">Appwrite setup pending</a>
+    <p class="no-cc">Pricing is ready. Checkout turns on after Appwrite and Stripe are connected.</p>
+    {% endif %}
 </div>
 
 <!-- PLANS -->
@@ -343,7 +357,11 @@
 <div class="cta-bottom">
     <h2>Ready to start closing?</h2>
     <p>Try it for $1. No contracts. No setup fees.</p>
+    {% if checkout_ready %}
     <a href="/register" class="btn-trial">Start $1 Trial</a>
+    {% else %}
+    <a href="/" class="btn-trial disabled">Appwrite setup pending</a>
+    {% endif %}
 </div>
 
 <script>

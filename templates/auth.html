@@ -9,14 +9,22 @@
         body { font-family: 'Segoe UI', sans-serif; background: #0f1117; color: #e0e0e0; min-height: 100vh; font-size: 14px; }
         .navbar {
             background: #16181f; border-bottom: 1px solid #2a2d3a;
-            padding: 0 24px; display: flex; align-items: center; height: 56px;
+            padding: 0 24px; display: flex; align-items: center; justify-content: space-between; height: 56px;
         }
         .logo { font-size: 1.3rem; font-weight: 700; color: #fff; text-decoration: none; }
         .logo span { color: #3b82f6; }
-        .wrap { max-width: 380px; margin: 64px auto; padding: 0 20px; }
-        .card { background: #16181f; border: 1px solid #2a2d3a; border-radius: 10px; padding: 28px; }
+        .nav-link { color: #9ca3af; text-decoration: none; border: 1px solid transparent; border-radius: 999px; padding: 6px 10px; }
+        .nav-link:hover { color: #fff; border-color: #334155; background: #1e2130; }
+        .wrap { max-width: 960px; margin: 64px auto; padding: 0 20px; display: grid; grid-template-columns: minmax(280px, 1fr) 380px; gap: 24px; align-items: start; }
+        .panel, .card { background: #16181f; border: 1px solid #2a2d3a; border-radius: 10px; padding: 28px; }
         h1 { font-size: 1.4rem; color: #fff; margin-bottom: 6px; }
         .sub { color: #9ca3af; font-size: 0.85rem; margin-bottom: 22px; }
+        .panel h2 { color: #fff; font-size: 1.1rem; margin-bottom: 10px; }
+        .panel p { color: #9ca3af; line-height: 1.55; margin-bottom: 16px; }
+        .setup-list { list-style: none; display: grid; gap: 10px; margin-top: 18px; }
+        .setup-list li { display: flex; justify-content: space-between; gap: 12px; border: 1px solid #242b3a; background: #10131a; border-radius: 8px; padding: 10px 12px; color: #cbd5e1; }
+        .status { color: #fbbf24; font-weight: 800; font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.04em; white-space: nowrap; }
+        code { color: #fef3c7; }
         label { display: block; font-size: 0.8rem; color: #9ca3af; margin: 14px 0 6px; }
         input {
             width: 100%; background: #1e2130; border: 1px solid #2a2d3a; color: #e0e0e0;
@@ -29,14 +37,30 @@
         }
         button:hover { background: #1d4ed8; }
         .error { background: #3b1d1d; border: 1px solid #7f1d1d; color: #fca5a5; padding: 10px 12px; border-radius: 6px; font-size: 0.85rem; margin-bottom: 16px; }
+        .notice { background: #221b0f; border: 1px solid #5f4318; color: #fef3c7; padding: 12px; border-radius: 8px; font-size: 0.86rem; margin-bottom: 16px; line-height: 1.45; }
         .alt { margin-top: 18px; text-align: center; font-size: 0.85rem; color: #9ca3af; }
         .alt a { color: #3b82f6; text-decoration: none; }
         .alt a:hover { text-decoration: underline; }
+        @media (max-width: 820px) { .wrap { grid-template-columns: 1fr; margin-top: 28px; } }
     </style>
 </head>
 <body>
-<nav class="navbar"><a href="/" class="logo">Foreclosure<span>Leads</span> Pro</a></nav>
+<nav class="navbar">
+    <a href="/" class="logo">Foreclosure<span>Leads</span> Pro</a>
+    <a href="/" class="nav-link">Storefront</a>
+</nav>
 <div class="wrap">
+    <section class="panel">
+        <h2>Buyer accounts</h2>
+        <p>Appwrite is the account layer for this build: users, sessions, saved purchases, and lead unlocks will sit behind the existing Flask routes.</p>
+        <p>Until Appwrite is connected, the storefront remains browsable and checkout stays intentionally disabled.</p>
+        <ul class="setup-list">
+            <li><span><code>APPWRITE_ENDPOINT</code></span><span class="status">{{ 'Ready' if appwrite_endpoint_set else 'Pending' }}</span></li>
+            <li><span><code>APPWRITE_PROJECT_ID</code></span><span class="status">{{ 'Ready' if appwrite_project_set else 'Pending' }}</span></li>
+            <li><span><code>APPWRITE_API_KEY</code></span><span class="status">{{ 'Ready' if appwrite_key_set else 'Pending' }}</span></li>
+            <li><span>Stripe checkout</span><span class="status">{{ 'Ready' if stripe_configured else 'Pending' }}</span></li>
+        </ul>
+    </section>
     <div class="card">
         {% if mode == 'register' %}
             <h1>Create your account</h1>
@@ -46,21 +70,28 @@
             <div class="sub">Access the leads you've purchased.</div>
         {% endif %}
 
-        {% if error %}<div class="error">{{ error }}</div>{% endif %}
+        {% if appwrite_pending %}
+            <div class="notice">Account creation will turn on after Appwrite credentials are added. No lead data is lost while setup is pending.</div>
+        {% elif error %}
+            <div class="error">{{ error }}</div>
+        {% endif %}
 
         <form method="POST" action="{{ url_for('register' if mode == 'register' else 'login') }}{% if request.args.get('next') %}?next={{ request.args.get('next') }}{% endif %}">
             <label for="email">Email</label>
-            <input id="email" name="email" type="email" value="{{ email or '' }}" required autofocus>
+            <input id="email" name="email" type="email" value="{{ email or '' }}" required autofocus {% if appwrite_pending %}disabled{% endif %}>
             <label for="password">Password</label>
             <input id="password" name="password" type="password" required
-                   {% if mode == 'register' %}minlength="8" placeholder="At least 8 characters"{% endif %}>
-            <button type="submit">{{ 'Create account' if mode == 'register' else 'Log in' }}</button>
+                   {% if mode == 'register' %}minlength="8" placeholder="At least 8 characters"{% endif %}
+                   {% if appwrite_pending %}disabled{% endif %}>
+            <button type="submit" {% if appwrite_pending %}disabled{% endif %}>{% if appwrite_pending %}Appwrite setup pending{% elif mode == 'register' %}Create account{% else %}Log in{% endif %}</button>
         </form>
 
+        {% if not appwrite_pending %}
         {% if mode == 'register' %}
             <div class="alt">Already have an account? <a href="{{ url_for('login') }}">Log in</a></div>
         {% else %}
             <div class="alt">New here? <a href="{{ url_for('register') }}">Create an account</a></div>
+        {% endif %}
         {% endif %}
     </div>
 </div>

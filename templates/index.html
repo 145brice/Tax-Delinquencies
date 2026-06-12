@@ -26,6 +26,30 @@
         .nav-tab { color: #9ca3af; text-decoration: none; font-size: 0.9rem; padding: 6px 10px; border-radius: 999px; border: 1px solid transparent; }
         .nav-tab:hover { color: #fff; border-color: #334155; background: #1e2130; }
         .nav-tab.active { color: #fff; border-color: #2563eb; background: #1e3a5f; }
+        .setup-pill {
+            color: #fbbf24; border: 1px solid #5f4318; background: #221b0f;
+            border-radius: 999px; padding: 6px 10px; font-size: 0.8rem; font-weight: 700;
+        }
+        .setup-banner {
+            background: #151912; border-bottom: 1px solid #33451f; color: #d9f99d;
+            padding: 10px 24px; display: flex; align-items: center; justify-content: space-between;
+            gap: 16px; font-size: 0.88rem;
+        }
+        .setup-banner strong { color: #fff; }
+        .setup-banner code { color: #fef3c7; }
+        .overview {
+            display: grid; grid-template-columns: minmax(280px, 1.5fr) repeat(3, minmax(140px, 1fr));
+            gap: 1px; background: #1e2130; border-bottom: 1px solid #1e2130;
+        }
+        .overview-panel {
+            background: #10131a; padding: 18px 24px; min-height: 92px;
+            display: flex; flex-direction: column; justify-content: center;
+        }
+        .overview-title { color: #fff; font-size: 1.25rem; font-weight: 800; margin-bottom: 4px; }
+        .overview-copy { color: #9ca3af; max-width: 720px; line-height: 1.45; }
+        .metric-label { color: #6b7280; font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.08em; font-weight: 800; }
+        .metric-value { color: #fff; font-size: 1.5rem; font-weight: 800; margin-top: 6px; }
+        .metric-sub { color: #93c5fd; font-size: 0.78rem; margin-top: 2px; }
 
         .cart-bar {
             background: linear-gradient(90deg, #1e3a5f, #1a3a6b);
@@ -43,6 +67,7 @@
             font-size: 0.9rem; font-weight: 600; cursor: pointer;
         }
         .btn-checkout:hover { background: #1d4ed8; }
+        .btn-checkout:disabled { background: #334155; color: #94a3b8; cursor: not-allowed; }
 
         /* Toolbar */
         .toolbar {
@@ -178,6 +203,14 @@
         ::-webkit-scrollbar-track { background: #0f1117; }
         ::-webkit-scrollbar-thumb { background: #2a3148; border-radius: 4px; }
         ::-webkit-scrollbar-thumb:hover { background: #374151; }
+        @media (max-width: 900px) {
+            .navbar { height: auto; min-height: 56px; align-items: flex-start; flex-direction: column; gap: 10px; padding: 14px 16px; }
+            .nav-right, .toolbar, .cart-bar, .setup-banner { align-items: stretch; flex-direction: column; }
+            .overview { grid-template-columns: 1fr 1fr; }
+            .overview-panel:first-child { grid-column: 1 / -1; }
+            .toolbar input[type=text] { width: 100%; }
+            .toolbar > div { margin-left: 0 !important; width: 100%; flex-wrap: wrap; }
+        }
     </style>
 </head>
 <body>
@@ -197,18 +230,53 @@
             <button class="nav-tab" type="submit" style="background:none;cursor:pointer;font-family:inherit;">Log out</button>
         </form>
         {% else %}
+        {% if accounts_ready %}
         <a href="/login" class="nav-tab">Log in</a>
         <a href="/register" class="nav-tab">Register</a>
+        {% else %}
+        <span class="setup-pill">Appwrite pending</span>
+        {% endif %}
         {% endif %}
     </div>
 </nav>
+
+{% if appwrite_pending %}
+<div class="setup-banner">
+    <div><strong>Account system pending:</strong> connect Appwrite with <code>APPWRITE_ENDPOINT</code>, <code>APPWRITE_PROJECT_ID</code>, and <code>APPWRITE_API_KEY</code> to enable registration, checkout, and saved purchases.</div>
+    <div>Storefront browsing stays live.</div>
+</div>
+{% endif %}
+
+<section class="overview">
+    <div class="overview-panel">
+        <div class="overview-title">Live foreclosure lead desk</div>
+        <div class="overview-copy">Browse masked public records, filter by county or lead type, then unlock the full contact package once checkout is connected.</div>
+    </div>
+    <div class="overview-panel">
+        <div class="metric-label">Live Leads</div>
+        <div class="metric-value" id="total-leads-metric">0</div>
+        <div class="metric-sub">ready to review</div>
+    </div>
+    <div class="overview-panel">
+        <div class="metric-label">Markets</div>
+        <div class="metric-value" id="county-metric">0</div>
+        <div class="metric-sub">counties loaded</div>
+    </div>
+    <div class="overview-panel">
+        <div class="metric-label">Selected</div>
+        <div class="metric-value" id="selected-metric">0</div>
+        <div class="metric-sub">$<span id="selected-total-metric">0</span> cart</div>
+    </div>
+</section>
 
 <div class="cart-bar">
     <div class="cart-info">
         &#128722; <strong id="cart-count">0</strong> leads selected
         &nbsp;|&nbsp; Total: <strong>$<span id="cart-total">0</span></strong>
     </div>
-    <button class="btn-checkout" onclick="checkout()">Checkout &rarr;</button>
+    <button class="btn-checkout" onclick="checkout()" {% if not checkout_ready %}disabled title="Connect Appwrite and Stripe to enable checkout"{% endif %}>
+        {% if checkout_ready %}Checkout &rarr;{% else %}Checkout setup pending{% endif %}
+    </button>
 </div>
 
 <div class="toolbar">
@@ -393,6 +461,8 @@
     const counties = new Set(allRows.map(r => r.dataset.county).filter(Boolean));
     const states   = new Set(allRows.map(r => r.dataset.state).filter(Boolean));
     document.getElementById('county-count').innerText = counties.size;
+    document.getElementById('total-leads-metric').innerText = totalCount.toLocaleString();
+    document.getElementById('county-metric').innerText = counties.size.toLocaleString();
 
     const countyLabels = {
         'davidson':'Davidson TN','wilson':'Wilson TN','williamson':'Williamson TN',
@@ -522,6 +592,8 @@
         const total = checked.reduce((s, cb) => s + parseFloat(cb.dataset.price), 0);
         document.getElementById('cart-count').innerText = checked.length;
         document.getElementById('cart-total').innerText = total;
+        document.getElementById('selected-metric').innerText = checked.length.toLocaleString();
+        document.getElementById('selected-total-metric').innerText = total.toLocaleString();
     }
     async function checkout() {
         const checked = [...document.querySelectorAll('.lead-cb:checked')];
