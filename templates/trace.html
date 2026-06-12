@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Trace Export &middot; ForeclosureLeads Pro</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: 'Segoe UI', sans-serif; background: #0f1117; color: #e0e0e0; min-height: 100vh; font-size: 13px; }
+        .navbar { background: #16181f; border-bottom: 1px solid #2a2d3a; padding: 0 24px; display: flex; align-items: center; justify-content: space-between; min-height: 56px; }
+        .logo { font-size: 1.3rem; font-weight: 700; color: #fff; text-decoration: none; }
+        .logo span { color: #3b82f6; }
+        .nav-tab { color: #9ca3af; text-decoration: none; font-size: 0.9rem; padding: 6px 10px; border-radius: 999px; border: 1px solid transparent; }
+        .nav-tab:hover, .nav-tab.active { color: #fff; border-color: #2563eb; background: #1e3a5f; }
+        .page { max-width: 1100px; margin: 0 auto; padding: 28px 24px; }
+        h1 { color: #fff; font-size: 1.5rem; margin-bottom: 4px; }
+        .subtitle { color: #9ca3af; margin-bottom: 20px; line-height: 1.5; }
+        .cats { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px; margin-bottom: 22px; }
+        .cat { background: #16181f; border: 1px solid #2a2d3a; border-radius: 8px; padding: 14px; }
+        .cat h3 { color: #fff; font-size: 0.95rem; margin-bottom: 4px; }
+        .cat p { color: #9ca3af; font-size: 0.82rem; line-height: 1.4; }
+        .card { background: #16181f; border: 1px solid #2a2d3a; border-radius: 10px; padding: 8px 6px; }
+        table { width: 100%; border-collapse: collapse; font-size: 0.86rem; }
+        th, td { text-align: left; padding: 9px 12px; border-bottom: 1px solid #2a2d3a; }
+        th { color: #9ca3af; font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.04em; position: sticky; top: 0; background: #16181f; }
+        td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+        a.dl { display: inline-block; color: #dbeafe; background: #1e3a5f; border: 1px solid #2563eb; border-radius: 6px; padding: 4px 9px; text-decoration: none; font-weight: 700; font-size: 0.76rem; }
+        a.dl:hover { background: #2563eb; }
+        .muted { color: #4b5563; }
+        .cty-row td { background: #11141b; font-weight: 700; color: #fff; border-top: 2px solid #2a2d3a; }
+        .mo-row td:first-child { color: #6b7280; padding-left: 24px; }
+        .mo { color: #9ca3af; }
+    </style>
+</head>
+<body>
+    <div class="navbar">
+        <a href="/" class="logo">Foreclosure<span>Leads</span></a>
+        <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;">
+            <a href="/" class="nav-tab">Storefront</a>
+            <a href="/admin/data" class="nav-tab">Data Explorer</a>
+            <a href="/admin" class="nav-tab">Admin</a>
+            <a href="/admin/skiptrace" class="nav-tab">Skip Trace</a>
+            <a href="/admin/skiptrace/control" class="nav-tab">Auto Run</a>
+            <a href="/admin/trace" class="nav-tab active">Trace Export</a>
+        </div>
+    </div>
+
+    {% macro dl(count, county, t, month) -%}
+        {% if count %}<a class="dl" href="{{ url_for('admin_trace_export', county=county, type=t, month=month) }}">{{ count }} &darr;</a>{% else %}<span class="muted">0</span>{% endif %}
+    {%- endmacro %}
+
+    <div class="page">
+        <h1>Trace Export</h1>
+        <p class="subtitle">Every county, with download buttons right here &mdash; one CSV per category (and per month).
+            Each lead is auto-sorted into the category it qualifies for.</p>
+
+        <div class="cats">
+            {% for t in types %}
+            <div class="cat"><h3>{{ type_labels[t] }}</h3><p>{{ type_blurb[t] }}</p></div>
+            {% endfor %}
+        </div>
+
+        <div class="card">
+            <table>
+                <thead><tr>
+                    <th>County / Month</th>
+                    {% for t in types %}<th class="num">{{ type_labels[t] }}</th>{% endfor %}
+                </tr></thead>
+                <tbody>
+                {% for c in counties %}
+                    <tr class="cty-row">
+                        <td>{{ c.county }} <span class="mo" style="font-weight:400;">&middot; all months ({{ c.total }})</span></td>
+                        {% for t in types %}<td class="num">{{ dl(c[t], c.county, t, 'all') }}</td>{% endfor %}
+                    </tr>
+                    {% if c.months|length > 1 %}
+                        {% for m in c.months %}
+                        <tr class="mo-row">
+                            <td>{{ m.month }}</td>
+                            {% for t in types %}<td class="num">{{ dl(m[t], c.county, t, m.month) }}</td>{% endfor %}
+                        </tr>
+                        {% endfor %}
+                    {% endif %}
+                {% else %}
+                    <tr><td colspan="4" class="muted">No traceable leads yet.</td></tr>
+                {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</body>
+</html>

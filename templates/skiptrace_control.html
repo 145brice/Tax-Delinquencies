@@ -1,0 +1,237 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Skip Trace Control &middot; ForeclosureLeads Pro</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: 'Segoe UI', sans-serif; background: #0f1117; color: #e0e0e0; min-height: 100vh; font-size: 13px; }
+        .navbar { background: #16181f; border-bottom: 1px solid #2a2d3a; padding: 0 24px; display: flex; align-items: center; justify-content: space-between; min-height: 56px; }
+        .logo { font-size: 1.3rem; font-weight: 700; color: #fff; text-decoration: none; }
+        .logo span { color: #3b82f6; }
+        .nav-tab { color: #9ca3af; text-decoration: none; font-size: 0.9rem; padding: 6px 10px; border-radius: 999px; border: 1px solid transparent; }
+        .nav-tab:hover, .nav-tab.active { color: #fff; border-color: #2563eb; background: #1e3a5f; }
+        .page { max-width: 980px; margin: 0 auto; padding: 28px 24px; }
+        h1 { color: #fff; font-size: 1.5rem; margin-bottom: 4px; }
+        .subtitle { color: #9ca3af; margin-bottom: 22px; line-height: 1.5; }
+        .card { background: #16181f; border: 1px solid #2a2d3a; border-radius: 10px; padding: 20px; margin-bottom: 18px; }
+        .card h2 { color: #fff; font-size: 1rem; margin-bottom: 14px; }
+        label { color: #9ca3af; font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.04em; display: block; margin-bottom: 6px; }
+        select, input[type=number] { width: 100%; border: 1px solid #2a2d3a; border-radius: 6px; background: #0f1117; color: #fff; padding: 10px; font: inherit; }
+        .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; }
+        .seg { display: flex; gap: 6px; flex-wrap: wrap; }
+        .seg label { display: inline-flex; align-items: center; gap: 6px; text-transform: none; letter-spacing: 0; color: #cbd5e1; background: #0f1117; border: 1px solid #2a2d3a; border-radius: 999px; padding: 8px 12px; cursor: pointer; margin: 0; font-size: 0.8rem; }
+        .seg input { accent-color: #3b82f6; }
+        .checkrow { display: flex; gap: 20px; flex-wrap: wrap; margin-top: 14px; }
+        .checkrow label { display: inline-flex; align-items: center; gap: 8px; text-transform: none; letter-spacing: 0; color: #cbd5e1; margin: 0; }
+        .btns { display: flex; gap: 12px; flex-wrap: wrap; margin-top: 6px; }
+        button { border: none; border-radius: 8px; padding: 12px 20px; font-weight: 700; font-size: 0.9rem; cursor: pointer; }
+        button:disabled { opacity: 0.45; cursor: not-allowed; }
+        .btn-run { background: #15803d; color: #fff; }
+        .btn-run:hover:not(:disabled) { background: #16a34a; }
+        .btn-after { background: #b45309; color: #fff; }
+        .btn-after:hover:not(:disabled) { background: #d97706; }
+        .btn-asap { background: #b91c1c; color: #fff; }
+        .btn-asap:hover:not(:disabled) { background: #dc2626; }
+        .status-box { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 12px; }
+        .stat { background: #0f1117; border: 1px solid #2a2d3a; border-radius: 8px; padding: 12px; }
+        .stat .k { color: #9ca3af; font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.04em; }
+        .stat .v { color: #fff; font-size: 1.15rem; font-weight: 700; margin-top: 4px; }
+        .state-pill { display: inline-block; border-radius: 999px; padding: 4px 12px; font-weight: 700; text-transform: uppercase; font-size: 0.72rem; }
+        .state-running { background: #12351f; color: #4ade80; }
+        .state-break { background: #1e293b; color: #60a5fa; }
+        .state-blocked { background: #3f1212; color: #f87171; }
+        .state-idle, .state-done, .state-stopped { background: #2a2d3a; color: #cbd5e1; }
+        .bar { height: 8px; background: #0f1117; border: 1px solid #2a2d3a; border-radius: 999px; overflow: hidden; margin-top: 14px; }
+        .bar > div { height: 100%; background: #3b82f6; width: 0; transition: width 0.4s; }
+        .note { color: #9ca3af; line-height: 1.5; margin-top: 12px; font-size: 0.82rem; }
+        .toast { margin-top: 12px; color: #93c5fd; min-height: 18px; }
+        .warn { background: #3f1212; border: 1px solid #7f1d1d; color: #fca5a5; border-radius: 8px; padding: 12px; margin-bottom: 18px; }
+        table.cov { width: 100%; border-collapse: collapse; margin-top: 8px; font-size: 0.84rem; }
+        table.cov th, table.cov td { text-align: left; padding: 8px 10px; border-bottom: 1px solid #2a2d3a; }
+        table.cov th { color: #9ca3af; font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.04em; }
+        table.cov td.num { text-align: right; font-variant-numeric: tabular-nums; }
+        .pill-done { background: #12351f; color: #4ade80; border-radius: 999px; padding: 2px 9px; font-weight: 700; font-size: 0.7rem; }
+        .pill-need { background: #3f2f12; color: #facc15; border-radius: 999px; padding: 2px 9px; font-weight: 700; font-size: 0.7rem; }
+    </style>
+</head>
+<body>
+    <div class="navbar">
+        <a href="/" class="logo">Foreclosure<span>Leads</span></a>
+        <div style="display:flex;gap:12px;align-items:center;">
+            <a href="/" class="nav-tab">Storefront</a>
+            <a href="/admin/data" class="nav-tab">Data Explorer</a>
+            <a href="/admin" class="nav-tab">Admin</a>
+            <a href="/admin/skiptrace" class="nav-tab">Skip Trace</a>
+            <a href="/admin/skiptrace/control" class="nav-tab active">Auto Run</a>
+            <a href="/admin/trace" class="nav-tab">Trace Export</a>
+        </div>
+    </div>
+
+    <div class="page">
+        <h1>Skip Trace Control</h1>
+        <p class="subtitle">Free, automated, name-verified skip trace via <strong>DuckDuckGo</strong> &mdash;
+            no Google, no browser, no CAPTCHA. Runs one county at a time on this machine; numbers are written
+            to your leads and to <code>data/skiptrace_results.csv</code>.</p>
+
+        {% if is_vercel %}
+        <div class="warn">Run this on your <strong>local machine</strong>. It is disabled on the server.</div>
+        {% endif %}
+
+        <div class="card">
+            <h2>Run settings &mdash; per county</h2>
+            <div class="grid">
+                <div>
+                    <label for="county">County</label>
+                    <select id="county">
+                        {% for c in counties %}
+                            {% if c.traceable %}
+                        <option value="{{ c.county }}">{{ c.county }} &mdash; {{ c.pending }} to trace ({{ c.traceable }} with names)</option>
+                            {% else %}
+                        <option value="{{ c.county }}" disabled>{{ c.county }} &mdash; no owner data ({{ c.total }} leads)</option>
+                            {% endif %}
+                        {% endfor %}
+                    </select>
+                </div>
+                <div>
+                    <label for="limit">Limit (blank = whole county)</label>
+                    <input type="number" id="limit" min="0" placeholder="all">
+                </div>
+            </div>
+
+            <div style="margin-top:16px;">
+                <label>Engine</label>
+                <div class="seg" id="engine">
+                    <label><input type="radio" name="engine" value="ddg" checked> DuckDuckGo (no browser, no CAPTCHA)</label>
+                    <label><input type="radio" name="engine" value="combo"> Combo (DDG + Google for misses)</label>
+                    <label><input type="radio" name="engine" value="google"> Google (browser, CAPTCHA-prone)</label>
+                </div>
+                <p class="note" style="margin-top:6px;">Combo/Google open a real browser for the leads DDG can't find,
+                    and may show a CAPTCHA to solve. Use them on a rested IP.</p>
+            </div>
+
+            <div style="margin-top:16px;">
+                <label>Pace (slower only &mdash; never faster)</label>
+                <div class="seg" id="pace">
+                    <label><input type="radio" name="pace" value="normal" checked> Normal</label>
+                    <label><input type="radio" name="pace" value="slower"> Slower</label>
+                    <label><input type="radio" name="pace" value="safest"> Safest</label>
+                </div>
+            </div>
+
+            <div style="margin-top:16px;">
+                <label>Safety breaks</label>
+                <div class="seg" id="breaks">
+                    <label><input type="radio" name="breaks" value="normal" checked> Normal (every 25)</label>
+                    <label><input type="radio" name="breaks" value="frequent"> Frequent (every 15)</label>
+                </div>
+            </div>
+
+            <div class="checkrow">
+                <label><input type="checkbox" id="skip_traced" checked> Skip leads already traced</label>
+                <label><input type="checkbox" id="write" checked> Write numbers into leads</label>
+            </div>
+
+            <div class="btns" style="margin-top:20px;">
+                <button class="btn-run" id="btnRun">&#9654;&nbsp; Run</button>
+                <button class="btn-after" id="btnAfter">&#10073;&#10073;&nbsp; Kill After (finish current)</button>
+                <button class="btn-asap" id="btnAsap">&#9632;&nbsp; Kill ASAP</button>
+            </div>
+            <div class="toast" id="toast"></div>
+        </div>
+
+        <div class="card">
+            <h2>Live status</h2>
+            <p><span class="state-pill state-idle" id="statePill">idle</span>
+               <span id="stateCounty" style="color:#9ca3af; margin-left:8px;"></span></p>
+            <div class="bar"><div id="bar"></div></div>
+            <div class="status-box" style="margin-top:16px;">
+                <div class="stat"><div class="k">Progress</div><div class="v" id="sProgress">0 / 0</div></div>
+                <div class="stat"><div class="k">With phone</div><div class="v" id="sPhone">0</div></div>
+                <div class="stat"><div class="k">Written</div><div class="v" id="sWrote">0</div></div>
+                <div class="stat"><div class="k">Current lead</div><div class="v" id="sCurrent" style="font-size:0.9rem;">&mdash;</div></div>
+            </div>
+            <p class="note" id="blockedNote" style="display:none; color:#facc15;">
+                Stopped &mdash; DuckDuckGo is rate-limiting this IP. Pause ~30&ndash;60 min or switch networks
+                (phone hotspot), then Run again (it resumes &mdash; finished leads are skipped).</p>
+            <p class="note">Runs over plain HTTP via DuckDuckGo: no browser opens and there is nothing to solve.
+                Pacing is fixed to safe ranges; there is intentionally no speed-up option. Stop any time and
+                re-run later &mdash; it skips finished leads and resumes.</p>
+        </div>
+
+        <div class="card">
+            <h2>County coverage</h2>
+            <p class="note" style="margin-top:0;">Counties with owner names you can trace. <strong>Needs trace</strong>
+                = leads with no number yet &mdash; new leads land here as scrapers add them, so anything &gt; 0 means
+                there are fresh leads to run.</p>
+            <table class="cov">
+                <thead><tr><th>County</th><th class="num">Traceable</th><th class="num">Traced</th>
+                    <th class="num">Needs trace</th><th>Status</th></tr></thead>
+                <tbody>
+                {% for c in counties %}{% if c.traceable %}
+                    <tr>
+                        <td>{{ c.county }}</td>
+                        <td class="num">{{ c.traceable }}</td>
+                        <td class="num">{{ c.traced }}</td>
+                        <td class="num">{{ c.pending }}</td>
+                        <td>{% if c.done %}<span class="pill-done">done</span>{% else %}<span class="pill-need">{{ c.pending }} new</span>{% endif %}</td>
+                    </tr>
+                {% endif %}{% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <script>
+    const $ = id => document.getElementById(id);
+    function val(name){ const el = document.querySelector(`input[name=${name}]:checked`); return el ? el.value : ''; }
+
+    async function post(url){
+        const f = new FormData();
+        f.append('county', $('county').value);
+        f.append('limit', $('limit').value || '');
+        f.append('engine', val('engine') || 'ddg');
+        f.append('pace', val('pace'));
+        f.append('breaks', val('breaks'));
+        if ($('skip_traced').checked) f.append('skip_traced','on');
+        if ($('write').checked) f.append('write','on');
+        const res = await fetch(url, { method:'POST', body:f });
+        const data = await res.json();
+        $('toast').textContent = data.message || '';
+        if (data.status) render(data.status);
+        return data;
+    }
+
+    $('btnRun').onclick = () => post('/admin/skiptrace/start');
+    $('btnAfter').onclick = () => post('/admin/skiptrace/stop-after');
+    $('btnAsap').onclick = () => { if (confirm('Kill the run immediately?')) post('/admin/skiptrace/kill'); };
+
+    function render(s){
+        const state = s.running ? (s.state === 'idle' ? 'running' : s.state) : (s.state === 'running' ? 'stopped' : s.state || 'idle');
+        const pill = $('statePill');
+        pill.textContent = state;
+        pill.className = 'state-pill state-' + (['running','break','blocked','done','stopped'].includes(state) ? state : 'idle');
+        $('stateCounty').textContent = s.county && s.county !== 'queue' ? '· ' + s.county : '';
+        const total = s.total || 0, i = s.i || 0;
+        $('sProgress').textContent = i + ' / ' + total;
+        $('sPhone').textContent = s.with_phone || 0;
+        $('sWrote').textContent = s.wrote || 0;
+        $('sCurrent').textContent = s.current || '—';
+        $('bar').style.width = total ? Math.round(100 * i / total) + '%' : '0';
+        $('blockedNote').style.display = (state === 'blocked') ? 'block' : 'none';
+        const live = !!s.running;
+        $('btnRun').disabled = live;
+        $('btnAfter').disabled = !live;
+        $('btnAsap').disabled = !live;
+    }
+
+    async function poll(){
+        try { const r = await fetch('/admin/skiptrace/status'); render(await r.json()); } catch(e){}
+    }
+    render({{ status | tojson }});
+    setInterval(poll, 3000);
+    poll();
+    </script>
+</body>
+</html>
