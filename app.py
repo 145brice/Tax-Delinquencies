@@ -14,19 +14,41 @@ from werkzeug.security import generate_password_hash, check_password_hash
 from dotenv import load_dotenv
 import stripe
 import db
-from scraper import scrape_sync
-from scraper_runner import run_scrapers
-from scrapers.base_scraper import request_kill, clear_kill, ScraperKilled
-from scrapers.source_registry import SOURCE_METADATA, UI_COUNTY_SOURCES
-from scrapers import skiptrace_control as skiptrace_ctl
 
 load_dotenv()
 
-# Maps Flask county keys to scraper_runner county names
-# UI key to one or more scraper_runner keys (a single UI selection may fan
-# out into multiple scrapers, e.g. San Diego has separate tax-sale and
-# legal-notice sources).
-COUNTY_SCRAPER_MAP = UI_COUNTY_SOURCES
+_SOURCE_METADATA = None
+_COUNTY_SCRAPER_MAP = None
+
+
+def source_metadata():
+    global _SOURCE_METADATA
+    if _SOURCE_METADATA is None:
+        from scrapers.source_registry import SOURCE_METADATA
+        _SOURCE_METADATA = SOURCE_METADATA
+    return _SOURCE_METADATA
+
+
+def county_scraper_map():
+    # Maps Flask county keys to scraper_runner county names. A single UI
+    # selection may fan out into multiple scrapers.
+    global _COUNTY_SCRAPER_MAP
+    if _COUNTY_SCRAPER_MAP is None:
+        from scrapers.source_registry import UI_COUNTY_SOURCES
+        _COUNTY_SCRAPER_MAP = UI_COUNTY_SOURCES
+    return _COUNTY_SCRAPER_MAP
+
+
+def scraper_runtime():
+    from scraper import scrape_sync
+    from scraper_runner import run_scrapers
+    from scrapers.base_scraper import request_kill, clear_kill, ScraperKilled
+    return scrape_sync, run_scrapers, request_kill, clear_kill, ScraperKilled
+
+
+def skiptrace_control():
+    from scrapers import skiptrace_control as skiptrace_ctl
+    return skiptrace_ctl
 
 
 def property_records_to_listings(records: list[dict]) -> list[dict]:
@@ -504,7 +526,7 @@ def _upgrade_listing(existing, incoming):
     return existing
 
 def source_result(source_key, raw_count, kept_count, new_count, status, note=""):
-    meta = SOURCE_METADATA.get(source_key, {})
+    meta = source_metadata().get(source_key, {})
     return {
         "count": new_count,
         "new": new_count,
@@ -600,7 +622,7 @@ def admin():
         return redirect(url_for('index'), code=302)
     settings = load_json(SETTINGS_FILE, {"counties": [], "lookback_days": 30})
     source_cards = sorted(
-        SOURCE_METADATA.values(),
+        source_metadata().values(),
         key=lambda s: (s.get("region", ""), s.get("label", "")),
     )
     return render_template('admin.html', settings=settings, source_cards=source_cards)
@@ -1014,6 +1036,7 @@ def _skiptrace_county_options():
 def admin_skiptrace_control():
     if STOREFRONT_ONLY:
         return redirect(url_for('index'), code=302)
+    skiptrace_ctl = skiptrace_control()
     return render_template('skiptrace_control.html',
                            counties=_skiptrace_county_options(),
                            is_vercel=IS_VERCEL,
@@ -1024,6 +1047,7 @@ def admin_skiptrace_control():
 def admin_skiptrace_status():
     if STOREFRONT_ONLY:
         return jsonify({"error": "not available"}), 403
+    skiptrace_ctl = skiptrace_control()
     return jsonify(skiptrace_ctl.status())
 
 
@@ -1033,6 +1057,7 @@ def admin_skiptrace_start():
         return jsonify({"error": "not available"}), 403
     if IS_VERCEL:
         return jsonify({"ok": False, "message": "The runner only works on your local machine, not the server."}), 400
+    skiptrace_ctl = skiptrace_control()
     try:
         limit = int(request.form.get("limit") or 0)
     except ValueError:
@@ -1053,6 +1078,7 @@ def admin_skiptrace_start():
 def admin_skiptrace_stop_after():
     if STOREFRONT_ONLY:
         return jsonify({"error": "not available"}), 403
+    skiptrace_ctl = skiptrace_control()
     ok, msg = skiptrace_ctl.stop_after()
     return jsonify({"ok": ok, "message": msg, "status": skiptrace_ctl.status()})
 
@@ -1061,6 +1087,7 @@ def admin_skiptrace_stop_after():
 def admin_skiptrace_kill():
     if STOREFRONT_ONLY:
         return jsonify({"error": "not available"}), 403
+    skiptrace_ctl = skiptrace_control()
     ok, msg = skiptrace_ctl.kill_now()
     return jsonify({"ok": ok, "message": msg, "status": skiptrace_ctl.status()})
 
@@ -1411,8 +1438,10 @@ def _load_csv_rows(filename):
 
 @app.route('/pricing')
 def pricing():
-    from scrapers.source_registry import UI_COUNTY_SOURCES
-    county_count = len(UI_COUNTY_SOURCES)
+    if STOREFRONT_ONLY:
+        county_count = len({str(item.get("county") or "").strip() for item in current_listings() if item.get("county")})
+    else:
+        county_count = len(county_scraper_map())
     return render_template('pricing.html', county_count=county_count)
 
 
@@ -1620,16 +1649,18 @@ def sources_json():
         return jsonify({"sources": [], "county_sources": {}, "storefront_only": True})
     return jsonify({
         "sources": sorted(
-            SOURCE_METADATA.values(),
+            source_metadata().values(),
             key=lambda s: (s.get("region", ""), s.get("label", "")),
         ),
-        "county_sources": COUNTY_SCRAPER_MAP,
+        "county_sources": county_scraper_map(),
     })
 
 @app.route('/api/scrape', methods=['POST'])
 def run_scraper():
     if STOREFRONT_ONLY:
         return jsonify({"status": "disabled", "reason": "storefront_only"}), 403
+    scrape_sync, run_scrapers, _request_kill, clear_kill, ScraperKilled = scraper_runtime()
+    scraper_map = county_scraper_map()
 
     if scrape_status["running"]:
         return jsonify({"status": "already_running"})
@@ -1688,8 +1719,8 @@ def run_scraper():
             # Phase 1: Tax delinquency PDFs via scrapers/
             if sources.get("include_tax_records") and not stop_event.is_set():
                 scraper_counties = [
-                    sk for c in counties if c in COUNTY_SCRAPER_MAP
-                    for sk in COUNTY_SCRAPER_MAP[c]
+                    sk for c in counties if c in scraper_map
+                    for sk in scraper_map[c]
                 ]
                 if scraper_counties:
                     # Run each scraper individually so we can track per-key results
@@ -1771,6 +1802,7 @@ def stop_scraper():
     if scrape_control["stop_event"] is not None:
         scrape_control["stop_event"].set()
     if force:
+        _scrape_sync, _run_scrapers, request_kill, _clear_kill, _ScraperKilled = scraper_runtime()
         request_kill()
         scrape_status["stopping"] = "kill"
         scrape_status["last"] = "kill_requested"
