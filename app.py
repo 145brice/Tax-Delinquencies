@@ -641,7 +641,12 @@ def admin_bad_link_redirect(bad_path):
 
 def current_user():
     """Return the logged-in user row, or None. Cached per request."""
-    uid = session.get("user_id")
+    if not app.secret_key:
+        return None
+    try:
+        uid = session.get("user_id")
+    except RuntimeError:
+        return None
     if not uid:
         return None
     if not db.is_configured():
@@ -657,6 +662,11 @@ def current_user():
 def inject_user():
     user = current_user()
     return {"current_user_email": user["email"] if user else None}
+
+
+@app.route('/healthz')
+def healthz():
+    return jsonify({"ok": True, "storefront_only": STOREFRONT_ONLY})
 
 
 def login_required(view):
