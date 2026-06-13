@@ -131,9 +131,14 @@ def load_listings(county: str, state: str, city: str):
 
 
 def save_listings(rows) -> None:
-    """Persist through the app's data layer (SQLite when enabled, else the file)."""
+    """Persist through the app's data layer (SQLite when enabled, else the file).
+    Also flush to the on-disk listings.json so traces can be committed and pushed to
+    Railway -- save_json() routes through SQLite locally and never touches the file."""
     import app
     app.save_json(app.DATA_FILE, rows)
+    if app._sqlite_enabled():
+        with open(LISTINGS_PATH, "w", encoding="utf-8") as f:
+            json.dump(rows, f, ensure_ascii=False)
 
 
 def main(argv=None) -> int:
