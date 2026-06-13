@@ -20,6 +20,7 @@ load_dotenv()
 
 _SOURCE_METADATA = None
 _COUNTY_SCRAPER_MAP = None
+OWNER_ADMIN_EMAILS = {"145brice@gmail.com"}
 
 
 def source_metadata():
@@ -783,10 +784,11 @@ def admin_allowed():
                 session["admin_allowed"] = True
                 session["skiptrace_admin"] = True
             return True
-    admin_email = (os.getenv("ADMIN_EMAIL", "") or "").strip().lower()
     user = current_user()
-    if user and admin_email:
-        allowed = {email.strip() for email in admin_email.split(",") if email.strip()}
+    if user:
+        admin_email = (os.getenv("ADMIN_EMAIL", "") or "").strip().lower()
+        allowed = set(OWNER_ADMIN_EMAILS)
+        allowed.update(email.strip() for email in admin_email.split(",") if email.strip())
         if user["email"].lower() in allowed:
             if can_remember:
                 session["admin_allowed"] = True
