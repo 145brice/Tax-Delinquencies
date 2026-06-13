@@ -1237,7 +1237,15 @@ def admin_skiptrace():
                 "status": _skiptrace_status(lead),
                 "links": _cyberbackgroundchecks_links(lead),
             })
-    return render_template('skiptrace.html', queue=queue, dev_mode=dev_mode)
+    skiptrace_ctl = skiptrace_control()
+    return render_template(
+        'skiptrace.html',
+        queue=queue,
+        dev_mode=dev_mode,
+        counties=_skiptrace_county_options(),
+        is_vercel=IS_VERCEL,
+        st=skiptrace_ctl.status(),
+    )
 
 
 @app.route('/admin/skiptrace/run', methods=['POST'])
