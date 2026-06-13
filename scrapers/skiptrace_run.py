@@ -130,15 +130,42 @@ def load_listings(county: str, state: str, city: str):
     return rows, [l for l in rows if match(l)]
 
 
+_TRACE_FIELDS = (
+    "primary_phone", "phone_2", "email_1", "email_2",
+    "mailing_address", "skiptrace_notes", "skiptrace_source",
+    "skiptraced_at", "skiptrace_status",
+)
+
 def save_listings(rows) -> None:
     """Persist through the app's data layer (SQLite when enabled, else the file).
-    Also flush to the on-disk listings.json so traces can be committed and pushed to
-    Railway -- save_json() routes through SQLite locally and never touches the file."""
+    Also patch on-disk listings.json with trace results so they can be pushed to
+    Railway. We patch rather than overwrite -- SQLite may hold fewer rows than the
+    full listings.json (e.g. after a direct git push of data), and overwriting would
+    silently discard leads that aren't in SQLite."""
     import app
     app.save_json(app.DATA_FILE, rows)
-    if app._sqlite_enabled():
-        with open(LISTINGS_PATH, "w", encoding="utf-8") as f:
-            json.dump(rows, f, ensure_ascii=False)
+    if not app._sqlite_enabled():
+        return
+    # Build a lookup of traced leads (only rows that actually got a phone or email)
+    traced = {
+        str(r.get("id")): r for r in rows
+        if r.get("id") and (r.get("primary_phone") or r.get("email_1"))
+    }
+    if not traced:
+        return
+    try:
+        with open(LISTINGS_PATH, "r", encoding="utf-8-sig") as f:
+            disk_rows = json.load(f)
+    except Exception:
+        disk_rows = list(rows)   # fallback: no existing file
+    for r in disk_rows:
+        src = traced.get(str(r.get("id") or ""))
+        if src:
+            for field in _TRACE_FIELDS:
+                if src.get(field):
+                    r[field] = src[field]
+    with open(LISTINGS_PATH, "w", encoding="utf-8") as f:
+        json.dump(disk_rows, f, ensure_ascii=False)
 
 
 def main(argv=None) -> int:
