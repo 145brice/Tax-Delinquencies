@@ -146,15 +146,23 @@ def _safe_doc_id(value):
 
 
 def _appwrite_create_database():
+    dbid = _appwrite_database_id()
     try:
         _appwrite_request("POST", "/databases", data={
-            "databaseId": _appwrite_database_id(),
+            "databaseId": dbid,
             "name": "Tax Delinquencies",
             "enabled": True,
         })
     except AppwriteError as exc:
-        if "409" not in str(exc):
+        msg = str(exc)
+        if "409" in msg:
+            return
+        if "maximum number of databases" in msg.lower():
+            _appwrite_request("GET", f"/databases/{dbid}")
+            return
+        if "403" not in msg:
             raise
+        _appwrite_request("GET", f"/databases/{dbid}")
 
 
 def _appwrite_create_orders_collection():
