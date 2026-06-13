@@ -21,6 +21,7 @@ load_dotenv()
 _SOURCE_METADATA = None
 _COUNTY_SCRAPER_MAP = None
 OWNER_ADMIN_EMAILS = {"145brice@gmail.com"}
+APP_BUILD = "admin-debug-2026-06-13-1"
 
 
 def source_metadata():
@@ -757,6 +758,18 @@ def healthz():
     return jsonify({"ok": True, "storefront_only": STOREFRONT_ONLY})
 
 
+@app.route('/version')
+def version():
+    return jsonify({
+        "build": APP_BUILD,
+        "storefront_only": STOREFRONT_ONLY,
+        "admin_email_configured": bool((os.getenv("ADMIN_EMAIL", "") or "").strip()),
+        "owner_admin_configured": bool(OWNER_ADMIN_EMAILS),
+        "railway_commit": os.getenv("RAILWAY_GIT_COMMIT_SHA", ""),
+        "railway_branch": os.getenv("RAILWAY_GIT_BRANCH", ""),
+    })
+
+
 def login_required(view):
     @wraps(view)
     def wrapped(*args, **kwargs):
@@ -887,6 +900,20 @@ def account():
                 folders.add(folder)
     return render_template('account.html', email=user['email'], orders=orders,
                            folders=sorted(folders), statuses=statuses)
+
+
+@app.route('/account/debug')
+@login_required
+def account_debug():
+    user = current_user()
+    admin_email = (os.getenv("ADMIN_EMAIL", "") or "").strip().lower()
+    return jsonify({
+        "email": user["email"] if user else "",
+        "user_id": user["id"] if user else "",
+        "admin_allowed": admin_allowed(),
+        "admin_email_configured": bool(admin_email),
+        "owner_admin_match": bool(user and user["email"].lower() in OWNER_ADMIN_EMAILS),
+    })
 
 
 @app.route('/account/leads/update', methods=['POST'])
