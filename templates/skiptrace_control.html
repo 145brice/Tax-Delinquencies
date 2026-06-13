@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Skip Trace Control &middot; ForeclosureLeads Pro</title>
+    <meta name="csrf-token" content="{{ csrf_token() }}">
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body { font-family: 'Segoe UI', sans-serif; background: #0f1117; color: #e0e0e0; min-height: 100vh; font-size: 13px; }
@@ -184,6 +185,7 @@
     </div>
 
     <script>
+const CSRF_TOKEN = document.querySelector('meta[name="csrf-token"]').content;
     const $ = id => document.getElementById(id);
     function val(name){ const el = document.querySelector(`input[name=${name}]:checked`); return el ? el.value : ''; }
 
@@ -196,7 +198,7 @@
         f.append('breaks', val('breaks'));
         if ($('skip_traced').checked) f.append('skip_traced','on');
         if ($('write').checked) f.append('write','on');
-        const res = await fetch(url, { method:'POST', body:f });
+        const res = await fetch(url, { method:'POST', body:f, headers:{'X-CSRF-Token': CSRF_TOKEN} });
         const data = await res.json();
         $('toast').textContent = data.message || '';
         if (data.status) render(data.status);

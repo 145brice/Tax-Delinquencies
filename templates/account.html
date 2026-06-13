@@ -99,6 +99,7 @@
         <a href="/account" class="nav-tab active">My Purchases</a>
         <span class="email">{{ email }}</span>
         <form method="POST" action="{{ url_for('logout') }}" style="margin:0;">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <button class="logout" type="submit">Log out</button>
         </form>
     </div>
@@ -186,6 +187,7 @@
                         <td>{{ lead.zip or '' }}</td>
                         <td>
                             <form id="{{ form_id }}" method="POST" action="{{ url_for('account_lead_update') }}">
+                                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                                 <input type="hidden" name="order_id" value="{{ order.id }}">
                                 <input type="hidden" name="lead_id" value="{{ lead.id }}">
                                 <input type="hidden" name="anchor" value="{{ form_id }}-row">

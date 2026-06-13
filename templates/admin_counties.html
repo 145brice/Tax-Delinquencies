@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>County Schedule — ForeclosureLeads Pro</title>
+    <meta name="csrf-token" content="{{ csrf_token() }}">
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body { font-family: 'Segoe UI', sans-serif; background: #0f1117; color: #e0e0e0; min-height: 100vh; }
@@ -252,6 +253,7 @@
 <div class="toast" id="toast"></div>
 
 <script>
+const CSRF_TOKEN = document.querySelector('meta[name="csrf-token"]').content;
 function showToast(msg, isError) {
     const t = document.getElementById('toast');
     t.textContent = msg;
@@ -267,7 +269,7 @@ function runCounty(uiKey, btn) {
     btn.classList.add('running');
     fetch('/api/scrape', {
         method: 'POST',
-        headers: {'Content-Type': 'application/json'},
+        headers: {'Content-Type': 'application/json', 'X-CSRF-Token': CSRF_TOKEN},
         body: JSON.stringify({counties: [uiKey], lookback_days: 90, include_tax_records: true}),
     })
     .then(r => r.json())

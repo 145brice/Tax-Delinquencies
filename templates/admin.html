@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Admin - ForeclosureLeads Pro</title>
+    <meta name="csrf-token" content="{{ csrf_token() }}">
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body { font-family: 'Segoe UI', sans-serif; background: #0f1117; color: #e0e0e0; min-height: 100vh; }
@@ -422,6 +423,7 @@
 </div>
 
 <script>
+const CSRF_TOKEN = document.querySelector('meta[name="csrf-token"]').content;
     let pollInterval = null;
 
     function selectedCounties() {
@@ -442,7 +444,7 @@
         };
         await fetch('/api/settings', {
             method: 'POST',
-            headers: {'Content-Type': 'application/json'},
+            headers: {'Content-Type': 'application/json', 'X-CSRF-Token': CSRF_TOKEN},
             body: JSON.stringify({ counties, lookback_days: lookback, sources })
         });
         showMsg('Settings saved.', '#22c55e');
@@ -450,7 +452,7 @@
 
     async function stopScrape(force) {
         const url = force ? '/api/scrape/stop?force=true' : '/api/scrape/stop';
-        await fetch(url, { method: 'POST' });
+        await fetch(url, { method: 'POST', headers: {'X-CSRF-Token': CSRF_TOKEN} });
         const stopBtn = document.getElementById('stop-btn');
         const killBtn = document.getElementById('kill-btn');
         if (force) {
@@ -552,7 +554,7 @@
         try {
             const start = await fetch('/api/scrape', {
                 method: 'POST',
-                headers: {'Content-Type': 'application/json'},
+                headers: {'Content-Type': 'application/json', 'X-CSRF-Token': CSRF_TOKEN},
                 body: JSON.stringify(payload)
             });
             const startJson = await start.json();

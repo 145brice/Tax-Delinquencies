@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>CSV Dashboard - Foreclosure Scraper</title>
+    <meta name="csrf-token" content="{{ csrf_token() }}">
     <style>
         :root {
             --bg: #10120f;
@@ -146,14 +147,37 @@
             <section class="panel">
                 <h2>Counties</h2>
                 <div class="check-grid">
-                    <label class="check"><input type="checkbox" class="county" value="miami-dade" {% if 'miami-dade' in settings.counties %}checked{% endif %}> Miami-Dade</label>
-                    <label class="check"><input type="checkbox" class="county" value="harris" {% if 'harris' in settings.counties %}checked{% endif %}> Harris</label>
-                    <label class="check"><input type="checkbox" class="county" value="fulton" {% if 'fulton' in settings.counties %}checked{% endif %}> Fulton</label>
-                    <label class="check"><input type="checkbox" class="county" value="cook" {% if 'cook' in settings.counties %}checked{% endif %}> Cook</label>
-                    <label class="check"><input type="checkbox" class="county" value="maricopa" {% if 'maricopa' in settings.counties %}checked{% endif %}> Maricopa</label>
-                    <label class="check"><input type="checkbox" class="county" value="sandiego" {% if 'sandiego' in settings.counties %}checked{% endif %}> San Diego</label>
+                    <label class="check"><input type="checkbox" class="county" value="miami-dade" {% if 'miami-dade' in settings.counties %}checked{% endif %}> Miami-Dade FL</label>
+                    <label class="check"><input type="checkbox" class="county" value="harris" {% if 'harris' in settings.counties %}checked{% endif %}> Harris TX</label>
+                    <label class="check"><input type="checkbox" class="county" value="fulton" {% if 'fulton' in settings.counties %}checked{% endif %}> Fulton GA</label>
+                    <label class="check"><input type="checkbox" class="county" value="cook" {% if 'cook' in settings.counties %}checked{% endif %}> Cook IL</label>
+                    <label class="check"><input type="checkbox" class="county" value="maricopa" {% if 'maricopa' in settings.counties %}checked{% endif %}> Maricopa AZ</label>
+                    <label class="check"><input type="checkbox" class="county" value="sandiego" {% if 'sandiego' in settings.counties %}checked{% endif %}> San Diego CA</label>
+                    <label class="check"><input type="checkbox" class="county" value="losangeles" {% if 'losangeles' in settings.counties %}checked{% endif %}> Los Angeles CA</label>
+                    <label class="check"><input type="checkbox" class="county" value="orange" {% if 'orange' in settings.counties %}checked{% endif %}> Orange CA</label>
+                    <label class="check"><input type="checkbox" class="county" value="riverside" {% if 'riverside' in settings.counties %}checked{% endif %}> Riverside CA</label>
+                    <label class="check"><input type="checkbox" class="county" value="sanbernardino" {% if 'sanbernardino' in settings.counties %}checked{% endif %}> San Bernardino CA</label>
+                    <label class="check"><input type="checkbox" class="county" value="ventura" {% if 'ventura' in settings.counties %}checked{% endif %}> Ventura CA</label>
+                    <label class="check"><input type="checkbox" class="county" value="sacramento" {% if 'sacramento' in settings.counties %}checked{% endif %}> Sacramento CA</label>
+                    <label class="check"><input type="checkbox" class="county" value="alameda" {% if 'alameda' in settings.counties %}checked{% endif %}> Alameda CA</label>
+                    <label class="check"><input type="checkbox" class="county" value="santaclara" {% if 'santaclara' in settings.counties %}checked{% endif %}> Santa Clara CA</label>
+                    <label class="check"><input type="checkbox" class="county" value="kern" {% if 'kern' in settings.counties %}checked{% endif %}> Kern CA</label>
+                    <label class="check"><input type="checkbox" class="county" value="fresno" {% if 'fresno' in settings.counties %}checked{% endif %}> Fresno CA</label>
+                    <label class="check"><input type="checkbox" class="county" value="contracosta" {% if 'contracosta' in settings.counties %}checked{% endif %}> Contra Costa CA</label>
+                    <label class="check"><input type="checkbox" class="county" value="sanmateo" {% if 'sanmateo' in settings.counties %}checked{% endif %}> San Mateo CA</label>
+                    <label class="check"><input type="checkbox" class="county" value="harris-tx" {% if 'harris-tx' in settings.counties %}checked{% endif %}> Harris TX (tax sale)</label>
+                    <label class="check"><input type="checkbox" class="county" value="maricopa-az" {% if 'maricopa-az' in settings.counties %}checked{% endif %}> Maricopa AZ (trustee)</label>
                     <label class="check"><input type="checkbox" class="county" value="davidson" {% if 'davidson' in settings.counties %}checked{% endif %}> Davidson TN</label>
                     <label class="check"><input type="checkbox" class="county" value="wilson-tn" {% if 'wilson-tn' in settings.counties %}checked{% endif %}> Wilson TN</label>
+                    <label class="check"><input type="checkbox" class="county" value="williamson" {% if 'williamson' in settings.counties %}checked{% endif %}> Williamson TN</label>
+                    <label class="check"><input type="checkbox" class="county" value="rutherford" {% if 'rutherford' in settings.counties %}checked{% endif %}> Rutherford TN</label>
+                    <label class="check"><input type="checkbox" class="county" value="sumner" {% if 'sumner' in settings.counties %}checked{% endif %}> Sumner TN</label>
+                    <label class="check"><input type="checkbox" class="county" value="robertson" {% if 'robertson' in settings.counties %}checked{% endif %}> Robertson TN</label>
+                    <label class="check"><input type="checkbox" class="county" value="cheatham" {% if 'cheatham' in settings.counties %}checked{% endif %}> Cheatham TN</label>
+                    <label class="check"><input type="checkbox" class="county" value="duval-fl" {% if 'duval-fl' in settings.counties %}checked{% endif %}> Duval FL</label>
+                    <label class="check"><input type="checkbox" class="county" value="stjohns-fl" {% if 'stjohns-fl' in settings.counties %}checked{% endif %}> St. Johns FL</label>
+                    <label class="check"><input type="checkbox" class="county" value="nassau-fl" {% if 'nassau-fl' in settings.counties %}checked{% endif %}> Nassau FL</label>
+                    <label class="check"><input type="checkbox" class="county" value="clay-fl" {% if 'clay-fl' in settings.counties %}checked{% endif %}> Clay FL</label>
                 </div>
             </section>
         </div>
@@ -186,6 +210,7 @@
     </div>
 
 <script>
+const CSRF_TOKEN = document.querySelector('meta[name="csrf-token"]').content;
 const range = document.getElementById('durationRange');
 const daysValue = document.getElementById('daysValue');
 const presets = [...document.querySelectorAll('.preset')];
@@ -216,7 +241,7 @@ async function runScraper() {
     document.getElementById('statusText').innerText = 'Status: starting scrape...';
     await fetch('/api/scrape', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': CSRF_TOKEN },
         body: JSON.stringify({
             counties,
             lookback_days: parseInt(range.value, 10),
@@ -230,7 +255,7 @@ async function runScraper() {
 
 async function killScraper() {
     document.getElementById('statusText').innerText = 'Status: requesting stop...';
-    await fetch('/api/scrape/stop', { method: 'POST' });
+    await fetch('/api/scrape/stop', { method: 'POST', headers: {'X-CSRF-Token': CSRF_TOKEN} });
 }
 
 async function pollStatus() {

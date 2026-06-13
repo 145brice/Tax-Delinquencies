@@ -78,6 +78,7 @@
         {% endif %}
 
         <form method="POST" action="{{ url_for('register' if mode == 'register' else 'login') }}{% if request.args.get('next') %}?next={{ request.args.get('next') }}{% endif %}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <label for="email">Email</label>
             <input id="email" name="email" type="email" value="{{ email or '' }}" required autofocus {% if appwrite_pending %}disabled{% endif %}>
             <label for="password">Password</label>

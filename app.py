@@ -2,6 +2,7 @@ import os
 import re
 import json
 import hashlib
+import secrets
 import threading
 import csv
 import io
@@ -120,6 +121,45 @@ def property_records_to_listings(records: list[dict]) -> list[dict]:
 app = Flask(__name__)
 app.secret_key = os.getenv("SECRET_KEY", "")
 stripe.api_key = os.getenv("STRIPE_SECRET_KEY", "")
+
+# ---- CSRF protection --------------------------------------------------------
+# External callers that authenticate by other means (Stripe signs its webhook
+# payloads) are exempt; everything else POSTed needs the session token, either
+# as a csrf_token form field or an X-CSRF-Token header (for fetch calls).
+CSRF_EXEMPT_PATHS = {"/webhook/stripe"}
+
+
+def _csrf_token():
+    if not app.secret_key:
+        return ""
+    token = session.get("_csrf_token")
+    if not token:
+        token = secrets.token_urlsafe(32)
+        session["_csrf_token"] = token
+    return token
+
+
+@app.context_processor
+def inject_csrf_token():
+    return {"csrf_token": _csrf_token}
+
+
+@app.before_request
+def csrf_protect():
+    if request.method != "POST" or request.path in CSRF_EXEMPT_PATHS:
+        return None
+    if not app.secret_key:
+        # Sessions (and therefore tokens) are unavailable; nothing session-
+        # backed can be hijacked either, so let the request through.
+        return None
+    expected = session.get("_csrf_token") or ""
+    supplied = (request.headers.get("X-CSRF-Token")
+                or request.form.get("csrf_token") or "")
+    if not expected or not secrets.compare_digest(supplied, expected):
+        if request.path.startswith("/api/"):
+            return jsonify({"error": "Invalid or missing CSRF token. Refresh the page and try again."}), 403
+        return "Invalid or missing CSRF token. Refresh the page and try again.", 403
+    return None
 scrape_status = {
     "running": False,
     "last": None,
@@ -818,7 +858,7 @@ def login():
     return render_template('auth.html', mode='login')
 
 
-@app.route('/logout', methods=['POST', 'GET'])
+@app.route('/logout', methods=['POST'])
 def logout():
     if app.secret_key:
         session.pop('user_id', None)

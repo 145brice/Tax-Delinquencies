@@ -4,6 +4,7 @@
   <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <title>Data Explorer - ForeclosureLeads Pro</title>
+    <meta name="csrf-token" content="{{ csrf_token() }}">
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
     body { font-family: 'Segoe UI', Arial, sans-serif; background: #0f1117; color: #e0e0e0; min-height: 100vh; }
@@ -99,6 +100,9 @@
     <a href="/" class="nav-tab">Storefront</a>
     <a href="/admin/data" class="nav-tab active">Data Explorer</a>
     <a href="/admin" class="nav-tab">Admin</a>
+    <a href="/admin/skiptrace" class="nav-tab">Skip Trace</a>
+    <a href="/admin/skiptrace/control" class="nav-tab">Auto Run</a>
+    <a href="/admin/trace" class="nav-tab">Trace Export</a>
   </div>
 </div>
 
@@ -234,6 +238,7 @@
         </td>
         <td title="{{ row.scraped_date }}">{{ row.scraped_date }}</td>
         <td class="notes-cell" title="{{ row.notes }}">{{ row.notes }}</td>
+        <td title="parsed from sale/record date">{{ row.sale_date_iso or '-' }}</td>
       </tr>
       {% endfor %}
     </tbody>
@@ -247,6 +252,7 @@
 </div>
 
 <script>
+const CSRF_TOKEN = document.querySelector('meta[name="csrf-token"]').content;
   // All available counties (mirrors COUNTY_SCRAPER_MAP keys in app.py)
   const COUNTIES = [
     {key:'miami-dade', label:'Miami-Dade FL'},
@@ -302,7 +308,7 @@
     try {
       const r = await fetch('/api/scrape', {
         method:'POST',
-        headers:{'Content-Type':'application/json'},
+        headers:{'Content-Type':'application/json', 'X-CSRF-Token': CSRF_TOKEN},
         body: JSON.stringify({ counties, lookback_days: {{ settings.lookback_days }}, save_defaults: false })
       });
       pollStatus();
@@ -314,7 +320,7 @@
 
   window.stopScrape = async function stopScrape(force) {
     const url = force ? '/api/scrape/stop?force=true' : '/api/scrape/stop';
-    await fetch(url, {method:'POST'});
+    await fetch(url, {method:'POST', headers:{'X-CSRF-Token': CSRF_TOKEN}});
     showProgress(force ? 'Kill signal sent...' : 'Stopping after current scraper...');
   };
 

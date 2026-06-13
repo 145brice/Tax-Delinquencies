@@ -3,6 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="csrf-token" content="{{ csrf_token() }}">
     <title>ForeclosureLeads Pro</title>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -227,6 +228,7 @@
         {% if current_user_email %}
         <a href="/account" class="nav-tab">My Purchases</a>
         <form method="POST" action="/logout" style="margin:0;">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <button class="nav-tab" type="submit" style="background:none;cursor:pointer;font-family:inherit;">Log out</button>
         </form>
         {% else %}
@@ -414,6 +416,7 @@
 {% endif %}
 
 <script>
+    const CSRF_TOKEN = document.querySelector('meta[name="csrf-token"]').content;
     const allRows = [...document.querySelectorAll('#leads-body tr')];
     const totalCount = allRows.length;
 
@@ -605,7 +608,7 @@
         try {
             const resp = await fetch('/api/create-checkout-session', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': CSRF_TOKEN },
                 body: JSON.stringify({ lead_ids, selected_county })
             });
             const data = await resp.json();

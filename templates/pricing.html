@@ -152,6 +152,7 @@
         {% if current_user_email %}
         <a href="/account" class="nav-tab">My Purchases</a>
         <form method="POST" action="/logout" style="margin:0;">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <button class="nav-tab" type="submit" style="background:none;cursor:pointer;font-family:inherit;">Log out</button>
         </form>
         {% else %}

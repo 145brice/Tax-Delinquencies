@@ -20,6 +20,8 @@
         .page { max-width: 1440px; margin: 0 auto; padding: 28px 24px; }
         h1 { color: #fff; font-size: 1.5rem; margin-bottom: 4px; }
         .subtitle { color: #9ca3af; margin-bottom: 24px; }
+        .toolbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 18px; padding: 12px; background: #16181f; border: 1px solid #2a2d3a; border-radius: 8px; }
+        .toolbar-text { color: #9ca3af; line-height: 1.4; }
         .empty { text-align: center; color: #9ca3af; padding: 60px 20px; background: #16181f; border: 1px solid #2a2d3a; border-radius: 8px; }
         .lead-card { background: #16181f; border: 1px solid #2a2d3a; border-radius: 8px; margin-bottom: 16px; overflow: hidden; }
         .lead-head { display: flex; justify-content: space-between; gap: 16px; padding: 14px 16px; background: #1a1d27; border-bottom: 1px solid #2a2d3a; }
@@ -32,14 +34,15 @@
         .facts { color: #cbd5e1; line-height: 1.6; }
         .facts strong { color: #fff; }
         .lookup { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
-        .lookup a { color: #dbeafe; background: #1e3a5f; border: 1px solid #2563eb; border-radius: 6px; padding: 7px 10px; text-decoration: none; font-weight: 700; font-size: 0.78rem; }
+        .lookup a, .lookup button { color: #dbeafe; background: #1e3a5f; border: 1px solid #2563eb; border-radius: 6px; padding: 7px 10px; text-decoration: none; font-weight: 700; font-size: 0.78rem; cursor: pointer; }
         form { display: grid; grid-template-columns: repeat(2, minmax(150px, 1fr)); gap: 10px; }
         label { color: #9ca3af; font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.04em; }
         input, textarea { width: 100%; margin-top: 4px; border: 1px solid #2a2d3a; border-radius: 6px; background: #0f1117; color: #fff; padding: 9px 10px; font: inherit; }
         textarea { min-height: 74px; resize: vertical; }
         .wide { grid-column: 1 / -1; }
-        button { justify-self: start; border: 0; border-radius: 6px; padding: 9px 14px; background: #2563eb; color: #fff; font-weight: 800; cursor: pointer; }
+        button, .primary-action { justify-self: start; border: 0; border-radius: 6px; padding: 9px 14px; background: #2563eb; color: #fff; font-weight: 800; cursor: pointer; text-decoration: none; font: inherit; }
         button:hover { background: #1d4ed8; }
+        .primary-action:hover { background: #1d4ed8; }
         @media (max-width: 820px) {
             .lead-body { grid-template-columns: 1fr; }
             form { grid-template-columns: 1fr; }
@@ -51,14 +54,36 @@
     <a href="/" class="logo">Foreclosure<span>Leads</span> Pro</a>
     <div class="nav-right">
         <a href="/" class="nav-tab">Storefront</a>
-        <a href="/account" class="nav-tab">My Purchases</a>
-        <a href="/admin/skiptrace" class="nav-tab active">Skip Trace Queue</a>
+        <a href="/admin/data" class="nav-tab">Data Explorer</a>
+        <a href="/admin" class="nav-tab">Admin</a>
+        <a href="/admin/skiptrace" class="nav-tab active">Skip Trace</a>
+        <a href="/admin/skiptrace/control" class="nav-tab">Auto Run</a>
+        <a href="/admin/trace" class="nav-tab">Trace Export</a>
     </div>
 </nav>
 
 <div class="page">
     <h1>Skip Trace Queue</h1>
-    <div class="subtitle">Paid leads only. Use the lookup links, then save phone and email results into the buyer's purchased lead record.</div>
+    <div class="subtitle">
+        Paid leads only. Use the lookup links, then save phone and email results into the buyer's purchased lead record.
+        {% if dev_mode %}Local dev mode is showing a sample queue from this machine's storefront data.{% endif %}
+    </div>
+
+    <div class="toolbar">
+        <div class="toolbar-text">
+            {% if dev_mode %}
+            Build a real-data test queue from local tax and foreclosure records, then run each lookup from the lead card.
+            {% else %}
+            Queue is populated from paid orders. Run lookup from each lead card and save verified contact info.
+            {% endif %}
+        </div>
+        {% if dev_mode %}
+        <form method="POST" action="{{ url_for('admin_skiptrace_run') }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <button type="submit">Populate Real Test Queue</button>
+        </form>
+        {% endif %}
+    </div>
 
     {% if not queue %}
         <div class="empty">No paid leads are waiting for skip trace yet.</div>
@@ -85,9 +110,13 @@
                     <div><strong>Parcel/APN:</strong> {{ lead.parcel_id or '-' }}</div>
                     <div><strong>Amount:</strong> {{ lead.amount_owed or ('$' ~ "{:,}".format(lead.bid|int) if lead.bid else '-') }}</div>
                     <div class="lookup">
-                        <a href="{{ item.links.name }}" target="_blank" rel="noopener">Name Search</a>
-                        {% if item.links.address %}
-                        <a href="{{ item.links.address }}" target="_blank" rel="noopener">Address Search</a>
+                        <button type="button" class="run-lookup" data-tps-name-url="{{ item.links.tps_name or '' }}" data-tps-address-url="{{ item.links.tps_address or '' }}" data-cbc-url="{{ item.links.cbc_home }}" data-copy-text="{{ item.links.cbc_search_text }}" data-source-url="{{ lead.link or '' }}">Run Lookup</button>
+                        <button type="button" class="copy-open-cbc" data-cbc-url="{{ item.links.cbc_home }}" data-copy-text="{{ item.links.cbc_search_text }}">Open CBC</button>
+                        {% if item.links.tps_name %}
+                        <a href="{{ item.links.tps_name }}" target="_blank" rel="noopener">TPS Name</a>
+                        {% endif %}
+                        {% if item.links.tps_address %}
+                        <a href="{{ item.links.tps_address }}" target="_blank" rel="noopener">TPS Address</a>
                         {% endif %}
                         {% if lead.link %}
                         <a href="{{ lead.link }}" target="_blank" rel="noopener">Source</a>
@@ -95,6 +124,7 @@
                     </div>
                 </div>
                 <form method="POST" action="{{ url_for('admin_skiptrace_update') }}">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                     <input type="hidden" name="order_id" value="{{ order.id }}">
                     <input type="hidden" name="lead_id" value="{{ lead.id }}">
                     <label>Primary Phone
@@ -122,5 +152,25 @@
         {% endfor %}
     {% endif %}
 </div>
+<script>
+document.querySelectorAll('.run-lookup').forEach((button) => {
+    button.addEventListener('click', () => {
+        if (button.dataset.copyText && navigator.clipboard) {
+            navigator.clipboard.writeText(button.dataset.copyText).catch(() => {});
+        }
+        [button.dataset.tpsNameUrl, button.dataset.tpsAddressUrl, button.dataset.cbcUrl, button.dataset.sourceUrl]
+            .filter(Boolean)
+            .forEach((url) => window.open(url, '_blank', 'noopener'));
+    });
+});
+document.querySelectorAll('.copy-open-cbc').forEach((button) => {
+    button.addEventListener('click', () => {
+        if (button.dataset.copyText && navigator.clipboard) {
+            navigator.clipboard.writeText(button.dataset.copyText).catch(() => {});
+        }
+        window.open(button.dataset.cbcUrl, '_blank', 'noopener');
+    });
+});
+</script>
 </body>
 </html>
