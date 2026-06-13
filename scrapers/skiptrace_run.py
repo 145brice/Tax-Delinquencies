@@ -328,18 +328,27 @@ def main(argv=None) -> int:
                         "skiptraced_at": datetime.now().isoformat(timespec="seconds"),
                         "skiptrace_status": "completed" if (best or emails) else "pending",
                     }
+                    found_contact = False
                     try:
                         if listings_mode:
                             lead.update(fields)        # mutates listings_data in place
                             wrote += 1
+                            found_contact = True
                         elif write_back(dev_mode, key, lead, fields):
                             wrote += 1
+                            found_contact = True   # queue/db write-back persists per-lead already
                     except Exception as exc:
                         print(f"  write-back failed: {type(exc).__name__}: {exc}")
 
+                    # Save the instant a contact is found, so a kill/crash never loses it.
+                    if found_contact and listings_mode:
+                        flush_csv()
+                        save_listings(listings_data)
+                        print(f"  -> saved (phone/email persisted)")
+
                 push_status()
 
-                # periodic persistence so an interrupt never loses work
+                # Safety-net periodic flush for runs that go a long stretch with no hits.
                 if processed % 10 == 0:
                     flush_csv()
                     if listings_mode and not args.no_write:
