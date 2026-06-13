@@ -220,7 +220,7 @@
     <div class="nav-right">
         <a href="/" class="nav-tab active">Storefront</a>
         <a href="/pricing" class="nav-tab">Pricing</a>
-        {% if not storefront_only %}
+        {% if admin_allowed %}
         <a href="/admin/data" class="nav-tab">Data Explorer</a>
         <a href="/admin" class="nav-tab">Admin</a>
         {% endif %}
@@ -396,7 +396,7 @@
     {% if storefront_only %}
     <p>Leads are being prepared. Please check back soon.</p>
     {% else %}
-    <p>Go to <a href="/admin">Admin &rarr; Launch Scraper</a> to pull listings.</p>
+                    <p>New lead inventory is being prepared. Check back soon.</p>
     {% endif %}
 </div>
 {% endif %}

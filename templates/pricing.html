@@ -145,7 +145,7 @@
     <div class="nav-right">
         <a href="/" class="nav-tab">Storefront</a>
         <a href="/pricing" class="nav-tab active">Pricing</a>
-        {% if not storefront_only %}
+        {% if admin_allowed %}
         <a href="/admin/data" class="nav-tab">Data Explorer</a>
         <a href="/admin" class="nav-tab">Admin</a>
         {% endif %}

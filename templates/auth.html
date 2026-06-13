@@ -21,10 +21,8 @@
         .sub { color: #9ca3af; font-size: 0.85rem; margin-bottom: 22px; }
         .panel h2 { color: #fff; font-size: 1.1rem; margin-bottom: 10px; }
         .panel p { color: #9ca3af; line-height: 1.55; margin-bottom: 16px; }
-        .setup-list { list-style: none; display: grid; gap: 10px; margin-top: 18px; }
-        .setup-list li { display: flex; justify-content: space-between; gap: 12px; border: 1px solid #242b3a; background: #10131a; border-radius: 8px; padding: 10px 12px; color: #cbd5e1; }
-        .status { color: #fbbf24; font-weight: 800; font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.04em; white-space: nowrap; }
-        code { color: #fef3c7; }
+        .feature-list { list-style: none; display: grid; gap: 10px; margin-top: 18px; }
+        .feature-list li { border: 1px solid #242b3a; background: #10131a; border-radius: 8px; padding: 10px 12px; color: #cbd5e1; }
         label { display: block; font-size: 0.8rem; color: #9ca3af; margin: 14px 0 6px; }
         input {
             width: 100%; background: #1e2130; border: 1px solid #2a2d3a; color: #e0e0e0;
@@ -47,18 +45,21 @@
 <body>
 <nav class="navbar">
     <a href="/" class="logo">Foreclosure<span>Leads</span> Pro</a>
-    <a href="/" class="nav-link">Storefront</a>
+    <div>
+        <a href="/" class="nav-link">Storefront</a>
+        <a href="/pricing" class="nav-link">Pricing</a>
+    </div>
 </nav>
 <div class="wrap">
     <section class="panel">
-        <h2>Buyer accounts</h2>
-        <p>Appwrite is the account layer for this build: users, sessions, saved purchases, and lead unlocks will sit behind the existing Flask routes.</p>
-        <p>Until Appwrite is connected, the storefront remains browsable and checkout stays intentionally disabled.</p>
-        <ul class="setup-list">
-            <li><span><code>APPWRITE_ENDPOINT</code></span><span class="status">{{ 'Ready' if appwrite_endpoint_set else 'Pending' }}</span></li>
-            <li><span><code>APPWRITE_PROJECT_ID</code></span><span class="status">{{ 'Ready' if appwrite_project_set else 'Pending' }}</span></li>
-            <li><span><code>APPWRITE_API_KEY</code></span><span class="status">{{ 'Ready' if appwrite_key_set else 'Pending' }}</span></li>
-            <li><span>Stripe checkout</span><span class="status">{{ 'Ready' if stripe_configured else 'Pending' }}</span></li>
+        <h2>Unlock full lead details</h2>
+        <p>Create an account to save purchases, return to unlocked leads, and keep your checkout history in one place.</p>
+        <p>Public browsing stays masked. Purchased leads unlock the contact package tied to your account.</p>
+        <ul class="feature-list">
+            <li>Saved purchases and receipts</li>
+            <li>Full lead details after checkout</li>
+            <li>Fast access from any device</li>
+            <li>Secure buyer-only account area</li>
         </ul>
     </section>
     <div class="card">
@@ -71,7 +72,7 @@
         {% endif %}
 
         {% if appwrite_pending %}
-            <div class="notice">Account creation will turn on after Appwrite credentials are added. No lead data is lost while setup is pending.</div>
+            <div class="notice">Account creation is temporarily unavailable. Please try again shortly.</div>
         {% elif error %}
             <div class="error">{{ error }}</div>
         {% endif %}

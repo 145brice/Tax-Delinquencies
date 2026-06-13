@@ -618,8 +618,8 @@ def index():
 
 @app.route('/admin')
 def admin():
-    if STOREFRONT_ONLY:
-        return redirect(url_for('index'), code=302)
+    if STOREFRONT_ONLY or not admin_allowed():
+        return "Not Found", 404
     settings = load_json(SETTINGS_FILE, {"counties": [], "lookback_days": 30})
     source_cards = sorted(
         source_metadata().values(),
@@ -629,8 +629,8 @@ def admin():
 
 @app.route('/admin/<path:bad_path>')
 def admin_bad_link_redirect(bad_path):
-    if STOREFRONT_ONLY:
-        return redirect(url_for('index'), code=302)
+    if STOREFRONT_ONLY or not admin_allowed():
+        return "Not Found", 404
     """Recover from older Data Explorer links that missed the /data? route."""
     if bad_path.startswith("-file="):
         query = bad_path.replace("-file=", "file=", 1)
@@ -661,6 +661,7 @@ def current_user():
 @app.context_processor
 def inject_user():
     user = current_user()
+    is_admin = admin_allowed()
     accounts_ready = _accounts_ready()
     database_configured = db.is_configured()
     secret_key_set = bool(app.secret_key)
@@ -681,6 +682,7 @@ def inject_user():
         "appwrite_project_set": appwrite_project_set,
         "appwrite_key_set": appwrite_key_set,
         "appwrite_configured": appwrite_configured,
+        "admin_allowed": is_admin,
     }
 
 
@@ -695,6 +697,41 @@ def login_required(view):
         if not current_user():
             return redirect(url_for("login", next=request.path))
         return view(*args, **kwargs)
+    return wrapped
+
+
+def _admin_token():
+    return os.getenv("ADMIN_TOKEN", "") or os.getenv("SKIPTRACE_ADMIN_TOKEN", "")
+
+
+def admin_allowed():
+    token = _admin_token()
+    if token:
+        if session.get("admin_allowed"):
+            return True
+        supplied = request.args.get("token") or request.form.get("token")
+        if supplied and supplied == token:
+            session["admin_allowed"] = True
+            session["skiptrace_admin"] = True
+            return True
+    admin_email = (os.getenv("ADMIN_EMAIL", "") or "").strip().lower()
+    user = current_user()
+    if user and admin_email:
+        allowed = {email.strip() for email in admin_email.split(",") if email.strip()}
+        if user["email"].lower() in allowed:
+            session["admin_allowed"] = True
+            return True
+    return False
+
+
+def admin_required(view):
+    @wraps(view)
+    def wrapped(*args, **kwargs):
+        if admin_allowed():
+            return view(*args, **kwargs)
+        if request.path.startswith("/api/"):
+            return jsonify({"error": "not_found"}), 404
+        return "Not Found", 404
     return wrapped
 
 
@@ -887,16 +924,7 @@ def _cyberbackgroundchecks_links(lead):
 
 
 def _skiptrace_admin_allowed():
-    token = os.getenv("SKIPTRACE_ADMIN_TOKEN", "")
-    if not token:
-        return False
-    if session.get("skiptrace_admin"):
-        return True
-    supplied = request.args.get("token") or request.form.get("token")
-    if supplied and supplied == token:
-        session["skiptrace_admin"] = True
-        return True
-    return False
+    return admin_allowed()
 
 
 def _skiptrace_dev_enabled():
@@ -969,6 +997,7 @@ def _skiptrace_dev_update(order_id, lead_id, contact_fields):
 
 
 @app.route('/admin/skiptrace')
+@admin_required
 def admin_skiptrace():
     if STOREFRONT_ONLY:
         return redirect(url_for('index'), code=302)
@@ -999,6 +1028,7 @@ def admin_skiptrace():
 
 
 @app.route('/admin/skiptrace/run', methods=['POST'])
+@admin_required
 def admin_skiptrace_run():
     if STOREFRONT_ONLY:
         return redirect(url_for('index'), code=302)
@@ -1008,6 +1038,7 @@ def admin_skiptrace_run():
 
 
 @app.route('/admin/skiptrace/update', methods=['POST'])
+@admin_required
 def admin_skiptrace_update():
     if STOREFRONT_ONLY:
         return redirect(url_for('index'), code=302)
@@ -1066,6 +1097,7 @@ def _skiptrace_county_options():
 
 
 @app.route('/admin/skiptrace/control')
+@admin_required
 def admin_skiptrace_control():
     if STOREFRONT_ONLY:
         return redirect(url_for('index'), code=302)
@@ -1077,6 +1109,7 @@ def admin_skiptrace_control():
 
 
 @app.route('/admin/skiptrace/status')
+@admin_required
 def admin_skiptrace_status():
     if STOREFRONT_ONLY:
         return jsonify({"error": "not available"}), 403
@@ -1085,6 +1118,7 @@ def admin_skiptrace_status():
 
 
 @app.route('/admin/skiptrace/start', methods=['POST'])
+@admin_required
 def admin_skiptrace_start():
     if STOREFRONT_ONLY:
         return jsonify({"error": "not available"}), 403
@@ -1108,6 +1142,7 @@ def admin_skiptrace_start():
 
 
 @app.route('/admin/skiptrace/stop-after', methods=['POST'])
+@admin_required
 def admin_skiptrace_stop_after():
     if STOREFRONT_ONLY:
         return jsonify({"error": "not available"}), 403
@@ -1117,6 +1152,7 @@ def admin_skiptrace_stop_after():
 
 
 @app.route('/admin/skiptrace/kill', methods=['POST'])
+@admin_required
 def admin_skiptrace_kill():
     if STOREFRONT_ONLY:
         return jsonify({"error": "not available"}), 403
@@ -1216,6 +1252,7 @@ def _trace_select(county, ttype, month):
 
 
 @app.route('/admin/trace')
+@admin_required
 def admin_trace():
     if STOREFRONT_ONLY:
         return redirect(url_for('index'), code=302)
@@ -1224,6 +1261,7 @@ def admin_trace():
 
 
 @app.route('/admin/trace/export')
+@admin_required
 def admin_trace_export():
     if STOREFRONT_ONLY:
         return redirect(url_for('index'), code=302)
@@ -1366,6 +1404,7 @@ def checkout_cancel():
     return render_template('checkout_status.html', title="Checkout canceled", message="Checkout was canceled. Your selected leads were not charged.")
 
 @app.route('/api/stripe-status')
+@admin_required
 def stripe_status():
     key = stripe.api_key or ""
     return jsonify({
@@ -1375,6 +1414,7 @@ def stripe_status():
     })
 
 @app.route('/api/accounts-status')
+@admin_required
 def accounts_status():
     """Diagnostic for Appwrite/Postgres accounts."""
     backend_configured = db.is_configured()
@@ -1399,6 +1439,7 @@ def accounts_status():
     })
 
 @app.route('/api/checkout-status')
+@admin_required
 def checkout_status_api():
     """Diagnostic for the full purchase-unlock flow."""
     backend_configured = db.is_configured()
@@ -1578,6 +1619,7 @@ def _build_county_schedule():
 
 
 @app.route('/admin/counties')
+@admin_required
 def admin_counties():
     if STOREFRONT_ONLY:
         return redirect(url_for('index'), code=302)
@@ -1600,6 +1642,7 @@ def admin_counties():
 
 
 @app.route('/admin/data')
+@admin_required
 def admin_data():
     if STOREFRONT_ONLY:
         return redirect(url_for('index'), code=302)
@@ -1650,6 +1693,7 @@ def admin_data():
     )
 
 @app.route('/admin/data/download')
+@admin_required
 def admin_data_download():
     if STOREFRONT_ONLY:
         return redirect(url_for('index'), code=302)
@@ -1666,6 +1710,7 @@ def admin_data_download():
     return send_file(path, as_attachment=True, download_name=filename)
 
 @app.route('/csv-dash')
+@admin_required
 def csv_dash():
     if STOREFRONT_ONLY:
         return redirect(url_for('index'), code=302)
@@ -1674,6 +1719,7 @@ def csv_dash():
     return render_template('csv_dash.html', listings=listings, settings=settings)
 
 @app.route('/api/settings', methods=['POST'])
+@admin_required
 def update_settings():
     if STOREFRONT_ONLY:
         return jsonify({"status": "disabled", "reason": "storefront_only"}), 403
@@ -1682,6 +1728,7 @@ def update_settings():
     return jsonify({"status": "success"})
 
 @app.route('/api/sources')
+@admin_required
 def sources_json():
     if STOREFRONT_ONLY:
         return jsonify({"sources": [], "county_sources": {}, "storefront_only": True})
@@ -1694,6 +1741,7 @@ def sources_json():
     })
 
 @app.route('/api/scrape', methods=['POST'])
+@admin_required
 def run_scraper():
     if STOREFRONT_ONLY:
         return jsonify({"status": "disabled", "reason": "storefront_only"}), 403
@@ -1829,6 +1877,7 @@ def run_scraper():
     return jsonify({"status": "started", "counties": counties, "lookback_days": lookback})
 
 @app.route('/api/scrape/stop', methods=['POST'])
+@admin_required
 def stop_scraper():
     if STOREFRONT_ONLY:
         return jsonify({"status": "disabled", "reason": "storefront_only"}), 403
@@ -1850,12 +1899,14 @@ def stop_scraper():
     return jsonify({"status": "stopping"})
 
 @app.route('/api/scrape/status')
+@admin_required
 def scrape_status_check():
     if STOREFRONT_ONLY:
         return jsonify({"running": False, "last": "storefront_only"})
     return jsonify(scrape_status)
 
 @app.route('/api/listings')
+@admin_required
 def listings_json():
     if STOREFRONT_ONLY:
         return jsonify({"status": "disabled", "reason": "storefront_only"}), 403
@@ -1864,6 +1915,7 @@ def listings_json():
     return jsonify({"count": len(listings), "listings": listings})
 
 @app.route('/api/listings.csv')
+@admin_required
 def listings_csv():
     if STOREFRONT_ONLY:
         return jsonify({"status": "disabled", "reason": "storefront_only"}), 403
