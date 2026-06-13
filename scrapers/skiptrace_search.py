@@ -75,6 +75,25 @@ _EMAIL_QUERY_TEMPLATES = [
     '"{n}" {c}, {s} email',
     '{n} {c} {s} email contact',
 ]
+# Reverse-address axis -- search the PROPERTY address, not the owner name. People-search
+# sites keep address-indexed "current resident" pages that list the occupant + phone, so
+# this catches owners whose name is garbled in the legal notice. {addr}=cleaned street.
+# The name-beside-number gate in _extract_blocks still applies, so a *different* current
+# resident's number is dropped -- we only keep numbers sitting next to the owner's name.
+_ADDR_QUERY_TEMPLATES = [
+    '"{addr}" {c} {s} phone',
+    'who lives at {addr} {c} {s}',
+    '"{addr}" {c} {s} current resident',
+]
+# site:-targeted fallback -- ONLY for leads that missed every other pass. Highest-yield
+# query type (a people-search domain in the text), but the scraper-style query raises
+# DDG's bot score, so it's reserved for misses and fires one domain per lead.
+_SITE_DOMAINS = ["fastpeoplesearch.com", "truepeoplesearch.com",
+                 "thatsthem.com", "cyberbackgroundchecks.com"]
+_SITE_QUERY_TEMPLATES = [
+    '"{n}" {c} {s} site:{d}',
+    '{n} {c} site:{d}',
+]
 
 _PHONE_RE = re.compile(r"\(?\b\d{3}\)?[-.\s]\d{3}[-.\s]\d{4}\b")
 _EMAIL_RE = re.compile(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}")
@@ -346,6 +365,17 @@ class DDGSession:
                     return blocks
         return []
 
+    @staticmethod
+    def _merge_blocks(blocks, name, addr, state, phones: dict, emails: set) -> None:
+        """Extract phones/emails from one pass's blocks and fold them into the running
+        accumulators, keeping the highest score per number across passes."""
+        ranked, em = _extract_blocks(blocks, name, addr, state)
+        for d in ranked:
+            cur = phones.get(d["phone"])
+            if cur is None or d["score"] > cur["score"]:
+                phones[d["phone"]] = d
+        emails.update(em)
+
     def lookup(self, owner: str, street: str, city: str, state: str,
                *, use_cache: bool = True) -> dict:
         name = clean_owner(owner)
@@ -384,8 +414,19 @@ class DDGSession:
             self._since_idle = 0
             self._next_idle = random.randint(5, 10)
 
-        tmpl = random.choice(_QUERY_TEMPLATES)
-        query = tmpl.format(n=_query_name(name), c=city, s=state)
+        # Each pass below is one independent DDG request, gated to fire only when the
+        # earlier (cheaper, lower-block-risk) passes came up short. phones/emails
+        # accumulate across passes; the full inter-pass gap keeps us off the rate-limit.
+        phones: dict[str, dict] = {}
+        emails: set[str] = set()
+        queries: list[str] = []
+
+        def _gap() -> None:
+            time.sleep(random.uniform(DDG_MIN_GAP, DDG_MAX_GAP))
+
+        # Pass 1 -- name + phone (the primary axis)
+        query = random.choice(_QUERY_TEMPLATES).format(n=_query_name(name), c=city, s=state)
+        queries.append(query)
         blocks = self._search(query)
         if self._challenged:
             raise Blocked("DuckDuckGo is rate-limiting this IP (anti-bot 'duck' challenge). "
@@ -396,29 +437,41 @@ class DDGSession:
         if self._empty_streak >= 6:
             raise Blocked("DuckDuckGo returned nothing 6x in a row -- likely rate-limited; "
                           "pause a bit or slow the pace, then resume.")
+        self._merge_blocks(blocks, name, addr, state, phones, emails)
 
-        ranked, emails = _extract_blocks(blocks, name, addr, state)
+        # Pass 2 -- reverse-address. Fires when the name search found no phone: the
+        # property address is a second axis that catches garbled/odd owner names.
+        if not phones and addr and not self._challenged:
+            _gap()
+            addr_query = random.choice(_ADDR_QUERY_TEMPLATES).format(addr=addr, c=city, s=state)
+            queries.append(addr_query)
+            self._merge_blocks(self._search(addr_query), name, addr, state, phones, emails)
 
-        # Dedicated email pass: phone queries rarely surface email fields in snippets.
-        # Only run when the main search came back with no email, and only if DDG is
-        # still responding (blocks non-empty means we're not rate-limited).
-        # Use the full gap — the email request is still a DDG request and counts toward
-        # rate-limit; a half-gap here is what caused early BLOCKED status.
-        email_query = ""
-        if not emails and blocks and not self._challenged:
-            time.sleep(random.uniform(DDG_MIN_GAP, DDG_MAX_GAP))
+        # Pass 3 -- dedicated email query (phone queries rarely surface email in snippets).
+        if not emails and not self._challenged:
+            _gap()
             email_query = random.choice(_EMAIL_QUERY_TEMPLATES).format(
                 n=_query_name(name), c=city, s=state)
-            email_blocks = self._search(email_query)
-            if not self._challenged and email_blocks:
-                _, emails = _extract_blocks(email_blocks, name, addr, state)
+            queries.append(email_query)
+            self._merge_blocks(self._search(email_query), name, addr, state, phones, emails)
 
+        # Pass 4 -- site:-targeted fallback. ONLY when every prior pass missed entirely.
+        # Highest-yield, but the scraper-style query raises bot score -> last + one domain.
+        if not phones and not emails and not self._challenged:
+            _gap()
+            domain = random.choice(_SITE_DOMAINS)
+            site_query = random.choice(_SITE_QUERY_TEMPLATES).format(
+                n=_query_name(name), c=city, s=state, d=domain)
+            queries.append(site_query)
+            self._merge_blocks(self._search(site_query), name, addr, state, phones, emails)
+
+        ranked = sorted(phones.values(), key=lambda d: (-d["score"], d["phone"]))
         result = {
             "name": name,
-            "query": query + (f" | {email_query}" if email_query else ""),
+            "query": " | ".join(queries),
             "phones": [r["phone"] for r in ranked],
             "phone_details": ranked[:6],
-            "emails": emails[:4],
+            "emails": sorted(emails)[:4],
             "cached": False,
         }
         # Cache HITS only. Never cache a miss -- a blank may just be a throttle/coverage
