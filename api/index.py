@@ -1,8 +1,21 @@
 import os
-import sys
 
-ROOT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-if ROOT_DIR not in sys.path:
-    sys.path.insert(0, ROOT_DIR)
+from flask import Flask, redirect, request
 
-from app import app  # noqa: E402
+
+RAILWAY_URL = os.getenv(
+    "CANONICAL_APP_URL",
+    "https://tax-delinquencies-production.up.railway.app",
+).rstrip("/")
+
+app = Flask(__name__)
+
+
+@app.route("/", defaults={"path": ""})
+@app.route("/<path:path>")
+def redirect_to_railway(path):
+    query = request.query_string.decode("utf-8")
+    target = f"{RAILWAY_URL}/{path}" if path else f"{RAILWAY_URL}/"
+    if query:
+        target = f"{target}?{query}"
+    return redirect(target, code=308)
