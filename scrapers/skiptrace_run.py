@@ -110,13 +110,16 @@ def write_back(dev_mode: bool, order_id: str, lead: dict, fields: dict) -> bool:
 
 
 def load_listings(county: str, state: str, city: str):
-    """Return (all_rows, selected_leads) from the APP's data store. The app keeps
-    listings in SQLite (when enabled), with listings.json only a seed -- so we must
-    read via app.current_listings(), NOT the raw file, or we'd miss everything the
-    app saved (e.g. the scraper refresh). Selected leads are references into all_rows,
-    so mutating them in place + save_listings(all_rows) persists the change."""
-    import app
-    rows = app.current_listings()
+    """Return (all_rows, selected_leads) from listings.json on disk.
+    We read the flat file directly (not SQLite) so that IDs match what's in
+    listings.json -- SQLite may hold a different scrape run with different IDs,
+    causing the ID-based patch in save_listings() to silently miss every lead."""
+    try:
+        with open(LISTINGS_PATH, "r", encoding="utf-8-sig") as f:
+            rows = json.load(f)
+    except Exception:
+        import app
+        rows = app.current_listings()
 
     def match(l):
         if county and str(l.get("county") or "").strip().lower() != county.lower():
@@ -137,16 +140,12 @@ _TRACE_FIELDS = (
 )
 
 def save_listings(rows) -> None:
-    """Persist through the app's data layer (SQLite when enabled, else the file).
-    Also patch on-disk listings.json with trace results so they can be pushed to
-    Railway. We patch rather than overwrite -- SQLite may hold fewer rows than the
-    full listings.json (e.g. after a direct git push of data), and overwriting would
-    silently discard leads that aren't in SQLite."""
-    import app
-    app.save_json(app.DATA_FILE, rows)
-    if not app._sqlite_enabled():
-        return
-    # Build a lookup of traced leads (only rows that actually got a phone or email)
+    """Patch listings.json on disk with traced fields from the given rows.
+    We write directly to the file rather than going through app.save_json/SQLite
+    because: (1) SQLite may hold a different scrape run with different IDs, causing
+    ID-based patching to miss leads; (2) passing a large dataset to save_json when
+    SQLite is enabled would replace all SQLite listings (wiping other counties' traces).
+    The caller already loaded rows from LISTINGS_PATH, so IDs are guaranteed to match."""
     traced = {
         str(r.get("id")): r for r in rows
         if r.get("id") and (r.get("primary_phone") or r.get("email_1"))
@@ -157,15 +156,18 @@ def save_listings(rows) -> None:
         with open(LISTINGS_PATH, "r", encoding="utf-8-sig") as f:
             disk_rows = json.load(f)
     except Exception:
-        disk_rows = list(rows)   # fallback: no existing file
+        disk_rows = list(rows)
+    updated = 0
     for r in disk_rows:
         src = traced.get(str(r.get("id") or ""))
         if src:
             for field in _TRACE_FIELDS:
                 if src.get(field):
                     r[field] = src[field]
+            updated += 1
     with open(LISTINGS_PATH, "w", encoding="utf-8") as f:
         json.dump(disk_rows, f, ensure_ascii=False)
+    print(f"  [save] patched {updated} leads in listings.json")
 
 
 def main(argv=None) -> int:
@@ -367,7 +369,25 @@ def main(argv=None) -> int:
             print(f"\nWrote {len(rows)} rows -> {csv_path}")
         print(f"Processed {processed} | populated {wrote} lead(s) | "
               f"with phone: {sum(1 for r in rows if r['best_phone'])}")
+        # Auto-push to Railway when the run completes with results
+        if listings_mode and not args.no_write and wrote and not stopped and status.get("state") != "blocked":
+            _git_push_listings(args.county or args.city or "run", wrote)
     return 0
+
+
+def _git_push_listings(label: str, wrote: int) -> None:
+    """Commit the updated listings.json and push to master + main (Railway)."""
+    import subprocess as _sp
+    try:
+        _sp.run(["git", "add", "listings.json"], cwd=str(ROOT), check=True, capture_output=True)
+        msg = f"Skip trace results: {label} (+{wrote} contacts)"
+        _sp.run(["git", "commit", "-m", msg], cwd=str(ROOT), check=True, capture_output=True)
+        r1 = _sp.run(["git", "push", "origin", "master"], cwd=str(ROOT), capture_output=True, text=True)
+        r2 = _sp.run(["git", "push", "origin", "master:main"], cwd=str(ROOT), capture_output=True, text=True)
+        ok = r1.returncode == 0 and r2.returncode == 0
+        print(f"  [git] {'pushed to Railway' if ok else 'push failed -- run: git push origin master master:main'}")
+    except Exception as exc:
+        print(f"  [git] push skipped ({type(exc).__name__}: {exc})")
 
 
 if __name__ == "__main__":
