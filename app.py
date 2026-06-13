@@ -180,12 +180,21 @@ DATA_DIR = os.path.join(BASE_DIR, 'data')
 IS_VERCEL = bool(os.getenv("VERCEL") or os.getenv("VERCEL_ENV"))
 IS_RAILWAY = bool(os.getenv("RAILWAY_ENVIRONMENT") or os.getenv("RAILWAY_PROJECT_ID")
                   or os.getenv("RAILWAY_GIT_COMMIT_SHA"))
-# The skip tracer is LOCAL-ONLY by design: it needs a residential IP (datacenter IPs
-# get blocked instantly) and on a server its process-group kill can't cleanly target
-# the child. Block "run" on ANY hosted deploy, not just Vercel.
+# IS_HOSTED = running on a managed host (Vercel or Railway). Used to show a "this is the
+# live site" note on the skip-trace page; the tracer itself is allowed to run on Railway.
 IS_HOSTED = IS_VERCEL or IS_RAILWAY
 STOREFRONT_ONLY = IS_VERCEL
-SQLITE_DB = os.getenv("SQLITE_DB", os.path.join(BASE_DIR, "foreclosure_local.sqlite3"))
+# SQLite location. Explicit SQLITE_DB always wins. Otherwise, if a Railway volume is
+# mounted (RAILWAY_VOLUME_MOUNT_PATH is set), put the DB on the volume so runtime writes
+# (e.g. skip traces run on the hosted site) survive redeploys instead of being wiped and
+# re-seeded from git listings.json. Falls back to a local file off the volume.
+_RAILWAY_VOLUME = os.getenv("RAILWAY_VOLUME_MOUNT_PATH")
+if os.getenv("SQLITE_DB"):
+    SQLITE_DB = os.getenv("SQLITE_DB")
+elif _RAILWAY_VOLUME:
+    SQLITE_DB = os.path.join(_RAILWAY_VOLUME, "foreclosure.sqlite3")
+else:
+    SQLITE_DB = os.path.join(BASE_DIR, "foreclosure_local.sqlite3")
 STOREFRONT_CSV = os.getenv("STOREFRONT_CSV", os.path.join(DATA_DIR, "storefront_listings.csv"))
 STOREFRONT_FIELDS = [
     "id", "status", "county", "state", "city", "zip", "address", "street",
