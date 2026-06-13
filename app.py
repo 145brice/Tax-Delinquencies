@@ -834,7 +834,71 @@ def account():
         orders = db.get_paid_orders_for_user(user['id'])
     except Exception:
         orders = []
-    return render_template('account.html', email=user['email'], orders=orders)
+    folders = set()
+    statuses = ["New", "Contacted", "Follow-up", "Offer Made", "Won", "Lost", "Do Not Contact"]
+    for order in orders:
+        for lead in order.get("leads_json") or []:
+            lead.setdefault("buyer_folder", _default_buyer_folder(lead))
+            lead.setdefault("buyer_status", "New")
+            lead.setdefault("buyer_notes", "")
+            folder = str(lead.get("buyer_folder") or "").strip()
+            if folder:
+                folders.add(folder)
+    return render_template('account.html', email=user['email'], orders=orders,
+                           folders=sorted(folders), statuses=statuses)
+
+
+@app.route('/account/leads/update', methods=['POST'])
+@login_required
+def account_lead_update():
+    user = current_user()
+    order_id = (request.form.get("order_id") or "").strip()
+    lead_id = (request.form.get("lead_id") or "").strip()
+    folder = re.sub(r"\s+", " ", request.form.get("buyer_folder") or "").strip()[:80]
+    status = re.sub(r"\s+", " ", request.form.get("buyer_status") or "").strip()[:40]
+    priority = re.sub(r"\s+", " ", request.form.get("buyer_priority") or "").strip()[:20]
+    notes = (request.form.get("buyer_notes") or "").strip()[:1000]
+    if not order_id or not lead_id:
+        return redirect(url_for("account"))
+    if not folder:
+        folder = "New Leads"
+    if not status:
+        status = "New"
+    try:
+        db.update_order_lead_tracking(order_id, user["id"], lead_id, {
+            "buyer_folder": folder,
+            "buyer_status": status,
+            "buyer_priority": priority or "Normal",
+            "buyer_notes": notes,
+            "buyer_updated_at": datetime.now().isoformat(timespec="seconds"),
+        })
+    except Exception:
+        pass
+    return redirect(url_for("account"))
+
+
+def _default_buyer_folder(lead):
+    county = str(lead.get("county") or "").strip().title()
+    state = str(lead.get("state") or "").strip().upper()
+    if county and state:
+        return f"{county}, {state}"
+    if county:
+        return county
+    return "New Leads"
+
+
+def _prepare_purchased_leads(leads):
+    prepared = []
+    now = datetime.now().isoformat(timespec="seconds")
+    for lead in leads:
+        item = dict(lead)
+        item.setdefault("buyer_folder", _default_buyer_folder(item))
+        item.setdefault("buyer_status", "New")
+        item.setdefault("buyer_priority", "Normal")
+        item.setdefault("buyer_notes", "")
+        item.setdefault("buyer_updated_at", now)
+        prepared.append(item)
+    return prepared
 
 
 def _skiptrace_status(lead):
@@ -1387,7 +1451,7 @@ def create_checkout_session():
             email=user["email"],
             stripe_session_id=checkout_session.id,
             amount_cents=total_cents,
-            leads=selected,
+            leads=_prepare_purchased_leads(selected),
         )
     except Exception as exc:
         return jsonify({"error": f"Could not record this order before checkout: {type(exc).__name__}"}), 503

@@ -571,3 +571,53 @@ def update_order_lead_contacts(order_id, lead_id, contact_fields):
         )
         conn.commit()
         return True
+
+
+def update_order_lead_tracking(order_id, user_id, lead_id, tracking_fields):
+    allowed = {"buyer_folder", "buyer_status", "buyer_notes", "buyer_priority", "buyer_updated_at"}
+    updates = {key: value for key, value in tracking_fields.items() if key in allowed}
+    if not updates:
+        return False
+
+    if _use_appwrite():
+        doc = _appwrite_request("GET", f"/databases/{_appwrite_database_id()}/collections/{_appwrite_orders_collection_id()}/documents/{order_id}")
+        row = _order_doc_to_row(doc)
+        if not row or str(row.get("user_id")) != str(user_id) or row.get("status") != "paid":
+            return False
+        leads = list(row["leads_json"] or [])
+        updated = False
+        for lead in leads:
+            if str(lead.get("id")) == str(lead_id):
+                lead.update(updates)
+                updated = True
+                break
+        if not updated:
+            return False
+        _appwrite_request("PATCH", f"/databases/{_appwrite_database_id()}/collections/{_appwrite_orders_collection_id()}/documents/{order_id}", data={
+            "data": {"leads_json": json.dumps(leads, ensure_ascii=False)},
+        })
+        return True
+
+    with get_conn() as conn, conn.cursor() as cur:
+        cur.execute(
+            "SELECT leads_json FROM orders WHERE id = %s AND user_id = %s AND status = 'paid'",
+            (order_id, user_id),
+        )
+        row = cur.fetchone()
+        if not row:
+            return False
+        leads = list(row["leads_json"] or [])
+        updated = False
+        for lead in leads:
+            if str(lead.get("id")) == str(lead_id):
+                lead.update(updates)
+                updated = True
+                break
+        if not updated:
+            return False
+        cur.execute(
+            "UPDATE orders SET leads_json = %s WHERE id = %s AND user_id = %s",
+            (Jsonb(leads), order_id, user_id),
+        )
+        conn.commit()
+        return True

@@ -48,6 +48,23 @@
         .addr { color: #fff; font-weight: 600; }
         .contact { color: #dbeafe; font-weight: 600; }
         .pending { color: #facc15; font-size: 0.78rem; font-weight: 700; text-transform: uppercase; }
+        .workspace {
+            display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+            gap: 12px; margin-bottom: 20px;
+        }
+        .workspace-card { background: #16181f; border: 1px solid #2a2d3a; border-radius: 10px; padding: 14px; }
+        .workspace-card strong { display: block; color: #fff; font-size: 1.15rem; }
+        .workspace-card span { color: #9ca3af; font-size: 0.8rem; }
+        .field, .note-field {
+            width: 100%; min-width: 120px; background: #0f1117; color: #e0e0e0;
+            border: 1px solid #2a2d3a; border-radius: 6px; padding: 7px 8px; font: inherit;
+        }
+        .note-field { min-width: 220px; min-height: 34px; resize: vertical; }
+        .save-btn {
+            background: #2563eb; color: #fff; border: 0; border-radius: 6px;
+            padding: 8px 12px; font-weight: 700; cursor: pointer;
+        }
+        .save-btn:hover { background: #1d4ed8; }
     </style>
 </head>
 <body>
@@ -65,7 +82,7 @@
 
 <div class="page">
     <h1>My Purchases</h1>
-    <div class="subtitle">Full, unmasked details for every lead you've purchased.</div>
+    <div class="subtitle">Full, unmasked details for every lead you've purchased. Organize leads into folders and track follow-up.</div>
 
     {% if not orders %}
         <div class="empty">
@@ -73,6 +90,20 @@
             <a href="/">Browse the storefront &rarr;</a>
         </div>
     {% else %}
+        {% set total_leads = namespace(value=0) %}
+        {% for order in orders %}
+            {% set total_leads.value = total_leads.value + (order.leads_json|length) %}
+        {% endfor %}
+        <div class="workspace">
+            <div class="workspace-card"><strong>{{ orders|length }}</strong><span>paid order{{ 's' if orders|length != 1 else '' }}</span></div>
+            <div class="workspace-card"><strong>{{ total_leads.value }}</strong><span>purchased lead{{ 's' if total_leads.value != 1 else '' }}</span></div>
+            <div class="workspace-card"><strong>{{ folders|length }}</strong><span>active folder{{ 's' if folders|length != 1 else '' }}</span></div>
+        </div>
+        <datalist id="folder-options">
+            {% for folder in folders %}
+            <option value="{{ folder }}"></option>
+            {% endfor %}
+        </datalist>
         {% for order in orders %}
         <div class="order">
             <div class="order-head">
@@ -86,17 +117,41 @@
                 <thead>
                     <tr>
                         <th>Type</th><th>County</th><th>State</th><th>City</th><th>Zip</th>
-                        <th>Address</th><th>Phone</th><th>Email</th><th>Mailing Address</th><th>Owner</th><th>Parcel/APN</th><th>Case #</th>
+                        <th>Folder</th><th>Status</th><th>Priority</th><th>Notes</th>
+                        <th>Address</th><th>Phone</th><th>Email</th><th>Mailing Address</th><th>Owner</th><th>Parcel/APN</th><th>Case #</th><th>Save</th>
                     </tr>
                 </thead>
                 <tbody>
                     {% for lead in order.leads_json %}
+                    {% set form_id = 'lead-form-' ~ order.id ~ '-' ~ loop.index %}
                     <tr>
                         <td><span class="type-badge">{{ lead.status or lead.record_type or 'Lead' }}</span></td>
                         <td>{{ (lead.county or '')|title }}</td>
                         <td>{{ lead.state or '' }}</td>
                         <td>{{ lead.city or '' }}</td>
                         <td>{{ lead.zip or '' }}</td>
+                        <td>
+                            <form id="{{ form_id }}" method="POST" action="{{ url_for('account_lead_update') }}">
+                                <input type="hidden" name="order_id" value="{{ order.id }}">
+                                <input type="hidden" name="lead_id" value="{{ lead.id }}">
+                            </form>
+                            <input form="{{ form_id }}" class="field" name="buyer_folder" list="folder-options" value="{{ lead.buyer_folder or 'New Leads' }}">
+                        </td>
+                        <td>
+                            <select form="{{ form_id }}" class="field" name="buyer_status">
+                                {% for status in statuses %}
+                                <option value="{{ status }}" {% if (lead.buyer_status or 'New') == status %}selected{% endif %}>{{ status }}</option>
+                                {% endfor %}
+                            </select>
+                        </td>
+                        <td>
+                            <select form="{{ form_id }}" class="field" name="buyer_priority">
+                                {% for priority in ['Normal', 'Hot', 'Warm', 'Cold'] %}
+                                <option value="{{ priority }}" {% if (lead.buyer_priority or 'Normal') == priority %}selected{% endif %}>{{ priority }}</option>
+                                {% endfor %}
+                            </select>
+                        </td>
+                        <td><textarea form="{{ form_id }}" class="note-field" name="buyer_notes" placeholder="Next step, appointment, offer...">{{ lead.buyer_notes or '' }}</textarea></td>
                         <td class="addr">{{ lead.address or lead.street or '' }}</td>
                         <td class="contact">
                             {% if lead.primary_phone %}
@@ -116,6 +171,7 @@
                         <td>{{ lead.owner or '—' }}</td>
                         <td>{{ lead.parcel_id or '—' }}</td>
                         <td>{{ lead.case_number or '—' }}</td>
+                        <td><button form="{{ form_id }}" class="save-btn" type="submit">Save</button></td>
                     </tr>
                     {% endfor %}
                 </tbody>
