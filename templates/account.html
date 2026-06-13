@@ -61,6 +61,8 @@
             border: 1px solid #2a2d3a; border-radius: 6px; padding: 7px 8px; font: inherit;
         }
         .note-field { min-width: 220px; min-height: 34px; resize: vertical; }
+        .note-actions { display: flex; align-items: center; gap: 8px; margin-top: 6px; }
+        .note-hint { color: #64748b; font-size: 0.7rem; }
         .time-cell { color: #cbd5e1; min-width: 150px; line-height: 1.35; }
         .time-cell .muted { display: block; color: #64748b; font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.04em; }
         details.history { margin-top: 7px; color: #94a3b8; font-size: 0.74rem; }
@@ -69,11 +71,12 @@
         .history-item { border-left: 2px solid #334155; padding-left: 8px; line-height: 1.35; }
         .history-item strong { color: #e2e8f0; display: block; }
         .history-item span { color: #64748b; display: block; font-size: 0.7rem; }
-        .save-btn {
+        .save-btn, .mini-save-btn {
             background: #2563eb; color: #fff; border: 0; border-radius: 6px;
             padding: 8px 12px; font-weight: 700; cursor: pointer;
         }
-        .save-btn:hover { background: #1d4ed8; }
+        .mini-save-btn { padding: 5px 9px; font-size: 0.72rem; }
+        .save-btn:hover, .mini-save-btn:hover { background: #1d4ed8; }
 
         .lead-toolbar {
             display: flex; gap: 10px; flex-wrap: wrap; align-items: center;
@@ -218,6 +221,10 @@
                         </td>
                         <td>
                             <textarea form="{{ form_id }}" class="note-field" name="buyer_notes" placeholder="Next step, appointment, offer...">{{ lead.buyer_notes or '' }}</textarea>
+                            <div class="note-actions">
+                                <button form="{{ form_id }}" class="mini-save-btn" type="submit">Save note</button>
+                                <span class="note-hint">Ctrl+Enter saves</span>
+                            </div>
                             {% if lead.buyer_note_history %}
                             <details class="history">
                                 <summary>{{ lead.buyer_note_history|length }} note timestamp{{ 's' if lead.buyer_note_history|length != 1 else '' }}</summary>
@@ -340,6 +347,16 @@ function showToast(msg, isError) {
 
 (function init() {
     if (document.getElementById('filter-folder')) applyLeadView();
+    document.querySelectorAll('textarea[name="buyer_notes"]').forEach(function(noteBox) {
+        noteBox.addEventListener('keydown', function(event) {
+            if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) {
+                event.preventDefault();
+                var formId = noteBox.getAttribute('form');
+                var form = formId && document.getElementById(formId);
+                if (form) form.requestSubmit();
+            }
+        });
+    });
     var params = new URLSearchParams(window.location.search);
     if (params.get('saved')) {
         showToast('Lead saved.');
