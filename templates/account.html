@@ -107,6 +107,10 @@
     <a href="/" class="logo">Foreclosure<span>Leads</span> Pro</a>
     <div class="nav-right">
         <a href="/" class="nav-tab">Storefront</a>
+        {% if admin_allowed %}
+        <a href="/admin/data" class="nav-tab">Data Explorer</a>
+        <a href="/admin" class="nav-tab">Admin</a>
+        {% endif %}
         <a href="/account" class="nav-tab active">My Purchases</a>
         <span class="email">{{ email }}</span>
         <form method="POST" action="{{ url_for('logout') }}" style="margin:0;">
