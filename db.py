@@ -574,7 +574,10 @@ def update_order_lead_contacts(order_id, lead_id, contact_fields):
 
 
 def update_order_lead_tracking(order_id, user_id, lead_id, tracking_fields):
-    allowed = {"buyer_folder", "buyer_status", "buyer_notes", "buyer_priority", "buyer_updated_at"}
+    allowed = {
+        "buyer_folder", "buyer_status", "buyer_notes", "buyer_priority",
+        "buyer_updated_at", "buyer_purchased_at", "buyer_note_history", "buyer_activity",
+    }
     updates = {key: value for key, value in tracking_fields.items() if key in allowed}
     if not updates:
         return False
@@ -588,6 +591,7 @@ def update_order_lead_tracking(order_id, user_id, lead_id, tracking_fields):
         updated = False
         for lead in leads:
             if str(lead.get("id")) == str(lead_id):
+                _apply_tracking_history(lead, updates)
                 lead.update(updates)
                 updated = True
                 break
@@ -610,6 +614,7 @@ def update_order_lead_tracking(order_id, user_id, lead_id, tracking_fields):
         updated = False
         for lead in leads:
             if str(lead.get("id")) == str(lead_id):
+                _apply_tracking_history(lead, updates)
                 lead.update(updates)
                 updated = True
                 break
@@ -621,3 +626,59 @@ def update_order_lead_tracking(order_id, user_id, lead_id, tracking_fields):
         )
         conn.commit()
         return True
+
+
+def _tracking_now(updates):
+    return updates.get("buyer_updated_at") or datetime.now(timezone.utc).isoformat(timespec="seconds")
+
+
+def _tracking_label(key):
+    return {
+        "buyer_folder": "Folder changed",
+        "buyer_status": "Status changed",
+        "buyer_priority": "Priority changed",
+        "buyer_notes": "Note updated",
+    }.get(key, "Lead updated")
+
+
+def _apply_tracking_history(lead, updates):
+    when = _tracking_now(updates)
+    activity = lead.get("buyer_activity")
+    if not isinstance(activity, list):
+        purchased = lead.get("buyer_purchased_at") or lead.get("buyer_updated_at") or when
+        activity = [{
+            "at": purchased,
+            "label": "Purchased",
+            "detail": f"Lead added to {lead.get('buyer_folder') or 'New Leads'}",
+        }]
+    note_history = lead.get("buyer_note_history")
+    if not isinstance(note_history, list):
+        existing_note = str(lead.get("buyer_notes") or "").strip()
+        note_history = ([{"at": lead.get("buyer_updated_at") or when, "note": existing_note}] if existing_note else [])
+
+    for key in ("buyer_folder", "buyer_status", "buyer_priority"):
+        if key not in updates:
+            continue
+        old_value = str(lead.get(key) or "").strip()
+        new_value = str(updates.get(key) or "").strip()
+        if old_value != new_value:
+            activity.append({
+                "at": when,
+                "label": _tracking_label(key),
+                "detail": f"{old_value or '—'} → {new_value or '—'}",
+            })
+
+    if "buyer_notes" in updates:
+        old_note = str(lead.get("buyer_notes") or "").strip()
+        new_note = str(updates.get("buyer_notes") or "").strip()
+        if old_note != new_note:
+            activity.append({
+                "at": when,
+                "label": "Note updated",
+                "detail": new_note[:180] if new_note else "Note cleared",
+            })
+            if new_note:
+                note_history.append({"at": when, "note": new_note})
+
+    updates["buyer_activity"] = activity[-50:]
+    updates["buyer_note_history"] = note_history[-25:]

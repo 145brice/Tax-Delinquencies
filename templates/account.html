@@ -61,6 +61,14 @@
             border: 1px solid #2a2d3a; border-radius: 6px; padding: 7px 8px; font: inherit;
         }
         .note-field { min-width: 220px; min-height: 34px; resize: vertical; }
+        .time-cell { color: #cbd5e1; min-width: 150px; line-height: 1.35; }
+        .time-cell .muted { display: block; color: #64748b; font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.04em; }
+        details.history { margin-top: 7px; color: #94a3b8; font-size: 0.74rem; }
+        details.history summary { cursor: pointer; color: #93c5fd; }
+        .history-list { margin-top: 6px; display: grid; gap: 6px; max-height: 180px; overflow-y: auto; }
+        .history-item { border-left: 2px solid #334155; padding-left: 8px; line-height: 1.35; }
+        .history-item strong { color: #e2e8f0; display: block; }
+        .history-item span { color: #64748b; display: block; font-size: 0.7rem; }
         .save-btn {
             background: #2563eb; color: #fff; border: 0; border-radius: 6px;
             padding: 8px 12px; font-weight: 700; cursor: pointer;
@@ -169,7 +177,7 @@
                     <tr>
                         <th>Type</th><th>County</th><th>State</th><th>City</th><th>Zip</th>
                         <th>Folder</th><th>Status</th><th>Priority</th><th>Notes</th>
-                        <th>Address</th><th>Phone</th><th>Email</th><th>Mailing Address</th><th>Owner</th><th>Parcel/APN</th><th>Case #</th><th>Save</th>
+                        <th>Purchased</th><th>Updated</th><th>Address</th><th>Phone</th><th>Email</th><th>Mailing Address</th><th>Owner</th><th>Parcel/APN</th><th>Case #</th><th>Save</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -208,7 +216,40 @@
                                 {% endfor %}
                             </select>
                         </td>
-                        <td><textarea form="{{ form_id }}" class="note-field" name="buyer_notes" placeholder="Next step, appointment, offer...">{{ lead.buyer_notes or '' }}</textarea></td>
+                        <td>
+                            <textarea form="{{ form_id }}" class="note-field" name="buyer_notes" placeholder="Next step, appointment, offer...">{{ lead.buyer_notes or '' }}</textarea>
+                            {% if lead.buyer_note_history %}
+                            <details class="history">
+                                <summary>{{ lead.buyer_note_history|length }} note timestamp{{ 's' if lead.buyer_note_history|length != 1 else '' }}</summary>
+                                <div class="history-list">
+                                    {% for item in lead.buyer_note_history|reverse %}
+                                    <div class="history-item">
+                                        <span>{{ item.at|activity_time }}</span>
+                                        {{ item.note }}
+                                    </div>
+                                    {% endfor %}
+                                </div>
+                            </details>
+                            {% endif %}
+                        </td>
+                        <td class="time-cell"><span class="muted">Purchased</span>{{ lead.buyer_purchased_at|activity_time }}</td>
+                        <td class="time-cell">
+                            <span class="muted">Updated</span>{{ lead.buyer_updated_at|activity_time }}
+                            {% if lead.buyer_activity %}
+                            <details class="history">
+                                <summary>{{ lead.buyer_activity|length }} event{{ 's' if lead.buyer_activity|length != 1 else '' }}</summary>
+                                <div class="history-list">
+                                    {% for event in lead.buyer_activity|reverse %}
+                                    <div class="history-item">
+                                        <span>{{ event.at|activity_time }}</span>
+                                        <strong>{{ event.label }}</strong>
+                                        {{ event.detail }}
+                                    </div>
+                                    {% endfor %}
+                                </div>
+                            </details>
+                            {% endif %}
+                        </td>
                         <td class="addr">{{ lead.address or lead.street or '' }}</td>
                         <td class="contact">
                             {% if lead.primary_phone %}

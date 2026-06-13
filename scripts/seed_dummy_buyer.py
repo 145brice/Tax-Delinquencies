@@ -20,7 +20,7 @@ DEFAULT_PASSWORD = "DemoLeads123!"
 
 def sample_leads():
     now = datetime.now(timezone.utc).isoformat(timespec="seconds")
-    return [
+    leads = [
         {
             "id": "demo-barry-001",
             "status": "PRE-FORECLOSURE",
@@ -123,6 +123,23 @@ def sample_leads():
             "buyer_updated_at": now,
         },
     ]
+    for lead in leads:
+        note = lead.get("buyer_notes", "")
+        lead["buyer_purchased_at"] = now
+        lead["buyer_note_history"] = [{"at": now, "note": note}] if note else []
+        lead["buyer_activity"] = [
+            {
+                "at": now,
+                "label": "Purchased",
+                "detail": f"Lead added to {lead.get('buyer_folder') or 'New Leads'}",
+            },
+            {
+                "at": now,
+                "label": "Status set",
+                "detail": lead.get("buyer_status") or "New",
+            },
+        ]
+    return leads
 
 
 def ensure_user(email: str, password: str):

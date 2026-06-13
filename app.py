@@ -877,10 +877,9 @@ def account():
     folders = set()
     statuses = ["New", "Contacted", "Follow-up", "Offer Made", "Won", "Lost", "Do Not Contact"]
     for order in orders:
+        order_created = _iso_from_datetime(order.get("created_at"))
         for lead in order.get("leads_json") or []:
-            lead.setdefault("buyer_folder", _default_buyer_folder(lead))
-            lead.setdefault("buyer_status", "New")
-            lead.setdefault("buyer_notes", "")
+            _normalize_buyer_tracking(lead, purchased_at=order_created)
             folder = str(lead.get("buyer_folder") or "").strip()
             if folder:
                 folders.add(folder)
@@ -911,7 +910,7 @@ def account_lead_update():
             "buyer_status": status,
             "buyer_priority": priority or "Normal",
             "buyer_notes": notes,
-            "buyer_updated_at": datetime.now().isoformat(timespec="seconds"),
+            "buyer_updated_at": _utc_now_iso(),
         })
     except Exception:
         ok = False
@@ -931,16 +930,62 @@ def _default_buyer_folder(lead):
     return "New Leads"
 
 
+def _utc_now_iso():
+    return datetime.utcnow().replace(microsecond=0).isoformat() + "Z"
+
+
+def _iso_from_datetime(value):
+    if not value:
+        return ""
+    if hasattr(value, "isoformat"):
+        try:
+            return value.replace(microsecond=0).isoformat()
+        except Exception:
+            return value.isoformat()
+    return str(value)
+
+
+@app.template_filter("activity_time")
+def activity_time(value):
+    if not value:
+        return "—"
+    text = str(value).replace("Z", "+00:00")
+    try:
+        parsed = datetime.fromisoformat(text)
+        return parsed.strftime("%b %d, %Y %I:%M %p")
+    except Exception:
+        return str(value)
+
+
+def _normalize_buyer_tracking(lead, purchased_at=""):
+    purchased = lead.get("buyer_purchased_at") or lead.get("purchased_at") or purchased_at or _utc_now_iso()
+    updated = lead.get("buyer_updated_at") or purchased
+    lead.setdefault("buyer_folder", _default_buyer_folder(lead))
+    lead.setdefault("buyer_status", "New")
+    lead.setdefault("buyer_priority", "Normal")
+    lead.setdefault("buyer_notes", "")
+    lead["buyer_purchased_at"] = purchased
+    lead["buyer_updated_at"] = updated
+    if not isinstance(lead.get("buyer_note_history"), list):
+        first_note = str(lead.get("buyer_notes") or "").strip()
+        lead["buyer_note_history"] = ([{"at": updated, "note": first_note}] if first_note else [])
+    if not isinstance(lead.get("buyer_activity"), list):
+        lead["buyer_activity"] = [{
+            "at": purchased,
+            "label": "Purchased",
+            "detail": f"Lead added to {_default_buyer_folder(lead)}",
+        }]
+    return lead
+
+
 def _prepare_purchased_leads(leads):
     prepared = []
-    now = datetime.now().isoformat(timespec="seconds")
+    now = _utc_now_iso()
     for lead in leads:
         item = dict(lead)
-        item.setdefault("buyer_folder", _default_buyer_folder(item))
-        item.setdefault("buyer_status", "New")
-        item.setdefault("buyer_priority", "Normal")
-        item.setdefault("buyer_notes", "")
-        item.setdefault("buyer_updated_at", now)
+        item["buyer_purchased_at"] = now
+        item["buyer_updated_at"] = now
+        _normalize_buyer_tracking(item, purchased_at=now)
         prepared.append(item)
     return prepared
 
