@@ -105,9 +105,15 @@ def start(county: str = "", limit: int = 0, pace: str = "normal", breaks: str = 
 
     env = dict(os.environ, PYTHONIOENCODING="utf-8")
     logf = open(LOG, "w", encoding="utf-8")
-    creationflags = subprocess.CREATE_NEW_PROCESS_GROUP if os.name == "nt" else 0
+    popen_kw = {}
+    if os.name == "nt":
+        popen_kw["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP
+    else:
+        # Own session/process group so kill_now()'s killpg targets ONLY the child tree,
+        # never the web server that spawned it.
+        popen_kw["start_new_session"] = True
     proc = subprocess.Popen(cmd, cwd=str(ROOT), stdout=logf, stderr=subprocess.STDOUT,
-                            env=env, creationflags=creationflags)
+                            env=env, **popen_kw)
     PIDFILE.write_text(str(proc.pid), encoding="utf-8")
     return True, f"Started {county} (engine={engine}, pace={pace}, breaks={breaks})."
 

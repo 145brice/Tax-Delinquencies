@@ -178,6 +178,12 @@ listing_lock = threading.Lock()
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DATA_DIR = os.path.join(BASE_DIR, 'data')
 IS_VERCEL = bool(os.getenv("VERCEL") or os.getenv("VERCEL_ENV"))
+IS_RAILWAY = bool(os.getenv("RAILWAY_ENVIRONMENT") or os.getenv("RAILWAY_PROJECT_ID")
+                  or os.getenv("RAILWAY_GIT_COMMIT_SHA"))
+# The skip tracer is LOCAL-ONLY by design: it needs a residential IP (datacenter IPs
+# get blocked instantly) and on a server its process-group kill can't cleanly target
+# the child. Block "run" on ANY hosted deploy, not just Vercel.
+IS_HOSTED = IS_VERCEL or IS_RAILWAY
 STOREFRONT_ONLY = IS_VERCEL
 SQLITE_DB = os.getenv("SQLITE_DB", os.path.join(BASE_DIR, "foreclosure_local.sqlite3"))
 STOREFRONT_CSV = os.getenv("STOREFRONT_CSV", os.path.join(DATA_DIR, "storefront_listings.csv"))
@@ -1244,13 +1250,16 @@ def admin_skiptrace():
                 "links": _cyberbackgroundchecks_links(lead),
             })
     skiptrace_ctl = skiptrace_control()
+    st = ({"state": "idle", "running": False, "county": "", "hosted": True}
+          if IS_HOSTED else skiptrace_ctl.status())
     return render_template(
         'skiptrace.html',
         queue=queue,
         dev_mode=dev_mode,
         counties=_skiptrace_county_options(),
         is_vercel=IS_VERCEL,
-        st=skiptrace_ctl.status(),
+        is_hosted=IS_HOSTED,
+        st=st,
     )
 
 
@@ -1348,6 +1357,10 @@ def admin_skiptrace_control():
 def admin_skiptrace_status():
     if STOREFRONT_ONLY:
         return jsonify({"error": "not available"}), 403
+    if IS_HOSTED:
+        # The runner never legitimately runs on a server; ignore any stale status/PID
+        # file (e.g. a zombie from a mis-fired run) so the UI stays unlocked.
+        return jsonify({"state": "idle", "running": False, "county": "", "hosted": True})
     skiptrace_ctl = skiptrace_control()
     return jsonify(skiptrace_ctl.status())
 
@@ -1357,8 +1370,10 @@ def admin_skiptrace_status():
 def admin_skiptrace_start():
     if STOREFRONT_ONLY:
         return jsonify({"error": "not available"}), 403
-    if IS_VERCEL:
-        return jsonify({"ok": False, "message": "The runner only works on your local machine, not the server."}), 400
+    if IS_HOSTED:
+        return jsonify({"ok": False, "message": "The skip tracer only runs on your local machine "
+                        "(it needs a residential IP). Run it from the app on your computer, then it "
+                        "auto-pushes results here."}), 400
     skiptrace_ctl = skiptrace_control()
     try:
         limit = int(request.form.get("limit") or 0)
