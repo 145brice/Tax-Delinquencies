@@ -705,21 +705,26 @@ def _admin_token():
 
 
 def admin_allowed():
+    # Session writes require a secret key; without one Flask's NullSession
+    # raises on assignment, so token access still works but isn't remembered.
+    can_remember = bool(app.secret_key)
     token = _admin_token()
     if token:
-        if session.get("admin_allowed"):
+        if can_remember and session.get("admin_allowed"):
             return True
         supplied = request.args.get("token") or request.form.get("token")
         if supplied and supplied == token:
-            session["admin_allowed"] = True
-            session["skiptrace_admin"] = True
+            if can_remember:
+                session["admin_allowed"] = True
+                session["skiptrace_admin"] = True
             return True
     admin_email = (os.getenv("ADMIN_EMAIL", "") or "").strip().lower()
     user = current_user()
     if user and admin_email:
         allowed = {email.strip() for email in admin_email.split(",") if email.strip()}
         if user["email"].lower() in allowed:
-            session["admin_allowed"] = True
+            if can_remember:
+                session["admin_allowed"] = True
             return True
     return False
 
@@ -790,7 +795,8 @@ def login():
 
 @app.route('/logout', methods=['POST', 'GET'])
 def logout():
-    session.pop('user_id', None)
+    if app.secret_key:
+        session.pop('user_id', None)
     return redirect(url_for('index'))
 
 
