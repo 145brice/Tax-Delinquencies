@@ -188,6 +188,7 @@
         <div class="status-box">
             <div class="stat"><div class="k">Progress</div><div class="v" id="sProgress">0 / 0</div></div>
             <div class="stat"><div class="k">With phone</div><div class="v" id="sPhone">0</div></div>
+            <div class="stat"><div class="k">With email</div><div class="v" id="sEmail">0</div></div>
             <div class="stat"><div class="k">Written</div><div class="v" id="sWrote">0</div></div>
             <div class="stat"><div class="k">Current lead</div><div class="v" id="sCurrent" style="font-size:0.9rem;">&mdash;</div></div>
         </div>
@@ -343,6 +344,7 @@ function renderStatus(s) {
     const total = s.total || 0, i = s.i || 0;
     $('sProgress').textContent = i + ' / ' + total;
     $('sPhone').textContent    = s.with_phone || 0;
+    $('sEmail').textContent    = s.with_email || 0;
     $('sWrote').textContent    = s.wrote || 0;
     $('sCurrent').textContent  = s.current || '—';
     $('bar').style.width       = total ? Math.round(100 * i / total) + '%' : '0';

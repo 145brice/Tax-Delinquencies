@@ -241,13 +241,14 @@ def main(argv=None) -> int:
 
     status = {
         "state": "running", "county": (args.county or args.city or "queue"),
-        "total": len(todo), "i": 0, "processed": 0, "wrote": 0, "with_phone": 0,
+        "total": len(todo), "i": 0, "processed": 0, "wrote": 0, "with_phone": 0, "with_email": 0,
         "current": "", "pid": os.getpid(),
         "started_at": datetime.now().isoformat(timespec="seconds"), "updated_at": "",
     }
 
     def push_status():
         status["with_phone"] = sum(1 for r in rows if r["best_phone"])
+        status["with_email"] = sum(1 for r in rows if r.get("emails"))
         status["processed"] = processed
         status["wrote"] = wrote
         status["updated_at"] = datetime.now().isoformat(timespec="seconds")
