@@ -1298,13 +1298,22 @@ def create_checkout_session():
 
     payload = request.get_json(silent=True) or {}
     selected_ids = {str(lead_id) for lead_id in payload.get("lead_ids", [])}
+    selected_county = str(payload.get("selected_county") or "").strip().lower()
     if not selected_ids:
         return jsonify({"error": "Select at least one lead first."}), 400
+    if not selected_county:
+        return jsonify({"error": "Choose a county before checkout."}), 400
 
     listings = current_listings()
     selected = [item for item in listings if str(item.get("id")) in selected_ids]
     if not selected:
         return jsonify({"error": "Selected leads were not found."}), 400
+    mismatched = [
+        item for item in selected
+        if str(item.get("county") or "").strip().lower() != selected_county
+    ]
+    if mismatched:
+        return jsonify({"error": "Checkout is limited to one selected county at a time. Clear your selection and choose leads from that county only."}), 400
 
     total_cents = sum(_listing_price_cents(item) for item in selected)
     if total_cents <= 0:
@@ -1320,7 +1329,7 @@ def create_checkout_session():
                 "price_data": {
                     "currency": "usd",
                     "product_data": {
-                        "name": f"{len(selected)} foreclosure lead(s)",
+                        "name": f"{selected_county.title()} foreclosure lead(s)",
                     },
                     "unit_amount": total_cents,
                 },
@@ -1328,6 +1337,7 @@ def create_checkout_session():
             }],
             metadata={
                 "user_id": str(user["id"]),
+                "county": selected_county,
                 "lead_count": str(len(selected)),
                 "lead_ids": ",".join(str(item.get("id")) for item in selected)[:500],
             },

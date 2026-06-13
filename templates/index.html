@@ -598,13 +598,15 @@
     async function checkout() {
         const checked = [...document.querySelectorAll('.lead-cb:checked')];
         if (!checked.length) return alert('Select at least one lead first.');
+        const selected_county = document.getElementById('county-filter').value;
+        if (!selected_county) return alert('Choose a county before checkout.');
 
         const lead_ids = checked.map(cb => cb.dataset.id);
         try {
             const resp = await fetch('/api/create-checkout-session', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ lead_ids })
+                body: JSON.stringify({ lead_ids, selected_county })
             });
             const data = await resp.json();
             if (resp.status === 401 || data.login_required) {
