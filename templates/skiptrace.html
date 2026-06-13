@@ -115,9 +115,10 @@
     <p class="subtitle">Run the automated tracer by county, then review and save contact info for paid leads below.</p>
 
     {% if is_hosted %}
-    <div class="warn">You're viewing the <strong>hosted</strong> site. The skip tracer runs on your
-        <strong>local machine</strong> only (it needs a residential IP) &mdash; start runs from the app
-        on your computer and results auto-push here. The buttons below are disabled here.</div>
+    <div class="warn">You're on the <strong>hosted</strong> site. Runs here write straight to the live
+        store, so results show immediately. Heads-up: for big counties, running from your
+        <strong>local machine</strong> is more reliable &mdash; a server restart can interrupt a long run,
+        and results done here are wiped on the next code deploy unless a persistent volume is set up.</div>
     {% endif %}
 
     <!-- ── Run control ─────────────────────────────────────── -->
@@ -352,18 +353,16 @@ function renderStatus(s) {
     $('bar').style.width       = total ? Math.round(100 * i / total) + '%' : '0';
     $('blockedNote').style.display = (state === 'blocked') ? 'block' : 'none';
     const live = !!s.running;
-    // On the hosted site the runner can't run here -- keep all controls disabled.
-    $('btnRun').disabled   =  live || HOSTED;
-    $('btnAfter').disabled = !live || HOSTED;
-    $('btnAsap').disabled  = !live || HOSTED;
+    $('btnRun').disabled   =  live;
+    $('btnAfter').disabled = !live;
+    $('btnAsap').disabled  = !live;
 }
 
 async function pollStatus() {
     try { const r = await fetch('/admin/skiptrace/status'); renderStatus(await r.json()); } catch(e) {}
 }
-const HOSTED = {{ 'true' if is_hosted else 'false' }};
 renderStatus({{ st | tojson }});
-if (!HOSTED) setInterval(pollStatus, 3000);
+setInterval(pollStatus, 3000);
 
 /* ── Queue lookup buttons ── */
 document.querySelectorAll('.run-lookup').forEach(btn => {

@@ -140,12 +140,16 @@ _TRACE_FIELDS = (
 )
 
 def save_listings(rows) -> None:
-    """Patch listings.json on disk with traced fields from the given rows.
-    We write directly to the file rather than going through app.save_json/SQLite
-    because: (1) SQLite may hold a different scrape run with different IDs, causing
-    ID-based patching to miss leads; (2) passing a large dataset to save_json when
-    SQLite is enabled would replace all SQLite listings (wiping other counties' traces).
-    The caller already loaded rows from LISTINGS_PATH, so IDs are guaranteed to match."""
+    """Persist traced results to both stores.
+      * SQLite (when enabled) -- the live store reads this, so traces show immediately
+        (this is what makes a Railway run visible in the storefront). `rows` is the FULL
+        dataset loaded from listings.json, so writing it wholesale drops nothing.
+      * on-disk listings.json -- the git source of truth that re-seeds SQLite on each
+        deploy; patched (not overwritten) so a push persists traces across redeploys.
+    The caller loaded rows from LISTINGS_PATH, so IDs match what's on disk."""
+    import app
+    if app._sqlite_enabled():
+        app.save_json(app.DATA_FILE, rows)
     traced = {
         str(r.get("id")): r for r in rows
         if r.get("id") and (r.get("primary_phone") or r.get("email_1"))
