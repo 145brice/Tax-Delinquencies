@@ -858,14 +858,15 @@ def account_lead_update():
     status = re.sub(r"\s+", " ", request.form.get("buyer_status") or "").strip()[:40]
     priority = re.sub(r"\s+", " ", request.form.get("buyer_priority") or "").strip()[:20]
     notes = (request.form.get("buyer_notes") or "").strip()[:1000]
+    anchor = re.sub(r"[^A-Za-z0-9_\-]", "", request.form.get("anchor") or "")
     if not order_id or not lead_id:
-        return redirect(url_for("account"))
+        return redirect(url_for("account") + "?failed=1")
     if not folder:
         folder = "New Leads"
     if not status:
         status = "New"
     try:
-        db.update_order_lead_tracking(order_id, user["id"], lead_id, {
+        ok = db.update_order_lead_tracking(order_id, user["id"], lead_id, {
             "buyer_folder": folder,
             "buyer_status": status,
             "buyer_priority": priority or "Normal",
@@ -873,8 +874,11 @@ def account_lead_update():
             "buyer_updated_at": datetime.now().isoformat(timespec="seconds"),
         })
     except Exception:
-        pass
-    return redirect(url_for("account"))
+        ok = False
+    if not ok:
+        return redirect(url_for("account") + "?failed=1")
+    suffix = f"#{anchor}" if anchor else ""
+    return redirect(url_for("account") + "?saved=1" + suffix)
 
 
 def _default_buyer_folder(lead):

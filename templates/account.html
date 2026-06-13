@@ -30,6 +30,7 @@
         .empty a { color: #3b82f6; text-decoration: none; }
 
         .order { background: #16181f; border: 1px solid #2a2d3a; border-radius: 10px; margin-bottom: 22px; overflow: hidden; }
+        .table-scroll { overflow-x: auto; }
         .order-head {
             display: flex; justify-content: space-between; align-items: center;
             padding: 14px 18px; background: #1a1d27; border-bottom: 1px solid #2a2d3a;
@@ -65,6 +66,29 @@
             padding: 8px 12px; font-weight: 700; cursor: pointer;
         }
         .save-btn:hover { background: #1d4ed8; }
+
+        .lead-toolbar {
+            display: flex; gap: 10px; flex-wrap: wrap; align-items: center;
+            background: #16181f; border: 1px solid #2a2d3a; border-radius: 10px;
+            padding: 12px 14px; margin-bottom: 18px;
+        }
+        .lead-toolbar label { color: #6b7280; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em; }
+        .lead-toolbar select {
+            background: #0f1117; color: #e0e0e0; border: 1px solid #2a2d3a;
+            border-radius: 6px; padding: 7px 10px; font: inherit;
+        }
+        .lead-toolbar select:focus { outline: none; border-color: #3b82f6; }
+        .toolbar-count { color: #9ca3af; font-size: 0.82rem; margin-left: auto; }
+        .toolbar-count strong { color: #fff; }
+
+        .toast {
+            position: fixed; bottom: 24px; right: 24px; z-index: 200;
+            background: #14532d; border: 1px solid #22c55e; color: #86efac;
+            border-radius: 10px; padding: 12px 20px; font-size: 0.88rem; font-weight: 600;
+            box-shadow: 0 4px 24px #0008;
+        }
+        .toast.error { background: #7f1d1d; border-color: #dc2626; color: #fca5a5; }
+        tr.row-saved td { background: #14321f !important; transition: background 1.5s; }
     </style>
 </head>
 <body>
@@ -104,6 +128,31 @@
             <option value="{{ folder }}"></option>
             {% endfor %}
         </datalist>
+        <div class="lead-toolbar">
+            <label>Folder</label>
+            <select id="filter-folder" onchange="applyLeadView()">
+                <option value="">All folders</option>
+                {% for folder in folders %}
+                <option value="{{ folder }}">{{ folder }}</option>
+                {% endfor %}
+            </select>
+            <label>Status</label>
+            <select id="filter-status" onchange="applyLeadView()">
+                <option value="">All statuses</option>
+                {% for status in statuses %}
+                <option value="{{ status }}">{{ status }}</option>
+                {% endfor %}
+            </select>
+            <label>Sort</label>
+            <select id="sort-leads" onchange="applyLeadView()">
+                <option value="">Purchase order</option>
+                <option value="folder">Folder A&ndash;Z</option>
+                <option value="priority">Priority (Hot first)</option>
+                <option value="status">Status</option>
+                <option value="county">County A&ndash;Z</option>
+            </select>
+            <span class="toolbar-count">Showing <strong id="visible-count">0</strong> lead(s)</span>
+        </div>
         {% for order in orders %}
         <div class="order">
             <div class="order-head">
@@ -113,6 +162,7 @@
                 </div>
                 <div class="amount">${{ '%.2f'|format(order.amount_cents / 100) }}</div>
             </div>
+            <div class="table-scroll">
             <table>
                 <thead>
                     <tr>
@@ -124,7 +174,11 @@
                 <tbody>
                     {% for lead in order.leads_json %}
                     {% set form_id = 'lead-form-' ~ order.id ~ '-' ~ loop.index %}
-                    <tr>
+                    <tr id="{{ form_id }}-row" class="lead-row"
+                        data-folder="{{ (lead.buyer_folder or 'New Leads')|lower }}"
+                        data-status="{{ (lead.buyer_status or 'New')|lower }}"
+                        data-priority="{{ (lead.buyer_priority or 'Normal')|lower }}"
+                        data-county="{{ (lead.county or '')|lower }}">
                         <td><span class="type-badge">{{ lead.status or lead.record_type or 'Lead' }}</span></td>
                         <td>{{ (lead.county or '')|title }}</td>
                         <td>{{ lead.state or '' }}</td>
@@ -134,6 +188,7 @@
                             <form id="{{ form_id }}" method="POST" action="{{ url_for('account_lead_update') }}">
                                 <input type="hidden" name="order_id" value="{{ order.id }}">
                                 <input type="hidden" name="lead_id" value="{{ lead.id }}">
+                                <input type="hidden" name="anchor" value="{{ form_id }}-row">
                             </form>
                             <input form="{{ form_id }}" class="field" name="buyer_folder" list="folder-options" value="{{ lead.buyer_folder or 'New Leads' }}">
                         </td>
@@ -176,9 +231,88 @@
                     {% endfor %}
                 </tbody>
             </table>
+            </div>
         </div>
         {% endfor %}
     {% endif %}
 </div>
+
+<script>
+var PRIORITY_RANK = {hot: 0, warm: 1, normal: 2, cold: 3};
+var STATUS_RANK = {};
+{% if statuses %}
+{% for status in statuses %}STATUS_RANK['{{ status|lower }}'] = {{ loop.index0 }};
+{% endfor %}
+{% endif %}
+
+function applyLeadView() {
+    var folder = (document.getElementById('filter-folder').value || '').toLowerCase();
+    var status = (document.getElementById('filter-status').value || '').toLowerCase();
+    var sortBy = document.getElementById('sort-leads').value;
+    var visible = 0;
+
+    document.querySelectorAll('.order').forEach(function(orderEl) {
+        var tbody = orderEl.querySelector('tbody');
+        if (!tbody) return;
+        var rows = Array.prototype.slice.call(tbody.querySelectorAll('tr.lead-row'));
+
+        if (sortBy) {
+            rows.sort(function(a, b) {
+                if (sortBy === 'priority') {
+                    var pa = PRIORITY_RANK[a.dataset.priority]; if (pa === undefined) pa = 9;
+                    var pb = PRIORITY_RANK[b.dataset.priority]; if (pb === undefined) pb = 9;
+                    return pa - pb;
+                }
+                if (sortBy === 'status') {
+                    var sa = STATUS_RANK[a.dataset.status]; if (sa === undefined) sa = 99;
+                    var sb = STATUS_RANK[b.dataset.status]; if (sb === undefined) sb = 99;
+                    return sa - sb;
+                }
+                return (a.dataset[sortBy] || '').localeCompare(b.dataset[sortBy] || '');
+            });
+            rows.forEach(function(r) { tbody.appendChild(r); });
+        }
+
+        var anyShown = false;
+        rows.forEach(function(row) {
+            var show = (!folder || row.dataset.folder === folder)
+                    && (!status || row.dataset.status === status);
+            row.style.display = show ? '' : 'none';
+            if (show) { visible++; anyShown = true; }
+        });
+        orderEl.style.display = anyShown ? '' : 'none';
+    });
+
+    var counter = document.getElementById('visible-count');
+    if (counter) counter.textContent = visible;
+}
+
+function showToast(msg, isError) {
+    var t = document.createElement('div');
+    t.className = 'toast' + (isError ? ' error' : '');
+    t.textContent = msg;
+    document.body.appendChild(t);
+    setTimeout(function() { t.remove(); }, 3500);
+}
+
+(function init() {
+    if (document.getElementById('filter-folder')) applyLeadView();
+    var params = new URLSearchParams(window.location.search);
+    if (params.get('saved')) {
+        showToast('Lead saved.');
+        var anchor = window.location.hash.slice(1);
+        var row = anchor && document.getElementById(anchor);
+        if (row) {
+            row.scrollIntoView({block: 'center'});
+            row.classList.add('row-saved');
+            setTimeout(function() { row.classList.remove('row-saved'); }, 1600);
+        }
+        history.replaceState(null, '', window.location.pathname + window.location.hash);
+    } else if (params.get('failed')) {
+        showToast('Save failed — try again.', true);
+        history.replaceState(null, '', window.location.pathname);
+    }
+})();
+</script>
 </body>
 </html>
