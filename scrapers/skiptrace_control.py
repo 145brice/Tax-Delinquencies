@@ -56,7 +56,9 @@ def _pid_alive(pid: int) -> bool:
         try:
             out = subprocess.run(["tasklist", "/FI", f"PID eq {pid}", "/NH"],
                                  capture_output=True, text=True, timeout=10)
-            return str(pid) in out.stdout
+            # Require "python" in the output so a stale PID that was recycled by
+            # an unrelated process (e.g. powershell) doesn't look like a live run.
+            return str(pid) in out.stdout and "python" in out.stdout.lower()
         except Exception:
             return False
     try:
