@@ -463,6 +463,12 @@ def _storefront_display_row(item):
     else:
         public_item["phone_prefix"] = ""
         public_item["phone_display"] = ""
+    email = str(public_item.get("email_1") or "").strip()
+    if email and "@" in email:
+        domain = email.split("@", 1)[1]
+        public_item["email_display"] = f"★★★@{domain}"
+    else:
+        public_item["email_display"] = ""
     for private_field in ("primary_phone", "phone_2", "email_1", "email_2",
                           "mailing_address", "skiptrace_notes", "skiptrace_source",
                           "skiptraced_at"):
@@ -1710,6 +1716,7 @@ CSV_LABELS = {
     "amount_owed": "Amount Owed", "sale_date": "Sale / Record Date",
     "case_number": "Case #", "source_url": "Source", "scraped_date": "Scraped Date",
     "notes": "Notes", "sale_date_iso": "Sale Date (sortable)",
+    "primary_phone": "Phone", "email_1": "Email",
 }
 
 def _list_csv_files():
@@ -1902,7 +1909,14 @@ def admin_data():
     if filter_q:
         rows = [r for r in rows if any(filter_q in str(v).lower() for v in r.values())]
 
-    display_fields = list(CSV_FIELDNAMES) + ["sale_date_iso"]
+    # Enrich CSV rows with skip-trace phone/email from current_listings (by lead id)
+    listings_lookup = {str(r.get("id")): r for r in current_listings() if r.get("id")}
+    for r in rows:
+        live = listings_lookup.get(str(r.get("id") or "")) or {}
+        r["primary_phone"] = live.get("primary_phone") or ""
+        r["email_1"] = live.get("email_1") or ""
+
+    display_fields = list(CSV_FIELDNAMES) + ["primary_phone", "email_1", "sale_date_iso"]
     if sort_col in display_fields:
         rows = sorted(rows, key=lambda r: _csv_sort_value(r, sort_col), reverse=(sort_dir == 'desc'))
 

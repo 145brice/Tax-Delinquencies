@@ -331,6 +331,7 @@
             <th data-sort="address">Address (masked)</th>
             <th data-sort="owner">Owner</th>
             <th data-sort="phone" title="Area code shown; full number revealed after purchase">Phone</th>
+            <th title="Domain shown; full address revealed after purchase">Email</th>
             <th data-sort="parcel_id">Parcel/APN</th>
             <th data-sort="case_number">Case#</th>
             <th data-sort="amount" data-type="money">Amount / Value</th>
@@ -377,6 +378,7 @@
             <td title="Full address revealed after purchase">{{ item.display_address }}</td>
             <td>{{ item.owner or '-' }}</td>
             <td title="Full number revealed after purchase">{{ item.phone_display or '-' }}</td>
+            <td title="Full address revealed after purchase">{{ item.email_display or '-' }}</td>
             <td>{{ item.parcel_id or '-' }}</td>
             <td>{{ item.case_number or '-' }}</td>
             <td>{{ item.amount_owed or ('$' ~ "{:,}".format(item.bid|int) if item.bid else '-') }}</td>
