@@ -781,6 +781,9 @@ def healthz():
 
 @app.route('/version')
 def version():
+    volume = os.getenv("RAILWAY_VOLUME_MOUNT_PATH", "")
+    # The DB is "persistent" only if it physically lives under the mounted volume.
+    persistent = bool(volume and os.path.abspath(SQLITE_DB).startswith(os.path.abspath(volume)))
     return jsonify({
         "build": APP_BUILD,
         "storefront_only": STOREFRONT_ONLY,
@@ -788,6 +791,9 @@ def version():
         "owner_admin_configured": bool(OWNER_ADMIN_EMAILS),
         "railway_commit": os.getenv("RAILWAY_GIT_COMMIT_SHA", ""),
         "railway_branch": os.getenv("RAILWAY_GIT_BRANCH", ""),
+        "volume_mount": volume,
+        "sqlite_db": SQLITE_DB,
+        "db_persistent": persistent,
     })
 
 
