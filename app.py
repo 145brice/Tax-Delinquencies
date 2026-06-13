@@ -349,6 +349,31 @@ def _storefront_owner(item):
         return "Seller not listed"
     return ""
 
+
+def _mask_public_owner(owner):
+    owner = re.sub(r"\s+", " ", str(owner or "")).strip(" ,")
+    if not owner:
+        return ""
+    generic = owner.lower()
+    if generic.startswith(("owner not listed", "seller not listed")) or generic in {"hud"}:
+        return owner
+    if re.search(r"\b(llc|inc|corp|corporation|company|co\.|trust|estate|heirs|association|bank|fund|group|partners|holdings|properties|investments|mortgage|fannie|freddie|hud)\b", generic):
+        return "Entity owner"
+    if re.search(r"\bet\s+al\b|&|/|\band\b", generic):
+        return "Multiple owners"
+
+    cleaned = re.sub(r"\b(etux|et ux|aka|trustee)\b", "", owner, flags=re.I)
+    cleaned = re.sub(r"\s+", " ", cleaned).strip(" ,")
+    if "," in cleaned:
+        parts = [part.strip() for part in cleaned.split(",", 1)]
+        first = parts[1].split()[0] if len(parts) > 1 and parts[1] else ""
+    else:
+        first = cleaned.split()[0] if cleaned.split() else ""
+    if not first:
+        return "Owner masked"
+    return f"{first.title()} ****"
+
+
 def _source_listing_id(item):
     link = str(item.get("link") or "").strip().rstrip("/")
     if not link:
@@ -362,7 +387,7 @@ def _storefront_display_row(item):
     source = str(public_item.get("source") or "").lower()
     source_id = _source_listing_id(public_item)
 
-    public_item["owner"] = _storefront_owner(public_item)
+    public_item["owner"] = _mask_public_owner(_storefront_owner(public_item))
     public_item["scraped_date"] = public_item.get("scraped_date") or public_item.get("date")
 
     if not public_item.get("amount_owed"):
