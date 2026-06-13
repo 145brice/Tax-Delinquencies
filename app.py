@@ -1304,9 +1304,17 @@ def admin_skiptrace_update():
 
 def _skiptrace_county_options():
     """Every county in listings.json, with how many leads have owner names (traceable)
-    vs total. Counties with no owner names are returned too (UI greys them out)."""
+    vs total. Counties with no owner names are returned too (UI greys them out).
+    Reads the flat file directly (bypasses SQLite) so the full dataset is visible —
+    SQLite only holds a subset of rows when data has been pushed via git."""
+    try:
+        _json_path = _runtime_data_file("listings.json")
+        with open(_json_path, "r", encoding="utf-8-sig") as _f:
+            _all_items = json.load(_f)
+    except Exception:
+        _all_items = current_listings()
     counts = {}
-    for item in current_listings():
+    for item in _all_items:
         county = str(item.get("county") or "").strip()
         if not county:
             continue
