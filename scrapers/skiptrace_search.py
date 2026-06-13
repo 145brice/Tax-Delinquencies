@@ -70,6 +70,11 @@ _QUERY_TEMPLATES = [
     '{n} {c} {s} phone number',
     '"{n}" {c}, {s} cell phone',
 ]
+_EMAIL_QUERY_TEMPLATES = [
+    '"{n}" {c} {s} email address',
+    '"{n}" {c}, {s} email',
+    '{n} {c} {s} email contact',
+]
 
 _PHONE_RE = re.compile(r"\(?\b\d{3}\)?[-.\s]\d{3}[-.\s]\d{4}\b")
 _EMAIL_RE = re.compile(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}")
@@ -393,9 +398,22 @@ class DDGSession:
                           "pause a bit or slow the pace, then resume.")
 
         ranked, emails = _extract_blocks(blocks, name, addr, state)
+
+        # Dedicated email pass: phone queries rarely surface email fields in snippets.
+        # Only run when the main search came back with no email, and only if DDG is
+        # still responding (blocks non-empty means we're not rate-limited).
+        email_query = ""
+        if not emails and blocks and not self._challenged:
+            time.sleep(random.uniform(DDG_MIN_GAP * 0.5, DDG_MIN_GAP))
+            email_query = random.choice(_EMAIL_QUERY_TEMPLATES).format(
+                n=_query_name(name), c=city, s=state)
+            email_blocks = self._search(email_query)
+            if not self._challenged and email_blocks:
+                _, emails = _extract_blocks(email_blocks, name, addr, state)
+
         result = {
             "name": name,
-            "query": query,
+            "query": query + (f" | {email_query}" if email_query else ""),
             "phones": [r["phone"] for r in ranked],
             "phone_details": ranked[:6],
             "emails": emails[:4],
@@ -674,6 +692,16 @@ class GoogleSession:
             if ranked:
                 used_q = q
                 break
+
+        # Dedicated email pass when the phone search found nothing
+        if not emails and not self._is_challenge():
+            _hp(GOOGLE_MIN_GAP * 0.5, GOOGLE_MIN_GAP)
+            eq = random.choice(_EMAIL_QUERY_TEMPLATES).format(n=_query_name(name), c=city, s=state)
+            email_blocks = self._search(eq)
+            if email_blocks:
+                _, emails = _extract_blocks(email_blocks, name, addr, state)
+                if emails:
+                    used_q = used_q + f" | {eq}"
 
         result = {"name": name, "query": used_q, "phones": [r["phone"] for r in ranked],
                   "phone_details": ranked[:6], "emails": emails[:4], "cached": False}
