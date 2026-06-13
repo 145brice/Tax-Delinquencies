@@ -402,9 +402,11 @@ class DDGSession:
         # Dedicated email pass: phone queries rarely surface email fields in snippets.
         # Only run when the main search came back with no email, and only if DDG is
         # still responding (blocks non-empty means we're not rate-limited).
+        # Use the full gap — the email request is still a DDG request and counts toward
+        # rate-limit; a half-gap here is what caused early BLOCKED status.
         email_query = ""
         if not emails and blocks and not self._challenged:
-            time.sleep(random.uniform(DDG_MIN_GAP * 0.5, DDG_MIN_GAP))
+            time.sleep(random.uniform(DDG_MIN_GAP, DDG_MAX_GAP))
             email_query = random.choice(_EMAIL_QUERY_TEMPLATES).format(
                 n=_query_name(name), c=city, s=state)
             email_blocks = self._search(email_query)
@@ -695,7 +697,7 @@ class GoogleSession:
 
         # Dedicated email pass when the phone search found nothing
         if not emails and not self._is_challenge():
-            _hp(GOOGLE_MIN_GAP * 0.5, GOOGLE_MIN_GAP)
+            _hp(GOOGLE_MIN_GAP, GOOGLE_MAX_GAP)
             eq = random.choice(_EMAIL_QUERY_TEMPLATES).format(n=_query_name(name), c=city, s=state)
             email_blocks = self._search(eq)
             if email_blocks:

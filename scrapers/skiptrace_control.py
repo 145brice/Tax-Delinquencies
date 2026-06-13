@@ -28,10 +28,12 @@ LOG = DATA / "skiptrace_control.log"
 
 # Pace presets: (gap_min, gap_max) seconds between DuckDuckGo searches. Slower =
 # lower chance of tripping DDG's burst rate-limit. None faster than the safe default.
+# Note: the email pass adds one extra request per lead when no email is found from
+# the phone search, so DDG sees up to 2x the request frequency at the same pace.
 PACE_PRESETS = {
-    "normal": (4, 9),
-    "slower": (10, 20),
-    "safest": (20, 40),
+    "normal": (8, 15),    # raised from 4-9 -- DDG blocks reliably below ~8s
+    "slower": (15, 30),
+    "safest": (30, 60),
 }
 # Break presets: (break_every_leads, break_min_s, break_max_s).
 BREAK_PRESETS = {
