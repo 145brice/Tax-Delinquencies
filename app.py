@@ -667,6 +667,44 @@ def _save_subs(subs):
         save_json(SUBS_FILE, subs)
 
 
+# --- Per-user preferences (storefront column order, etc.) --------------------
+# Stored in the SQLite app_json table under "prefs:<user_id>", so they live on
+# the Railway volume and roam across the user's devices. Falls back to a flat
+# file off SQLite. See [[railway-ephemeral-sqlite]].
+PREFS_FILE = _runtime_data_file('user_prefs.json')
+
+# Canonical storefront column keys. Saved column orders are validated against
+# this set so a stale/bad client payload can't inject unknown columns.
+STOREFRONT_COLUMN_KEYS = [
+    "select", "type", "amount", "price", "sale_date", "scraped", "county",
+    "state", "city", "zip", "address", "owner", "phone", "email",
+    "parcel", "case", "src",
+]
+
+
+def _all_prefs():
+    if _sqlite_enabled():
+        return _sqlite_get("user_prefs", {}) or {}
+    return load_json(PREFS_FILE, {}) or {}
+
+
+def _save_all_prefs(prefs):
+    if _sqlite_enabled():
+        _sqlite_set("user_prefs", prefs)
+    else:
+        save_json(PREFS_FILE, prefs)
+
+
+def _get_user_pref(user_id, key, default=None):
+    return _all_prefs().get(str(user_id), {}).get(key, default)
+
+
+def _set_user_pref(user_id, key, value):
+    prefs = _all_prefs()
+    prefs.setdefault(str(user_id), {})[key] = value
+    _save_all_prefs(prefs)
+
+
 def _active_subs(subs=None):
     subs = _load_subs() if subs is None else subs
     return [s for s in subs if s.get("status") == "active"]
@@ -959,9 +997,16 @@ def index():
             str(item.get("county") or "").strip().lower() in sub_counties
         )
         display_listings.append(masked_item)
+    column_order = None
+    if user:
+        saved = _get_user_pref(user["id"], "column_order", None)
+        if isinstance(saved, list):
+            column_order = [c for c in saved if c in STOREFRONT_COLUMN_KEYS]
     return render_template('index.html', listings=display_listings,
                            storefront_only=STOREFRONT_ONLY,
-                           sub_counties=list(sub_counties))
+                           sub_counties=list(sub_counties),
+                           column_order=column_order,
+                           user_authed=bool(user))
 
 @app.route('/admin')
 def admin():
@@ -2252,6 +2297,26 @@ def subscriber_change_tier():
         "amount": TIER_AMOUNTS[new_tier],
         "included": TIER_INCLUDED[new_tier],
     })
+
+
+@app.route('/api/prefs/columns', methods=['POST'])
+@login_required
+def save_column_prefs():
+    """Persist the user's storefront column order (account-level, roams across
+    devices). Validated against STOREFRONT_COLUMN_KEYS."""
+    user = current_user()
+    payload = request.get_json(silent=True) or {}
+    order = payload.get("order")
+    if not isinstance(order, list):
+        return jsonify({"error": "order must be a list"}), 400
+    # Keep only known keys, drop dupes, preserve client order.
+    seen, clean = set(), []
+    for c in order:
+        if isinstance(c, str) and c in STOREFRONT_COLUMN_KEYS and c not in seen:
+            seen.add(c)
+            clean.append(c)
+    _set_user_pref(user["id"], "column_order", clean)
+    return jsonify({"ok": True})
 
 
 @app.route('/subscribe', methods=['POST'])

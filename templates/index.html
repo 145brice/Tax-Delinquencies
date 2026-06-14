@@ -190,6 +190,10 @@
         }
         .price-tag { color: #22c55e; font-weight: 700; }
         .src-link { color: #60a5fa; text-decoration: none; font-size: 0.75rem; }
+        th[draggable="true"] { cursor: grab; }
+        th[draggable="true"]:active { cursor: grabbing; }
+        th.col-drag-over { box-shadow: inset 3px 0 0 #3b82f6; }
+        th.col-dragging { opacity: 0.45; }
         .btn-reveal {
             background: #1e3a5f; color: #93c5fd; border: 1px solid #2563eb;
             border-radius: 5px; padding: 3px 10px; font-size: 0.72rem; font-weight: 700;
@@ -305,6 +309,7 @@
         <option value="">All states</option>
     </select>
     <button class="btn-clear" onclick="clearFilters()">Clear</button>
+    <button class="btn-clear" id="reset-cols-btn" onclick="resetColumns()" title="Restore the default column order" style="display:none;">Reset columns</button>
     <div style="margin-left:auto; display:flex; gap:10px; align-items:center;">
         <label style="display:flex; align-items:center; gap:6px; font-size:13px;">Per page
             <select id="page-size" onchange="changePageSize()">
@@ -331,23 +336,23 @@
 <table class="leads" id="leads-table">
     <thead>
         <tr>
-            <th class="col-cb"><input type="checkbox" id="select-all" onclick="toggleAll(this)"></th>
-            <th data-sort="status">Type</th>
-            <th data-sort="amount" data-type="money">Amount / Value</th>
-            <th data-sort="price" data-type="money">Price</th>
-            <th data-sort="sale_date" data-type="date">Sale / Record Date</th>
-            <th data-sort="scraped_date" data-type="date">Scraped</th>
-            <th data-sort="county">County</th>
-            <th data-sort="state">State</th>
-            <th data-sort="city">City</th>
-            <th data-sort="zip">ZIP</th>
-            <th data-sort="address">Address (masked)</th>
-            <th data-sort="owner">Owner</th>
-            <th data-sort="phone" title="Area code shown; full number revealed after purchase">Phone</th>
-            <th title="Domain shown; full address revealed after purchase">Email</th>
-            <th data-sort="parcel_id">Parcel/APN</th>
-            <th data-sort="case_number">Case#</th>
-            <th>Src</th>
+            <th class="col-cb" data-col="select"><input type="checkbox" id="select-all" onclick="toggleAll(this)"></th>
+            <th data-col="type" data-sort="status">Type</th>
+            <th data-col="amount" data-sort="amount" data-type="money">Amount / Value</th>
+            <th data-col="price" data-sort="price" data-type="money">Price</th>
+            <th data-col="sale_date" data-sort="sale_date" data-type="date">Sale / Record Date</th>
+            <th data-col="scraped" data-sort="scraped_date" data-type="date">Scraped</th>
+            <th data-col="county" data-sort="county">County</th>
+            <th data-col="state" data-sort="state">State</th>
+            <th data-col="city" data-sort="city">City</th>
+            <th data-col="zip" data-sort="zip">ZIP</th>
+            <th data-col="address" data-sort="address">Address (masked)</th>
+            <th data-col="owner" data-sort="owner">Owner</th>
+            <th data-col="phone" data-sort="phone" title="Area code shown; full number revealed after purchase">Phone</th>
+            <th data-col="email" title="Domain shown; full address revealed after purchase">Email</th>
+            <th data-col="parcel" data-sort="parcel_id">Parcel/APN</th>
+            <th data-col="case" data-sort="case_number">Case#</th>
+            <th data-col="src">Src</th>
         </tr>
     </thead>
     <tbody id="leads-body">
@@ -442,6 +447,8 @@
 
 <script>
     const CSRF_TOKEN = document.querySelector('meta[name="csrf-token"]').content;
+    const SAVED_COL_ORDER = {{ column_order|tojson }};
+    const USER_AUTHED = {{ 'true' if user_authed else 'false' }};
     const allRows = [...document.querySelectorAll('#leads-body tr')];
     const totalCount = allRows.length;
 
@@ -574,6 +581,97 @@
             renderPage();
         });
     });
+
+    // Column reordering (drag headers; saved per account for logged-in users)
+    (function columnReorder() {
+        const table = document.getElementById('leads-table');
+        if (!table || !table.tHead) return;
+        const headRow = table.tHead.rows[0];
+        const PINNED = 'select'; // checkbox column stays at the far left
+        const defaultOrder = [...headRow.cells].map(th => th.dataset.col);
+
+        // Tag every body cell with its column key by position (before any reorder).
+        [...table.tBodies[0].rows].forEach(row => {
+            [...row.cells].forEach((cell, i) => {
+                if (!cell.dataset.col) cell.dataset.col = defaultOrder[i];
+            });
+        });
+
+        function currentOrder() {
+            return [...headRow.cells].map(th => th.dataset.col);
+        }
+
+        function reorder(rowEl, order) {
+            order.forEach(col => {
+                const cell = rowEl.querySelector(':scope > [data-col="' + col + '"]');
+                if (cell) rowEl.appendChild(cell);
+            });
+        }
+
+        function applyOrder(order) {
+            // Normalize: pinned first, keep only known cols, append any missing.
+            let ord = order.filter(c => defaultOrder.includes(c) && c !== PINNED);
+            ord = [PINNED, ...ord];
+            defaultOrder.forEach(c => { if (!ord.includes(c)) ord.push(c); });
+            reorder(headRow, ord);
+            [...table.tBodies[0].rows].forEach(r => reorder(r, ord));
+            const btn = document.getElementById('reset-cols-btn');
+            if (btn) btn.style.display =
+                (ord.join(',') === defaultOrder.join(',')) ? 'none' : '';
+        }
+
+        async function saveOrder(order) {
+            if (USER_AUTHED) {
+                try {
+                    await fetch('/api/prefs/columns', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': CSRF_TOKEN },
+                        body: JSON.stringify({ order })
+                    });
+                } catch (e) { /* non-blocking: layout still applies this session */ }
+            }
+        }
+
+        let draggedCol = null;
+        [...headRow.cells].forEach(th => {
+            if (th.dataset.col === PINNED) return;
+            th.draggable = true;
+            th.addEventListener('dragstart', e => {
+                draggedCol = th.dataset.col;
+                th.classList.add('col-dragging');
+                e.dataTransfer.effectAllowed = 'move';
+            });
+            th.addEventListener('dragend', () => {
+                th.classList.remove('col-dragging');
+                [...headRow.cells].forEach(t => t.classList.remove('col-drag-over'));
+            });
+            th.addEventListener('dragover', e => {
+                e.preventDefault();
+                if (th.dataset.col !== draggedCol) th.classList.add('col-drag-over');
+            });
+            th.addEventListener('dragleave', () => th.classList.remove('col-drag-over'));
+            th.addEventListener('drop', e => {
+                e.preventDefault();
+                th.classList.remove('col-drag-over');
+                const target = th.dataset.col;
+                if (!draggedCol || draggedCol === target || target === PINNED) return;
+                let order = currentOrder().filter(c => c !== draggedCol);
+                order.splice(order.indexOf(target), 0, draggedCol);
+                applyOrder(order);
+                saveOrder(order);
+                draggedCol = null;
+            });
+        });
+
+        window.resetColumns = function () {
+            applyOrder(defaultOrder.slice());
+            saveOrder(defaultOrder.slice());
+        };
+
+        if (Array.isArray(SAVED_COL_ORDER) && SAVED_COL_ORDER.length) {
+            applyOrder(SAVED_COL_ORDER);
+        }
+    })();
 
     // Filtering
     function applyFilters() {
