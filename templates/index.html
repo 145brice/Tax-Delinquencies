@@ -78,7 +78,7 @@
             display: flex; gap: 12px; flex-wrap: nowrap; align-items: center;
         }
         .toolbar-left {
-            display: flex; gap: 12px; flex-wrap: wrap; align-items: center;
+            display: flex; gap: 12px; flex-wrap: nowrap; align-items: center;
             flex: 1 1 auto; min-width: 0;
         }
         .toolbar-right {
@@ -86,7 +86,7 @@
             flex: 0 0 auto; margin-left: auto;
         }
         @media (max-width: 1100px) {
-            .toolbar { flex-wrap: wrap; }
+            .toolbar, .toolbar-left { flex-wrap: wrap; }
         }
         .toolbar input[type=text], .toolbar select {
             background: #1e2130;
@@ -98,7 +98,8 @@
             outline: none;
         }
         .toolbar input[type=text]:focus, .toolbar select:focus { border-color: #3b82f6; }
-        .toolbar input[type=text] { width: 280px; }
+        .toolbar input[type=text] { width: 280px; flex: 1 1 140px; min-width: 120px; }
+        .toolbar-left select, .toolbar-left .btn-clear { flex: 0 0 auto; }
         .stat-pill {
             background: #1e2130;
             border: 1px solid #2a2d3a;
