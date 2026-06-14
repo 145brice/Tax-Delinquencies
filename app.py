@@ -884,12 +884,22 @@ def _listing_price_cents(item):
 @app.route('/')
 def index():
     listings = publishable_storefront_listings(current_listings())
+    user = current_user()
+    sub_counties = set()
+    if user:
+        sub_counties = {str(s.get("county") or "").strip().lower()
+                        for s in _user_subs(user["id"])}
     display_listings = []
     for item in listings:
         masked_item = _storefront_display_row(item)
         masked_item['display_address'] = masked_item.get("address") or obfuscate_address(item.get('address', ''))
+        masked_item['subscriber_county'] = (
+            str(item.get("county") or "").strip().lower() in sub_counties
+        )
         display_listings.append(masked_item)
-    return render_template('index.html', listings=display_listings, storefront_only=STOREFRONT_ONLY)
+    return render_template('index.html', listings=display_listings,
+                           storefront_only=STOREFRONT_ONLY,
+                           sub_counties=list(sub_counties))
 
 @app.route('/admin')
 def admin():
@@ -1995,6 +2005,51 @@ def record_trace_use(user_id, county) -> dict:
         except Exception:
             pass  # never block a reveal on billing; reconcile later
     return {"included": True, "used": used, "overage": overage}
+
+
+@app.route('/api/subscriber/reveal', methods=['POST'])
+@login_required
+def subscriber_reveal():
+    """Return real contact data for one lead to an active county subscriber.
+    Counts against their monthly allotment; triggers overage charge if exceeded."""
+    user = current_user()
+    payload = request.get_json(silent=True) or {}
+    lead_id = str(payload.get("lead_id") or "").strip()
+    if not lead_id:
+        return jsonify({"error": "lead_id required"}), 400
+
+    listings = current_listings()
+    lead = next((r for r in listings if str(r.get("id")) == lead_id), None)
+    if not lead:
+        return jsonify({"error": "Lead not found"}), 404
+
+    county = str(lead.get("county") or "").strip().lower()
+    user_subs = _user_subs(user["id"])
+    sub = next((s for s in user_subs
+                if str(s.get("county") or "").lower() == county
+                and s.get("status") == "active"), None)
+    if not sub:
+        return jsonify({"error": "You don't have an active subscription for this county."}), 403
+
+    result = record_trace_use(user["id"], county)
+
+    phone = str(lead.get("primary_phone") or "").strip()
+    email = str(lead.get("email_1") or "").strip()
+    if not phone and not email:
+        return jsonify({
+            "phone": "",
+            "email": "",
+            "overage": result.get("overage", False),
+            "used": result.get("used", 0),
+            "no_contact": True,
+        })
+
+    return jsonify({
+        "phone": phone,
+        "email": email,
+        "overage": result.get("overage", False),
+        "used": result.get("used", 0),
+    })
 
 
 @app.route('/subscribe', methods=['POST'])

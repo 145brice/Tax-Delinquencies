@@ -190,6 +190,15 @@
         }
         .price-tag { color: #22c55e; font-weight: 700; }
         .src-link { color: #60a5fa; text-decoration: none; font-size: 0.75rem; }
+        .btn-reveal {
+            background: #1e3a5f; color: #93c5fd; border: 1px solid #2563eb;
+            border-radius: 5px; padding: 3px 10px; font-size: 0.72rem; font-weight: 700;
+            cursor: pointer; white-space: nowrap;
+        }
+        .btn-reveal:hover { background: #2563eb; color: #fff; }
+        .btn-reveal:disabled { opacity: 0.4; cursor: not-allowed; }
+        .revealed-phone { color: #4ade80; font-weight: 700; }
+        .overage-note { color: #facc15; font-size: 0.68rem; display: block; }
         .src-link:hover { text-decoration: underline; }
 
         .empty {
@@ -377,8 +386,22 @@
             <td>{{ item.zip or '' }}</td>
             <td title="Full address revealed after purchase">{{ item.display_address }}</td>
             <td>{{ item.owner or '-' }}</td>
-            <td title="Full number revealed after purchase">{{ item.phone_display or '-' }}</td>
-            <td title="Full address revealed after purchase">{{ item.email_display or '-' }}</td>
+            <td title="Full number revealed after purchase">
+                {% if item.subscriber_county %}
+                    <span class="reveal-contact" data-lead-id="{{ item.id }}" data-field="phone">
+                        <button class="btn-reveal" onclick="revealContact(this, '{{ item.id }}')">Reveal</button>
+                    </span>
+                {% else %}
+                    {{ item.phone_display or '-' }}
+                {% endif %}
+            </td>
+            <td title="Full address revealed after purchase">
+                {% if item.subscriber_county %}
+                    <span class="reveal-email" data-lead-id="{{ item.id }}">{{ item.email_display or '-' }}</span>
+                {% else %}
+                    {{ item.email_display or '-' }}
+                {% endif %}
+            </td>
             <td>{{ item.parcel_id or '-' }}</td>
             <td>{{ item.case_number or '-' }}</td>
             <td>{{ item.amount_owed or ('$' ~ "{:,}".format(item.bid|int) if item.bid else '-') }}</td>
@@ -628,7 +651,43 @@
     }
 
     // Initial paginated render
-    renderPage();</script>
+    renderPage();
+
+    const SUB_COUNTIES = new Set({{ sub_counties | tojson }});
+
+    async function revealContact(btn, leadId) {
+        btn.disabled = true;
+        btn.textContent = '…';
+        const csrf = document.querySelector('meta[name="csrf-token"]').content;
+        try {
+            const r = await fetch('/api/subscriber/reveal', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json', 'X-CSRF-Token': csrf},
+                body: JSON.stringify({lead_id: leadId})
+            });
+            const d = await r.json();
+            if (d.error) {
+                btn.textContent = 'Reveal';
+                btn.disabled = false;
+                alert(d.error);
+                return;
+            }
+            // Replace the phone cell
+            const phoneSpan = btn.closest('.reveal-contact');
+            if (phoneSpan) {
+                let html = `<span class="revealed-phone">${d.phone || '—'}</span>`;
+                if (d.overage) html += `<span class="overage-note">+$7 overage</span>`;
+                phoneSpan.outerHTML = html;
+            }
+            // Fill in the email cell
+            const emailSpan = document.querySelector(`.reveal-email[data-lead-id="${leadId}"]`);
+            if (emailSpan) emailSpan.textContent = d.email || (d.no_contact ? '—' : emailSpan.textContent);
+        } catch (e) {
+            btn.textContent = 'Reveal';
+            btn.disabled = false;
+            alert('Network error — try again.');
+        }
+    }</script>
 </body>
 </html>
 
