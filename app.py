@@ -818,18 +818,34 @@ def obfuscate_address(address):
         return text
 
     parts = [part.strip() for part in text.split(",")]
+    parts = [part for part in parts if not re.match(r"^(?:apt|unit|suite|ste|#)\s*[A-Za-z0-9-]+$", part, re.I)]
     street = parts[0] if parts else text
     city = parts[1] if len(parts) > 1 else ""
     state_zip = ", ".join(parts[2:]).strip() if len(parts) > 2 else ""
 
-    unit = ""
-    unit_match = re.search(r"\b(?:apt|unit|suite|ste|#)\s*[A-Za-z0-9-]+\b", street, re.I)
-    if unit_match:
-        unit = unit_match.group(0)
-
-    masked_street = "Street hidden"
-    if unit:
-        masked_street = f"{masked_street}, {unit}"
+    street_without_unit = re.sub(
+        r"\b(?:apt|unit|suite|ste|#)\s*[A-Za-z0-9-]+\b",
+        "",
+        street,
+        flags=re.I,
+    )
+    street_without_unit = re.sub(r"^\s*(?:x+|\d+[A-Za-z]?)\s+", "", street_without_unit, flags=re.I)
+    street_tokens = re.findall(r"[A-Za-z][A-Za-z0-9.'-]*", street_without_unit)
+    road_types = {
+        "aly", "alley", "ave", "avenue", "blvd", "boulevard", "cir", "circle",
+        "ct", "court", "cv", "cove", "dr", "drive", "hwy", "highway", "ln", "lane",
+        "loop", "pkwy", "parkway", "pl", "place", "rd", "road", "sq", "square",
+        "st", "street", "ter", "terrace", "tr", "trl", "trail", "way",
+    }
+    directions = {"n", "s", "e", "w", "ne", "nw", "se", "sw", "north", "south", "east", "west"}
+    type_index = next(
+        (idx for idx in range(len(street_tokens) - 1, -1, -1) if street_tokens[idx].lower().strip(".") in road_types),
+        None,
+    )
+    type_token = street_tokens[type_index] if type_index is not None else ""
+    name_candidates = street_tokens[:type_index] if type_index is not None else street_tokens
+    name_token = next((token for token in name_candidates if token.lower().strip(".") not in directions), "")
+    masked_street = f"{name_token[0].upper()}**** {type_token}" if name_token and type_token else "Street hidden"
     if city and state_zip:
         return f"{masked_street}, {city}, {state_zip}"
     if city:
