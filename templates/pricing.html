@@ -259,6 +259,60 @@
         </div>
         <div style="font-size:0.78rem;color:#4b5563;margin-top:10px;">Includes up to 25 skiptraced leads/month. Additional skiptraces are $5 each. ~1,900 new leads every 90 days across these three counties alone.</div>
     </div>
+
+    <!-- SUBSCRIBE — only renders when ENABLE_SUBSCRIPTIONS + Stripe recurring prices are set -->
+    {% if subscriptions_ready %}
+    <div style="background:#0f1117;border:1px solid #2a3550;border-radius:12px;padding:22px 24px;margin-bottom:40px;">
+        <div style="font-weight:800;font-size:1.05rem;margin-bottom:6px;">Subscribe to a county</div>
+        <div style="font-size:0.85rem;color:#9ca3af;margin-bottom:14px;">
+            {% if is_first_county %}First county <strong style="color:#fff;">$199/mo</strong>{% else %}Additional county <strong style="color:#fff;">$99/mo</strong>{% endif %}
+            &mdash; includes 25 skip traces/mo, exclusive to you.
+        </div>
+        <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;">
+            <select id="subCounty" style="background:#181b24;color:#e5e7eb;border:1px solid #2a2d3a;border-radius:8px;padding:10px 12px;font-size:0.9rem;min-width:240px;">
+                {% for c in sub_counties %}
+                    {% if c.taken %}
+                        <option value="{{ c.key }}" disabled>{{ c.label }} &mdash; full ({{ c.subs }}/{{ c.capacity }} slots)</option>
+                    {% elif c.capacity > 1 %}
+                        <option value="{{ c.key }}">{{ c.label }} ({{ c.subs }}/{{ c.capacity }} slots open)</option>
+                    {% else %}
+                        <option value="{{ c.key }}">{{ c.label }}</option>
+                    {% endif %}
+                {% endfor %}
+            </select>
+            <button id="subBtn" class="btn-trial" style="margin:0;">Subscribe</button>
+        </div>
+        <p id="subMsg" style="font-size:0.8rem;color:#f87171;margin-top:10px;display:none;"></p>
+    </div>
+    <script>
+    (function () {
+        var btn = document.getElementById('subBtn');
+        if (!btn) return;
+        btn.addEventListener('click', async function () {
+            var county = document.getElementById('subCounty').value;
+            var msg = document.getElementById('subMsg');
+            msg.style.display = 'none';
+            btn.disabled = true; btn.textContent = 'Starting…';
+            try {
+                var r = await fetch('/subscribe', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': '{{ csrf_token() }}' },
+                    body: JSON.stringify({ county: county })
+                });
+                var d = await r.json();
+                if (d.url) { window.location = d.url; return; }
+                if (d.login_required) { window.location = '/login'; return; }
+                msg.textContent = d.error || 'Could not start subscription.';
+                msg.style.display = 'block';
+            } catch (e) {
+                msg.textContent = 'Network error — try again.';
+                msg.style.display = 'block';
+            }
+            btn.disabled = false; btn.textContent = 'Subscribe';
+        });
+    })();
+    </script>
+    {% endif %}
 </div>
 
 <!-- SKIP TRACE -->
@@ -293,7 +347,7 @@
                 <span class="chevron">▼</span>
             </div>
             <div class="faq-a">
-                If you subscribe to Wayne County, no other subscriber gets the same leads from Wayne. Each county is exclusive to one active subscriber at a time. If a county is taken, you'll see it greyed out in the storefront.
+                Smaller counties (under 200 available leads) are exclusive to one subscriber. Larger counties support a limited number of slots — for example, a county with 1,000 leads supports up to 5 subscribers, each getting a non-overlapping monthly allotment. When a county hits its slot limit you'll see it greyed out as "full."
             </div>
         </div>
 

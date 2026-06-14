@@ -1,5 +1,14 @@
 {
     "counties": [
+        "miami-dade",
+        "harris",
+        "fulton",
+        "cook",
+        "maricopa",
+        "sandiego",
+        "losangeles",
+        "orange",
+        "riverside",
         "davidson",
         "wilson-tn",
         "williamson",
@@ -7,9 +16,16 @@
         "sumner",
         "robertson",
         "cheatham",
-        "miami-dade"
+        "chatham-ga",
+        "glynn-ga",
+        "camden-ga",
+        "lowndes-ga",
+        "duval-fl",
+        "stjohns-fl",
+        "nassau-fl",
+        "clay-fl"
     ],
-    "lookback_days": 30,
+    "lookback_days": 90,
     "sources": {
         "include_tax_records": true,
         "include_hud": true,

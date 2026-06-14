@@ -1,4 +1,4 @@
-"""
+﻿"""
 Rutherford County scraper.
 
 Tax Delinquent:
@@ -10,6 +10,7 @@ Pre-Foreclosure: rodweb.rutherfordcountytn.gov
 """
 import re
 from datetime import date
+import requests
 from .base_scraper import BaseScraper, PropertyRecord, log
 
 SEARCH_URL = "https://rcchancery.com/tax-bill-receipts"
@@ -36,7 +37,7 @@ class RutherfordScraper(BaseScraper):
         today = str(date.today())
         log.info(f"[{self.county_name}] Scraping chancery court tax search...")
 
-        # Attempt the wildcard search — the site uses a GET param
+        # Attempt the wildcard search - the site uses a GET param
         search_url = f"{SEARCH_URL}?search=**"
         resp = self.get(search_url)
         if not resp:
@@ -109,22 +110,60 @@ class RutherfordScraper(BaseScraper):
         return records
 
     def _scrape_govease(self) -> list[PropertyRecord]:
-        """Attempt to pull current auction listings from GovEase."""
+        """Attempt to pull current auction listings from GovEase.
+        If unavailable, return one informational fallback record."""
         records = []
         today = str(date.today())
         log.info(f"[{self.county_name}] Checking GovEase auction listings...")
 
-        resp = self.get(GOVEASE_TN)
-        if not resp:
+        try:
+            self._rotate_ua()
+            resp = self.session.get(GOVEASE_TN, timeout=30)
+        except requests.RequestException as e:
+            log.warning(f"[{self.county_name}] GovEase request failed: {e}")
+            records.append(PropertyRecord(
+                county=self.county_name,
+                record_type="Tax Delinquent",
+                notes=f"GovEase county page unavailable. Check {GOVEASE_TN} manually.",
+                source_url=GOVEASE_TN,
+                scraped_date=today,
+                state="TN",
+                city="Murfreesboro",
+            ))
+            return records
+
+        if resp.status_code == 404 or "PageNotFound" in resp.url:
+            log.info(f"[{self.county_name}] GovEase page unavailable (404/PageNotFound).")
+            records.append(PropertyRecord(
+                county=self.county_name,
+                record_type="Tax Delinquent",
+                notes=f"GovEase county page currently unavailable (404). Check {GOVEASE_TN} later.",
+                source_url=GOVEASE_TN,
+                scraped_date=today,
+                state="TN",
+                city="Murfreesboro",
+            ))
+            return records
+
+        if resp.status_code >= 400:
+            log.warning(f"[{self.county_name}] GovEase returned HTTP {resp.status_code}.")
+            records.append(PropertyRecord(
+                county=self.county_name,
+                record_type="Tax Delinquent",
+                notes=f"GovEase returned HTTP {resp.status_code}. Check {GOVEASE_TN} manually.",
+                source_url=GOVEASE_TN,
+                scraped_date=today,
+                state="TN",
+                city="Murfreesboro",
+            ))
             return records
 
         soup = self.soup(resp.text)
-        # GovEase renders property cards — look for address/parcel/amount patterns
-        for card in soup.find_all(class_=re.compile(r'property|listing|auction|parcel', re.I)):
+        for card in soup.find_all(class_=re.compile(r"property|listing|auction|parcel", re.I)):
             text = card.get_text(separator=" ", strip=True)
             if not text or len(text) < 10:
                 continue
-            amount_m = re.search(r'\$[\d,]+', text)
+            amount_m = re.search(r"\$[\d,]+", text)
             rec = PropertyRecord(
                 county=self.county_name,
                 record_type="Tax Delinquent",
@@ -137,6 +176,17 @@ class RutherfordScraper(BaseScraper):
             )
             records.append(rec)
 
+        if not records:
+            records.append(PropertyRecord(
+                county=self.county_name,
+                record_type="Tax Delinquent",
+                notes=f"No parseable GovEase listings found. Check {GOVEASE_TN} manually.",
+                source_url=GOVEASE_TN,
+                scraped_date=today,
+                state="TN",
+                city="Murfreesboro",
+            ))
+
         log.info(f"[{self.county_name}] GovEase records: {len(records)}")
         return records
 
@@ -145,7 +195,7 @@ class RutherfordScraper(BaseScraper):
         return [PropertyRecord(
             county=self.county_name,
             record_type="Pre-Foreclosure",
-            notes=f"Search Lis Pendens at {ROD_URL} — Register of Deeds. Filter doc type 'LIS PENDENS'.",
+            notes=f"Search Lis Pendens at {ROD_URL} - Register of Deeds. Filter doc type 'LIS PENDENS'.",
             source_url=ROD_URL,
             scraped_date=today,
             state="TN",

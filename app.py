@@ -125,6 +125,25 @@ app = Flask(__name__)
 app.secret_key = os.getenv("SECRET_KEY", "")
 stripe.api_key = os.getenv("STRIPE_SECRET_KEY", "")
 
+# --- County subscriptions ($199/mo first county, $99/mo each additional) ----------
+# FULLY GATED: with ENABLE_SUBSCRIPTIONS unset, the app behaves exactly as before
+# (per-lead $5 checkout only). Flip the flag AND set the recurring Stripe price IDs to
+# turn it on. Nothing below activates until _subscriptions_ready() is True.
+ENABLE_SUBSCRIPTIONS = os.getenv("ENABLE_SUBSCRIPTIONS", "").lower() in ("1", "true", "yes", "on")
+STRIPE_PRICE_COUNTY_FIRST = os.getenv("STRIPE_PRICE_COUNTY_FIRST", "")    # $199/mo recurring price id
+STRIPE_PRICE_COUNTY_ADDL = os.getenv("STRIPE_PRICE_COUNTY_ADDL", "")      # $99/mo recurring price id
+STRIPE_PRICE_TRACE_OVERAGE = os.getenv("STRIPE_PRICE_TRACE_OVERAGE", "")  # optional $5 per-trace price id
+INCLUDED_TRACES_PER_MONTH = int(os.getenv("INCLUDED_TRACES_PER_MONTH", "25") or 25)
+# Minimum untapped (un-skiptraced) leads a county must have to be offered for subscription.
+# ~40 ensures a subscriber will get at least ~25 successful traces given a ~65% hit rate.
+SUB_MIN_UNTAPPED = 40
+
+
+def _subscriptions_ready():
+    """True only when the flag is on, Stripe is keyed, and both recurring prices exist."""
+    return bool(ENABLE_SUBSCRIPTIONS and stripe.api_key
+                and STRIPE_PRICE_COUNTY_FIRST and STRIPE_PRICE_COUNTY_ADDL)
+
 # ---- CSRF protection --------------------------------------------------------
 # External callers that authenticate by other means (Stripe signs its webhook
 # payloads) are exempt; everything else POSTed needs the session token, either
@@ -598,6 +617,111 @@ def save_json(file, data):
     with open(file, 'w', encoding='utf-8') as f:
         json.dump(data, f, indent=4, ensure_ascii=False)
 
+
+# --- Subscription store (county subscriptions + claims) ---------------------------
+# Persisted in the app_json/SQLite store under "subscriptions" (so it survives on the
+# Railway volume), or a flat file when SQLite is off. Each record:
+#   {id, user_id, email, county, stripe_subscription_id, stripe_customer_id,
+#    status, price_id, created_at, current_period_end, period_start, traces_used}
+SUBS_FILE = _runtime_data_file('subscriptions.json')
+
+
+def _load_subs():
+    if _sqlite_enabled():
+        return _sqlite_get("subscriptions", [])
+    return load_json(SUBS_FILE, [])
+
+
+def _save_subs(subs):
+    if _sqlite_enabled():
+        _sqlite_set("subscriptions", subs)
+    else:
+        save_json(SUBS_FILE, subs)
+
+
+def _active_subs(subs=None):
+    subs = _load_subs() if subs is None else subs
+    return [s for s in subs if s.get("status") == "active"]
+
+
+def _county_untapped_counts():
+    """Return {county_name_lower: skippable_untapped_count}.
+    Only counts leads that have an owner name (skippable) and no phone/email yet."""
+    try:
+        rows = current_listings()
+    except Exception:
+        rows = []
+    totals, traced = {}, {}
+    for r in rows:
+        c = str(r.get("county") or "").strip().lower()
+        if not c or not str(r.get("owner") or "").strip():
+            continue  # no owner name = not skippable
+        totals[c] = totals.get(c, 0) + 1
+        if r.get("primary_phone") or r.get("email_1"):
+            traced[c] = traced.get(c, 0) + 1
+    return {c: totals[c] - traced.get(c, 0) for c in totals}
+
+
+def _county_capacity(untapped: int) -> int:
+    """Max subscriber slots = untapped // 40 (each slot needs ~40 leads to guarantee 25 traces)."""
+    return max(1, untapped // 40)
+
+
+def _county_sub_counts():
+    """Return {county_lower: active_subscriber_count}."""
+    counts: dict = {}
+    for s in _active_subs():
+        c = str(s.get("county") or "").lower()
+        if c:
+            counts[c] = counts.get(c, 0) + 1
+    return counts
+
+
+def _claimed_counties(exclude_user=None):
+    """county(lowercase) -> user_id for counties that are AT full capacity.
+    A county only appears here when active_subs >= _county_capacity(untapped).
+    exclude_user: omit the county if the requesting user is already one of its subscribers
+    (so they don't see their own county greyed out)."""
+    untapped = _county_untapped_counts()
+    sub_counts = _county_sub_counts()
+    # county -> list of subscriber ids
+    subs_by_county: dict = {}
+    for s in _active_subs():
+        c = str(s.get("county") or "").lower()
+        if c:
+            subs_by_county.setdefault(c, []).append(str(s.get("user_id")))
+    out = {}
+    for c, count in sub_counts.items():
+        cap = _county_capacity(untapped.get(c, 0))
+        if count >= cap:
+            uid_list = subs_by_county.get(c, [])
+            if exclude_user is None or str(exclude_user) not in uid_list:
+                out[c] = uid_list[0] if uid_list else None
+    return out
+
+
+def _user_subs(user_id):
+    return [s for s in _active_subs() if str(s.get("user_id")) == str(user_id)]
+
+
+def _sub_price_for(user_id):
+    """First active county is full price; each additional is the discounted price."""
+    return STRIPE_PRICE_COUNTY_FIRST if not _user_subs(user_id) else STRIPE_PRICE_COUNTY_ADDL
+
+
+def _upsert_sub(record):
+    """Insert or update by stripe_subscription_id (fallback to id)."""
+    subs = _load_subs()
+    key = record.get("stripe_subscription_id") or record.get("id")
+    for i, s in enumerate(subs):
+        if (s.get("stripe_subscription_id") or s.get("id")) == key:
+            subs[i] = {**s, **record}
+            _save_subs(subs)
+            return subs[i]
+    subs.append(record)
+    _save_subs(subs)
+    return record
+
 def merge_listings(existing, incoming):
     merged = list(existing)
     seen = {str(item.get("id")) for item in merged if item.get("id") is not None}
@@ -805,6 +929,7 @@ def inject_user():
         "current_user_email": user["email"] if user else None,
         "accounts_ready": accounts_ready,
         "checkout_ready": bool(accounts_ready and stripe_configured),
+        "subscriptions_ready": _subscriptions_ready(),
         "appwrite_pending": not appwrite_configured,
         "database_configured": database_configured,
         "secret_key_set": secret_key_set,
@@ -1613,6 +1738,11 @@ def create_checkout_session():
     if mismatched:
         return jsonify({"error": "Checkout is limited to one selected county at a time. Clear your selection and choose leads from that county only."}), 400
 
+    # County exclusivity: when subscriptions are live, a county claimed by an active
+    # subscriber is reserved and not available for per-lead purchase by others.
+    if _subscriptions_ready() and selected_county in _claimed_counties(exclude_user=user["id"]):
+        return jsonify({"error": "This county is reserved for its subscriber and isn't available for per-lead purchase."}), 409
+
     total_cents = sum(_listing_price_cents(item) for item in selected)
     if total_cents <= 0:
         return jsonify({"error": "Selected leads do not have a valid price."}), 400
@@ -1702,14 +1832,215 @@ def stripe_webhook():
         event = stripe.Webhook.construct_event(payload, sig, secret)
     except (ValueError, stripe.error.SignatureVerificationError):
         return ("invalid", 400)
-    if event.get("type") == "checkout.session.completed":
-        sess = event["data"]["object"]
-        _fulfill_session(sess.get("id"))
+    etype = event.get("type")
+    obj = event.get("data", {}).get("object", {}) or {}
+    if etype == "checkout.session.completed":
+        if obj.get("mode") == "subscription":
+            _fulfill_subscription(obj.get("id"))      # county subscription
+        else:
+            _fulfill_session(obj.get("id"))           # per-lead one-time order
+    elif etype == "customer.subscription.deleted":
+        _set_sub_status(obj.get("id"), "canceled")    # releases the county claim
+    elif etype == "customer.subscription.updated":
+        status = obj.get("status") or "active"
+        # any non-active status frees the county; keep 'active' otherwise
+        _set_sub_status(obj.get("id"), "active" if status == "active" else "canceled")
+    elif etype == "invoice.paid" and obj.get("subscription"):
+        # renewal -> reset the monthly included-trace allowance
+        subs = _load_subs()
+        hit = False
+        for s in subs:
+            if s.get("stripe_subscription_id") == obj.get("subscription"):
+                s["traces_used"] = 0
+                s["period_start"] = datetime.now().isoformat(timespec="seconds")
+                hit = True
+        if hit:
+            _save_subs(subs)
     return ("ok", 200)
 
 @app.route('/checkout/cancel')
 def checkout_cancel():
     return render_template('checkout_status.html', title="Checkout canceled", message="Checkout was canceled. Your selected leads were not charged.")
+
+
+# ============================ County subscriptions ================================
+# All routes below no-op (503) unless _subscriptions_ready(). Stripe price IDs come
+# from env (STRIPE_PRICE_COUNTY_FIRST / _ADDL). Nothing here runs in the live app
+# until the flag + price IDs are set, so this is safe to ship dormant.
+
+def _sub_period_end(stripe_sub) -> str:
+    """current_period_end moved onto the subscription item in newer Stripe API versions."""
+    ts = stripe_sub.get("current_period_end")
+    if not ts:
+        items = (stripe_sub.get("items") or {}).get("data") or []
+        ts = items[0].get("current_period_end") if items else None
+    try:
+        return datetime.utcfromtimestamp(int(ts)).isoformat() if ts else ""
+    except Exception:
+        return ""
+
+
+def _activate_subscription(sub_id, customer_id, user_id, county, email="") -> bool:
+    if not (sub_id and user_id and county):
+        return False
+    price_id = ""
+    period_end = ""
+    try:
+        s = stripe.Subscription.retrieve(sub_id)
+        period_end = _sub_period_end(s)
+        items = (s.get("items") or {}).get("data") or []
+        if items:
+            price_id = (items[0].get("price") or {}).get("id", "")
+    except Exception:
+        pass
+    now = datetime.now().isoformat(timespec="seconds")
+    _upsert_sub({
+        "id": secrets.token_hex(8),
+        "user_id": str(user_id),
+        "email": email or "",
+        "county": str(county).lower(),
+        "stripe_subscription_id": sub_id,
+        "stripe_customer_id": customer_id or "",
+        "status": "active",
+        "price_id": price_id,
+        "created_at": now,
+        "current_period_end": period_end,
+        "period_start": now,
+        "traces_used": 0,
+    })
+    return True
+
+
+def _set_sub_status(sub_id, status) -> bool:
+    """Update an existing subscription's status (e.g. 'canceled' releases the county)."""
+    subs = _load_subs()
+    changed = False
+    for s in subs:
+        if s.get("stripe_subscription_id") == sub_id:
+            s["status"] = status
+            changed = True
+    if changed:
+        _save_subs(subs)
+    return changed
+
+
+def _fulfill_subscription(session_id) -> bool:
+    if not session_id or not stripe.api_key:
+        return False
+    try:
+        cs = stripe.checkout.Session.retrieve(session_id)
+    except stripe.error.StripeError:
+        return False
+    if cs.get("mode") != "subscription":
+        return False
+    md = cs.get("metadata") or {}
+    if md.get("kind") != "county_subscription":
+        return False
+    email = (cs.get("customer_details") or {}).get("email", "")
+    return _activate_subscription(cs.get("subscription"), cs.get("customer"),
+                                  md.get("user_id"), md.get("county"), email)
+
+
+def record_trace_use(user_id, county) -> dict:
+    """Count one skip-trace against the subscriber's monthly allowance. Returns
+    {included, used, overage} — when used exceeds INCLUDED_TRACES_PER_MONTH, an
+    overage invoice item ($5) is added to the Stripe subscription if a price is set.
+    Call this at the point a trace is REVEALED to a subscribed buyer."""
+    subs = _load_subs()
+    target = None
+    for s in subs:
+        if (s.get("status") == "active" and str(s.get("user_id")) == str(user_id)
+                and str(s.get("county") or "").lower() == str(county).lower()):
+            target = s
+            break
+    if not target:
+        return {"included": False, "used": 0, "overage": False}
+    target["traces_used"] = int(target.get("traces_used") or 0) + 1
+    used = target["traces_used"]
+    overage = used > INCLUDED_TRACES_PER_MONTH
+    _save_subs(subs)
+    if overage and STRIPE_PRICE_TRACE_OVERAGE and target.get("stripe_subscription_id"):
+        try:
+            stripe.InvoiceItem.create(
+                customer=target.get("stripe_customer_id"),
+                price=STRIPE_PRICE_TRACE_OVERAGE,
+                subscription=target.get("stripe_subscription_id"),
+            )
+        except Exception:
+            pass  # never block a reveal on billing; reconcile later
+    return {"included": True, "used": used, "overage": overage}
+
+
+@app.route('/subscribe', methods=['POST'])
+def subscribe():
+    if not _subscriptions_ready():
+        return jsonify({"error": "Subscriptions are not enabled yet."}), 503
+    if not _accounts_ready():
+        return jsonify({"error": "Accounts are not configured yet."}), 503
+    user = current_user()
+    if not user:
+        return jsonify({"login_required": True, "error": "Please log in to subscribe."}), 401
+    payload = request.get_json(silent=True) or request.form
+    county = str(payload.get("county") or "").strip().lower()
+    if not county:
+        return jsonify({"error": "Choose a county to subscribe to."}), 400
+    if any(str(s.get("county") or "").lower() == county for s in _user_subs(user["id"])):
+        return jsonify({"error": "You already have an active subscription for this county."}), 409
+    untapped = _county_untapped_counts()
+    county_untapped = untapped.get(county, 0)
+    if county_untapped < SUB_MIN_UNTAPPED:
+        return jsonify({"error": "This county doesn't have enough available leads for a subscription right now."}), 409
+    cap = _county_capacity(county_untapped)
+    current_count = _county_sub_counts().get(county, 0)
+    if current_count >= cap:
+        return jsonify({"error": f"This county is full ({current_count}/{cap} slots taken). Try another county."}), 409
+
+    price_id = _sub_price_for(user["id"])
+    meta = {"kind": "county_subscription", "user_id": str(user["id"]), "county": county}
+    origin = request.host_url.rstrip("/")
+    try:
+        session = stripe.checkout.Session.create(
+            mode="subscription",
+            payment_method_types=["card"],
+            customer_email=user["email"],
+            line_items=[{"price": price_id, "quantity": 1}],
+            metadata=meta,
+            subscription_data={"metadata": meta},
+            success_url=f"{origin}/subscribe/success?session_id={{CHECKOUT_SESSION_ID}}",
+            cancel_url=f"{origin}/checkout/cancel",
+        )
+    except stripe.error.StripeError as exc:
+        return jsonify({"error": str(exc)}), 502
+    return jsonify({"url": session.url})
+
+
+@app.route('/subscribe/success')
+def subscribe_success():
+    _fulfill_subscription(request.args.get('session_id'))
+    if current_user():
+        return redirect(url_for('account'))
+    return render_template('checkout_status.html', title="Subscription active",
+                           message="Subscription active. Log in to manage your counties.")
+
+
+@app.route('/billing/portal', methods=['POST'])
+def billing_portal():
+    """Send a subscriber to Stripe's customer portal to manage/cancel."""
+    if not _subscriptions_ready():
+        return jsonify({"error": "Subscriptions are not enabled."}), 503
+    user = current_user()
+    if not user:
+        return jsonify({"login_required": True}), 401
+    subs = _user_subs(user["id"])
+    cust = next((s.get("stripe_customer_id") for s in subs if s.get("stripe_customer_id")), "")
+    if not cust:
+        return jsonify({"error": "No active subscription found."}), 404
+    origin = request.host_url.rstrip("/")
+    try:
+        portal = stripe.billing_portal.Session.create(customer=cust, return_url=f"{origin}/account")
+    except stripe.error.StripeError as exc:
+        return jsonify({"error": str(exc)}), 502
+    return jsonify({"url": portal.url})
 
 @app.route('/api/stripe-status')
 @admin_required
@@ -1846,7 +2177,36 @@ def pricing():
         county_count = len({str(item.get("county") or "").strip() for item in current_listings() if item.get("county")})
     else:
         county_count = len(county_scraper_map())
-    return render_template('pricing.html', county_count=county_count)
+    # Subscribable counties (only computed when subscriptions are live)
+    sub_counties = []
+    is_first_county = True
+    if _subscriptions_ready():
+        user = current_user()
+        user_sub_counties = set()
+        if user:
+            is_first_county = not _user_subs(user["id"])
+            user_sub_counties = {str(s.get("county") or "").lower() for s in _user_subs(user["id"])}
+        untapped_map = _county_untapped_counts()
+        sub_counts_map = _county_sub_counts()
+        counties = sorted({str(r.get("county") or "").strip().lower()
+                           for r in current_listings() if r.get("county")})
+        for c in counties:
+            untapped = untapped_map.get(c, 0)
+            if untapped < SUB_MIN_UNTAPPED:
+                continue  # too few leads — not worth a subscription
+            cap = _county_capacity(untapped)
+            current_subs = sub_counts_map.get(c, 0)
+            # Full if at capacity, but don't show as full to a user who already holds this county
+            full = (current_subs >= cap) and (c not in user_sub_counties)
+            sub_counties.append({
+                "key": c,
+                "label": c.title(),
+                "taken": full,
+                "subs": current_subs,
+                "capacity": cap,
+            })
+    return render_template('pricing.html', county_count=county_count,
+                           sub_counties=sub_counties, is_first_county=is_first_county)
 
 
 # ── County schedule ──────────────────────────────────────────────────────────

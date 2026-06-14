@@ -9,3 +9,16 @@ foreclosure_local.sqlite3
 data/*.csv
 !data/storefront_listings.csv
 data/*.pdf
+
+# local skiptrace browser profile (cookies) + outputs
+data/.skiptrace_profile/
+data/skiptrace_cache.json
+data/skiptrace_results.csv
+data/.skiptrace_control.json
+data/.skiptrace_status.json
+data/.skiptrace_pid
+data/skiptrace_control.log
+listings.json.bak
+listings.json.tmp
+data/.skiptrace_ddg_cookies.json
+data/.skiptrace_google_cookies.json
