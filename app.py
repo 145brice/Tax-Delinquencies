@@ -148,6 +148,27 @@ TIER_AMOUNTS  = {"starter": 99, "professional": 199, "power": 399}
 # ~40 ensures a subscriber will get at least ~25 successful traces given a ~65% hit rate.
 SUB_MIN_UNTAPPED = 40
 
+# Per-lead storefront pricing (one-time purchase, non-subscriber). A lead with
+# skip-traced contact data (phone or email) is worth $7; a raw lead with only an
+# owner name is $2.50. Mirrors the subscription overage ($7) and raw-lead ($2.50)
+# prices so the standalone store stays consistent with the subscription model.
+LEAD_PRICE_TRACED = 7.0
+LEAD_PRICE_RAW    = 2.50
+
+
+def _lead_is_traced(item):
+    return bool(str(item.get("primary_phone") or "").strip()
+                or str(item.get("email_1") or "").strip())
+
+
+def _lead_price(item):
+    return LEAD_PRICE_TRACED if _lead_is_traced(item) else LEAD_PRICE_RAW
+
+
+def _price_str(amount):
+    amount = float(amount)
+    return f"{amount:.0f}" if amount.is_integer() else f"{amount:.2f}"
+
 
 def _subscriptions_ready():
     """True only when the flag is on, Stripe is keyed, and all three tier prices exist."""
@@ -547,6 +568,12 @@ def _storefront_display_row(item):
         public_item["email_display"] = f"{local_initial}****@{domain_initial}****{suffix_display}"
     else:
         public_item["email_display"] = ""
+    # Price the lead by what it is: traced ($7) vs raw ($2.50). Compute from the
+    # original item before contact fields are stripped below.
+    price_value = _lead_price(item)
+    public_item["price"] = price_value
+    public_item["price_display"] = _price_str(price_value)
+    public_item["is_traced"] = _lead_is_traced(item)
     for private_field in ("primary_phone", "phone_2", "email_1", "email_2",
                           "mailing_address", "skiptrace_notes", "skiptrace_source",
                           "skiptraced_at"):
@@ -912,10 +939,9 @@ def _backfill_fields(item):
     return item
 
 def _listing_price_cents(item):
-    try:
-        return max(0, int(round(float(item.get("price", 5)) * 100)))
-    except (TypeError, ValueError):
-        return 500
+    # Price by what the lead actually is: traced ($7) vs raw ($2.50). Computed
+    # from contact data, not the stored "price" field (which legacy rows set to 5).
+    return int(round(_lead_price(item) * 100))
 
 @app.route('/')
 def index():
