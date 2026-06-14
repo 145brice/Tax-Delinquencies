@@ -125,24 +125,34 @@ app = Flask(__name__)
 app.secret_key = os.getenv("SECRET_KEY", "")
 stripe.api_key = os.getenv("STRIPE_SECRET_KEY", "")
 
-# --- County subscriptions ($199/mo first county, $99/mo each additional) ----------
-# FULLY GATED: with ENABLE_SUBSCRIPTIONS unset, the app behaves exactly as before
-# (per-lead $5 checkout only). Flip the flag AND set the recurring Stripe price IDs to
-# turn it on. Nothing below activates until _subscriptions_ready() is True.
+# --- County subscriptions (tiered: Starter $99 / Professional $199 / Power $399) ----
+# FULLY GATED: with ENABLE_SUBSCRIPTIONS unset the app behaves exactly as before.
+# Flip the flag AND set the tier price IDs to activate.
 ENABLE_SUBSCRIPTIONS = os.getenv("ENABLE_SUBSCRIPTIONS", "").lower() in ("1", "true", "yes", "on")
-STRIPE_PRICE_COUNTY_FIRST = os.getenv("STRIPE_PRICE_COUNTY_FIRST", "")    # $199/mo recurring price id
-STRIPE_PRICE_COUNTY_ADDL = os.getenv("STRIPE_PRICE_COUNTY_ADDL", "")      # $99/mo recurring price id
-STRIPE_PRICE_TRACE_OVERAGE = os.getenv("STRIPE_PRICE_TRACE_OVERAGE", "")  # optional $5 per-trace price id
-INCLUDED_TRACES_PER_MONTH = int(os.getenv("INCLUDED_TRACES_PER_MONTH", "25") or 25)
+STRIPE_PRICE_TIER_STARTER = os.getenv("STRIPE_PRICE_TIER_STARTER", "")   # $99/mo
+STRIPE_PRICE_TIER_PRO     = os.getenv("STRIPE_PRICE_TIER_PRO", "")       # $199/mo
+STRIPE_PRICE_TIER_POWER   = os.getenv("STRIPE_PRICE_TIER_POWER", "")     # $399/mo
+STRIPE_PRICE_TRACE_OVERAGE = os.getenv("STRIPE_PRICE_TRACE_OVERAGE", "") # $7/lead overage
+STRIPE_PRICE_RAW_LEAD      = os.getenv("STRIPE_PRICE_RAW_LEAD", "")      # $2.50/raw lead
+
+TIER_PRICES = {
+    "starter":      STRIPE_PRICE_TIER_STARTER,
+    "professional": STRIPE_PRICE_TIER_PRO,
+    "power":        STRIPE_PRICE_TIER_POWER,
+}
+TIER_INCLUDED = {"starter": 8, "professional": 25, "power": 80}
+TIER_LABELS   = {"starter": "Starter", "professional": "Professional", "power": "Power"}
+TIER_AMOUNTS  = {"starter": 99, "professional": 199, "power": 399}
+
 # Minimum untapped (un-skiptraced) leads a county must have to be offered for subscription.
 # ~40 ensures a subscriber will get at least ~25 successful traces given a ~65% hit rate.
 SUB_MIN_UNTAPPED = 40
 
 
 def _subscriptions_ready():
-    """True only when the flag is on, Stripe is keyed, and both recurring prices exist."""
+    """True only when the flag is on, Stripe is keyed, and all three tier prices exist."""
     return bool(ENABLE_SUBSCRIPTIONS and stripe.api_key
-                and STRIPE_PRICE_COUNTY_FIRST and STRIPE_PRICE_COUNTY_ADDL)
+                and STRIPE_PRICE_TIER_STARTER and STRIPE_PRICE_TIER_PRO and STRIPE_PRICE_TIER_POWER)
 
 # ---- CSRF protection --------------------------------------------------------
 # External callers that authenticate by other means (Stripe signs its webhook
@@ -709,9 +719,14 @@ def _user_subs(user_id):
     return [s for s in _active_subs() if str(s.get("user_id")) == str(user_id)]
 
 
-def _sub_price_for(user_id):
-    """First active county is full price; each additional is the discounted price."""
-    return STRIPE_PRICE_COUNTY_FIRST if not _user_subs(user_id) else STRIPE_PRICE_COUNTY_ADDL
+def _sub_price_for(tier: str) -> str:
+    """Return the Stripe price ID for the given tier key (starter/professional/power)."""
+    return TIER_PRICES.get(str(tier).lower(), STRIPE_PRICE_TIER_PRO)
+
+
+def _tier_included(tier: str) -> int:
+    """Included skip-traced leads per month for the given tier."""
+    return TIER_INCLUDED.get(str(tier).lower(), TIER_INCLUDED["professional"])
 
 
 def _upsert_sub(record):
@@ -1885,7 +1900,7 @@ def _sub_period_end(stripe_sub) -> str:
         return ""
 
 
-def _activate_subscription(sub_id, customer_id, user_id, county, email="") -> bool:
+def _activate_subscription(sub_id, customer_id, user_id, county, email="", tier="professional") -> bool:
     if not (sub_id and user_id and county):
         return False
     price_id = ""
@@ -1898,12 +1913,16 @@ def _activate_subscription(sub_id, customer_id, user_id, county, email="") -> bo
             price_id = (items[0].get("price") or {}).get("id", "")
     except Exception:
         pass
+    # Infer tier from price_id if not explicitly passed
+    if tier not in TIER_PRICES:
+        tier = next((k for k, v in TIER_PRICES.items() if v == price_id), "professional")
     now = datetime.now().isoformat(timespec="seconds")
     _upsert_sub({
         "id": secrets.token_hex(8),
         "user_id": str(user_id),
         "email": email or "",
         "county": str(county).lower(),
+        "tier": tier,
         "stripe_subscription_id": sub_id,
         "stripe_customer_id": customer_id or "",
         "status": "active",
@@ -1943,7 +1962,8 @@ def _fulfill_subscription(session_id) -> bool:
         return False
     email = (cs.get("customer_details") or {}).get("email", "")
     return _activate_subscription(cs.get("subscription"), cs.get("customer"),
-                                  md.get("user_id"), md.get("county"), email)
+                                  md.get("user_id"), md.get("county"), email,
+                                  md.get("tier", "professional"))
 
 
 def record_trace_use(user_id, county) -> dict:
@@ -1962,7 +1982,8 @@ def record_trace_use(user_id, county) -> dict:
         return {"included": False, "used": 0, "overage": False}
     target["traces_used"] = int(target.get("traces_used") or 0) + 1
     used = target["traces_used"]
-    overage = used > INCLUDED_TRACES_PER_MONTH
+    included = _tier_included(target.get("tier", "professional"))
+    overage = used > included
     _save_subs(subs)
     if overage and STRIPE_PRICE_TRACE_OVERAGE and target.get("stripe_subscription_id"):
         try:
@@ -1987,6 +2008,9 @@ def subscribe():
         return jsonify({"login_required": True, "error": "Please log in to subscribe."}), 401
     payload = request.get_json(silent=True) or request.form
     county = str(payload.get("county") or "").strip().lower()
+    tier   = str(payload.get("tier") or "professional").strip().lower()
+    if tier not in TIER_PRICES:
+        tier = "professional"
     if not county:
         return jsonify({"error": "Choose a county to subscribe to."}), 400
     if any(str(s.get("county") or "").lower() == county for s in _user_subs(user["id"])):
@@ -2000,8 +2024,8 @@ def subscribe():
     if current_count >= cap:
         return jsonify({"error": f"This county is full ({current_count}/{cap} slots taken). Try another county."}), 409
 
-    price_id = _sub_price_for(user["id"])
-    meta = {"kind": "county_subscription", "user_id": str(user["id"]), "county": county}
+    price_id = _sub_price_for(tier)
+    meta = {"kind": "county_subscription", "user_id": str(user["id"]), "county": county, "tier": tier}
     origin = request.host_url.rstrip("/")
     try:
         session = stripe.checkout.Session.create(
