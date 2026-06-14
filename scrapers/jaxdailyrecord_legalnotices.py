@@ -35,14 +35,16 @@ COUNTY_AUCTION_URL = {
 
 _CASE_RE = re.compile(r"\bCASE\s*(?:NO\.?|#|NUMBER)?\s*[:.]?\s*([A-Z0-9\-]+(?:[ \t]+[A-Z0-9\-]+)?)", re.I)
 _SALE_DATE_PATTERNS = [
+    re.compile(r"\bon\s+the\s+(\d{1,2})(?:st|nd|rd|th)?\s+day\s+of\s+([A-Z][a-z]+),?\s+(\d{4})", re.I),
     re.compile(r"\bon\s+([A-Z][a-z]+\s+\d{1,2},\s+\d{4})", re.I),
-    re.compile(r"\bon\s+the\s+\d{1,2}(?:st|nd|rd|th)?\s+day\s+of\s+([A-Z][a-z]+,\s+\d{4})", re.I),
     re.compile(r"\bat\s+\d{1,2}:\d{2}\s*(?:A\.?M\.?|P\.?M\.?)?,?\s+on\s+([A-Z][a-z]+\s+\d{1,2},\s+\d{4})", re.I),
 ]
 _ADDRESS_PATTERNS = [
-    re.compile(r"(?:Property Address|Also known as)\s*[:.]?\s*([^\n]{8,160})", re.I),
+    re.compile(r"\bProperty\s+Address(?:es)?\b\s*[:.]?\s*([^\n]{8,160})", re.I),
+    re.compile(r"\bAlso known as\b\s*[:.]?\s*([^\n]{8,160})", re.I),
+    re.compile(r"\bStreet\s+Address(?:es)?\b\s*[:.]?\s*([^\n]{8,160})", re.I),
 ]
-_CITY_STATE_ZIP_RE = re.compile(r"(.+?),\s*([A-Za-z .'-]+),?\s+FL\s+(\d{5})", re.I)
+_CITY_STATE_ZIP_RE = re.compile(r"(.+?),\s*([A-Za-z .'-]+),?\s+(?:FL|Florida)\s+(\d{5})", re.I)
 _OWNER_PATTERNS = [
     re.compile(r"\bvs\.?\s+(.+?)\s*,?\s*Defendant\(s\)", re.I | re.S),
     re.compile(r"\bv\.?\s+(.+?)\s*,?\s*Defendant\(s\)", re.I | re.S),
@@ -68,6 +70,8 @@ def _extract_sale_date(text: str) -> str:
     for pat in _SALE_DATE_PATTERNS:
         m = pat.search(text)
         if m:
+            if len(m.groups()) == 3:
+                return _clean(f"{m.group(2).title()} {int(m.group(1))}, {m.group(3)}")
             return _clean(m.group(1))
     return ""
 
@@ -80,6 +84,10 @@ def _extract_address(text: str) -> tuple[str, str, str]:
         raw = _clean(m.group(1))
         raw = re.split(r"\b(?:Any person|together with|Dated this|Americans With)", raw, 1, flags=re.I)[0]
         raw = _clean(raw)
+        if not re.search(r"\d+\s+[A-Za-z]", raw):
+            continue
+        if re.search(r"\b(?:official records|public records|plat book|less and except|page \d+)\b", raw, re.I):
+            continue
         city = zip_code = ""
         cs = _CITY_STATE_ZIP_RE.search(raw)
         if cs:
@@ -140,8 +148,6 @@ class JaxDailyRecordLegalNoticesScraper(BaseScraper):
             owner = _extract_owner(text)
             address, city, zip_code = _extract_address(text)
             sale_date = _extract_sale_date(text)
-            if not address:
-                address = f"Case {case_number}, {self.county_name} County, FL" if case_number else ""
             if not address:
                 continue
 

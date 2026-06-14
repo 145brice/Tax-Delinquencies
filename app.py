@@ -383,6 +383,22 @@ def _is_publishable_listing(item):
     address = str(item.get("address") or "").strip()
     if len(address) < 8:
         return False
+    county = str(item.get("county") or "").strip().lower()
+    status = str(item.get("status") or item.get("record_type") or "").strip().lower()
+    source = str(item.get("source") or "").strip().lower()
+    if county == "duval":
+        if re.match(r"^(?:apn\s+)?[0-9a-z-]{6,}(?:,\s*jacksonville,\s*fl)?$", address, re.I):
+            return False
+        if re.search(r"\b16-\d{4}-(?:ca|cc)-\d{6}\b", address, re.I):
+            return False
+        if "tax" in status and "duval" in source and not re.search(r"\d+\s+[A-Za-z]", address):
+            return False
+        if ("hud" in source or "homepath" in source) and not re.search(
+            r"\b(?:jacksonville|jacksonville beach|atlantic beach|neptune beach|baldwin)\b",
+            " ".join(str(item.get(key) or "") for key in ("address", "city")),
+            re.I,
+        ):
+            return False
     return True
 
 def publishable_storefront_listings(listings):
