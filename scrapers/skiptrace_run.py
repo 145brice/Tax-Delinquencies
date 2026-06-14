@@ -207,6 +207,12 @@ def main(argv=None) -> int:
     import importlib
     importlib.reload(ss)                       # re-read pacing env
 
+    # Serper is an authenticated API -- there's no bot-detection to dodge, so skip the
+    # human-mimicry safety breaks entirely. Its only delay is a tiny per-request gap
+    # (SKIPTRACE_SERPER_MIN/MAX_GAP) to respect the plan's rate limit.
+    if args.engine == "serper":
+        args.break_every = 0
+
     # --- pick the lead source ---
     listings_mode = bool(args.county or args.city)
     listings_data = None
@@ -226,10 +232,16 @@ def main(argv=None) -> int:
     print(f"Source: {src_label} | engine: {args.engine} | matched: {len(pairs)} | "
           f"to process: {len(todo)} | write-back: {not args.no_write}")
     if listings_mode:
-        g0, g1 = (ss.GOOGLE_MIN_GAP, ss.GOOGLE_MAX_GAP) if args.engine == "google" else (ss.DDG_MIN_GAP, ss.DDG_MAX_GAP)
+        if args.engine == "serper":
+            g0, g1 = ss.SERPER_MIN_GAP, ss.SERPER_MAX_GAP
+        elif args.engine == "google":
+            g0, g1 = ss.GOOGLE_MIN_GAP, ss.GOOGLE_MAX_GAP
+        else:
+            g0, g1 = ss.DDG_MIN_GAP, ss.DDG_MAX_GAP
         eta_min = len(todo) * (g0 + g1) / 2 / 60
-        print(f"Pacing ({args.engine}): {g0:.0f}-{g1:.0f}s gaps, {args.break_min:.0f}-{args.break_max:.0f}s "
-              f"break every {args.break_every} leads (~{eta_min:.0f} min). Ctrl-C any time; progress saved.")
+        brk = "no breaks" if not args.break_every else f"{args.break_min:.0f}-{args.break_max:.0f}s break every {args.break_every} leads"
+        print(f"Pacing ({args.engine}): {g0:.1f}-{g1:.1f}s gaps, {brk} (~{eta_min:.0f} min). "
+              f"Ctrl-C any time; progress saved.")
     if not todo:
         print("Nothing to do.")
         return 0
