@@ -75,7 +75,18 @@
             background: #13151c;
             border-bottom: 1px solid #1e2130;
             padding: 12px 24px;
+            display: flex; gap: 12px; flex-wrap: nowrap; align-items: center;
+        }
+        .toolbar-left {
             display: flex; gap: 12px; flex-wrap: wrap; align-items: center;
+            flex: 1 1 auto; min-width: 0;
+        }
+        .toolbar-right {
+            display: flex; gap: 10px; align-items: center;
+            flex: 0 0 auto; margin-left: auto;
+        }
+        @media (max-width: 1100px) {
+            .toolbar { flex-wrap: wrap; }
         }
         .toolbar input[type=text], .toolbar select {
             background: #1e2130;
@@ -295,22 +306,24 @@
 </div>
 
 <div class="toolbar">
-    <input type="text" id="search-input" placeholder="&#128269; Filter address, owner, parcel, city, county..." oninput="applyFilters()">
-    <select id="county-filter" onchange="applyFilters()">
-        <option value="">All counties</option>
-    </select>
-    <select id="status-filter" onchange="applyFilters()">
-        <option value="">All types</option>
-        <option value="Auction">Auction</option>
-        <option value="Pre-foreclosure">Pre-Foreclosure</option>
-        <option value="Tax Lien">Tax Delinquent</option>
-    </select>
-    <select id="state-filter" onchange="applyFilters()">
-        <option value="">All states</option>
-    </select>
-    <button class="btn-clear" onclick="clearFilters()">Clear</button>
-    <button class="btn-clear" id="reset-cols-btn" onclick="resetColumns()" title="Restore the default column order" style="display:none;">Reset columns</button>
-    <div style="margin-left:auto; display:flex; gap:10px; align-items:center;">
+    <div class="toolbar-left">
+        <input type="text" id="search-input" placeholder="&#128269; Filter address, owner, parcel, city, county..." oninput="applyFilters()">
+        <select id="county-filter" onchange="applyFilters()">
+            <option value="">All counties</option>
+        </select>
+        <select id="status-filter" onchange="applyFilters()">
+            <option value="">All types</option>
+            <option value="Auction">Auction</option>
+            <option value="Pre-foreclosure">Pre-Foreclosure</option>
+            <option value="Tax Lien">Tax Delinquent</option>
+        </select>
+        <select id="state-filter" onchange="applyFilters()">
+            <option value="">All states</option>
+        </select>
+        <button class="btn-clear" onclick="clearFilters()">Clear</button>
+        <button class="btn-clear" id="reset-cols-btn" onclick="resetColumns()" title="Restore the default column order" style="display:none;">Reset columns</button>
+    </div>
+    <div class="toolbar-right">
         <label style="display:flex; align-items:center; gap:6px; font-size:13px;">Per page
             <select id="page-size" onchange="changePageSize()">
                 <option value="10">10</option>
