@@ -530,20 +530,25 @@ def _storefront_display_row(item):
         public_item["address"] = obfuscate_address(str(public_item["address"]))
     public_item["street"] = ""
 
-    # Privacy: the public storefront shows ONLY the area-code teaser. Strip the full
-    # skip-trace contact data so it never reaches the page source / the Vercel site.
+    # Privacy: show a partial teaser for leads that have been traced.
+    # Phone — area code + first digit of exchange visible, rest masked.
+    # Email — first half of local-part visible, rest masked.
+    # Full contact data never reaches the page source.
     digits = re.sub(r"\D", "", str(public_item.get("primary_phone") or ""))
     if len(digits) >= 10:
-        area = digits[-10:][:3]
+        local = digits[-10:]          # normalise to 10-digit
+        area  = local[:3]
+        exch1 = local[3]              # first digit of exchange
         public_item["phone_prefix"] = area
-        public_item["phone_display"] = f"({area}) ★★★-★★★★"
+        public_item["phone_display"] = f"({area}) {exch1}★★-★★★★"
     else:
         public_item["phone_prefix"] = ""
         public_item["phone_display"] = ""
     email = str(public_item.get("email_1") or "").strip()
     if email and "@" in email:
-        domain = email.split("@", 1)[1]
-        public_item["email_display"] = f"★★★@{domain}"
+        local_part, domain = email.split("@", 1)
+        half = max(1, len(local_part) // 2)
+        public_item["email_display"] = f"{local_part[:half]}{'★' * (len(local_part) - half)}@{domain}"
     else:
         public_item["email_display"] = ""
     for private_field in ("primary_phone", "phone_2", "email_1", "email_2",
