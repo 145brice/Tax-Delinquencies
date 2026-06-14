@@ -433,22 +433,36 @@ def _mask_public_owner(owner):
     if not owner:
         return ""
     generic = owner.lower()
-    if generic.startswith(("owner not listed", "seller not listed")) or generic in {"hud"}:
+    if generic.startswith("owner not listed"):
+        return "Owner unavailable"
+    if generic.startswith("seller not listed"):
+        return "Seller unavailable"
+    if generic in {"hud"}:
         return owner
-    if re.search(r"\b(llc|inc|corp|corporation|company|co\.|trust|estate|heirs|association|bank|fund|group|partners|holdings|properties|investments|mortgage|fannie|freddie|hud)\b", generic):
-        return "Entity owner"
-    if re.search(r"\bet\s+al\b|&|/|\band\b", generic):
-        return "Multiple owners"
 
-    cleaned = re.sub(r"\b(etux|et ux|aka|trustee)\b", "", owner, flags=re.I)
+    cleaned = re.sub(r"\b(etux|et ux|aka|trustee|tc|j/t)\b", "", owner, flags=re.I)
+    cleaned = re.sub(r"\b\d{1,3}-\d{1,3}\b", "", cleaned)
     cleaned = re.sub(r"\s+", " ", cleaned).strip(" ,")
     if "," in cleaned:
         parts = [part.strip() for part in cleaned.split(",", 1)]
         first = parts[1].split()[0] if len(parts) > 1 and parts[1] else ""
     else:
         first = cleaned.split()[0] if cleaned.split() else ""
+    first = first.strip(" ,&/").title()
     if not first:
         return "Owner masked"
+
+    entity_match = re.search(
+        r"\b(llc|inc|corp|corporation|company|co\.|trust|estate|heirs|association|bank|fund|group|partners|holdings|properties|investments|mortgage|fannie|freddie|hud)\b",
+        generic,
+    )
+    if re.search(r"\b(llc|inc|corp|corporation|company|co\.|trust|estate|heirs|association|bank|fund|group|partners|holdings|properties|investments|mortgage|fannie|freddie|hud)\b", generic):
+        suffix = entity_match.group(1).upper().rstrip(".") if entity_match else "Entity"
+        if suffix in {"CORPORATION", "COMPANY"}:
+            suffix = suffix.title()
+        return f"{first} **** {suffix}"
+    if re.search(r"\bet\s+al\b|&|/|\band\b", generic):
+        return f"{first} **** + co-owner"
     return f"{first.title()} ****"
 
 
@@ -1807,6 +1821,22 @@ def _load_csv_rows(filename):
     rows = []
     with open(path, newline='', encoding='utf-8') as f:
         for row in csv.DictReader(f):
+            if filename == "storefront_listings.csv":
+                status = (row.get("status") or "").strip()
+                if not row.get("record_type"):
+                    row["record_type"] = status
+                if not row.get("owner_name"):
+                    row["owner_name"] = row.get("owner", "")
+                if not row.get("property_address"):
+                    row["property_address"] = row.get("address", "")
+                if not row.get("zip_code"):
+                    row["zip_code"] = row.get("zip", "")
+                if not row.get("source_url"):
+                    row["source_url"] = row.get("link", "")
+                if status == "Tax Lien":
+                    row["record_type"] = "Tax Delinquent"
+                elif status == "Pre-foreclosure":
+                    row["record_type"] = "Pre-Foreclosure"
             rows.append(row)
     return rows
 

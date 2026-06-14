@@ -238,6 +238,8 @@
         </td>
         <td title="{{ row.scraped_date }}">{{ row.scraped_date }}</td>
         <td class="notes-cell" title="{{ row.notes }}">{{ row.notes }}</td>
+        <td title="{{ row.primary_phone }}">{{ row.primary_phone }}</td>
+        <td title="{{ row.email_1 }}">{{ row.email_1 }}</td>
         <td title="parsed from sale/record date">{{ row.sale_date_iso or '-' }}</td>
       </tr>
       {% endfor %}
