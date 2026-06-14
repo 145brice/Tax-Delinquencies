@@ -467,33 +467,20 @@ def _mask_public_owner(owner):
     if generic.startswith("seller not listed"):
         return "Seller unavailable"
     if generic in {"hud"}:
-        return owner
+        return "HUD"
 
     cleaned = re.sub(r"\b(etux|et ux|aka|trustee|tc|j/t)\b", "", owner, flags=re.I)
     cleaned = re.sub(r"\b\d{1,3}-\d{1,3}\b", "", cleaned)
     cleaned = re.sub(r"\s+", " ", cleaned).strip(" ,")
-    if "," in cleaned:
-        parts = [part.strip() for part in cleaned.split(",", 1)]
-        first = parts[1].split()[0] if len(parts) > 1 and parts[1] else ""
-    else:
-        first = cleaned.split()[0] if cleaned.split() else ""
-    first = first.strip(" ,&/").title()
-    if not first:
+    tokens = re.findall(r"[A-Za-z]+", cleaned)
+    stop_words = {
+        "al", "and", "company", "co", "corp", "corporation", "estate", "heirs",
+        "holdings", "inc", "investments", "llc", "partners", "properties", "trust",
+    }
+    initials = [token[0].upper() for token in tokens if token.lower() not in stop_words]
+    if not initials:
         return "Owner masked"
-
-    entity_match = re.search(
-        r"\b(llc|inc|corp|corporation|company|co\.|trust|estate|heirs|association|bank|fund|group|partners|holdings|properties|investments|mortgage|fannie|freddie|hud)\b",
-        generic,
-    )
-    if re.search(r"\b(llc|inc|corp|corporation|company|co\.|trust|estate|heirs|association|bank|fund|group|partners|holdings|properties|investments|mortgage|fannie|freddie|hud)\b", generic):
-        suffix = entity_match.group(1).upper().rstrip(".") if entity_match else "Entity"
-        if suffix in {"CORPORATION", "COMPANY"}:
-            suffix = suffix.title()
-        return f"{first} **** {suffix}"
-    if re.search(r"\bet\s+al\b|&|/|\band\b", generic):
-        return f"{first} **** + co-owner"
-    return f"{first.title()} ****"
-
+    return f"{'.'.join(initials[:3])}. ****"
 
 def _source_listing_id(item):
     link = str(item.get("link") or "").strip().rstrip("/")
@@ -540,25 +527,20 @@ def _storefront_display_row(item):
         public_item["address"] = obfuscate_address(str(public_item["address"]))
     public_item["street"] = ""
 
-    # Privacy: show a partial teaser for leads that have been traced.
-    # Phone — area code + first digit of exchange visible, rest masked.
-    # Email — first half of local-part visible, rest masked.
-    # Full contact data never reaches the page source.
+    # Privacy: show only coarse contact teasers. Full contact data never reaches
+    # the page source.
     digits = re.sub(r"\D", "", str(public_item.get("primary_phone") or ""))
     if len(digits) >= 10:
-        local = digits[-10:]          # normalise to 10-digit
-        area  = local[:3]
-        exch1 = local[3]              # first digit of exchange
+        area = digits[-10:][:3]
         public_item["phone_prefix"] = area
-        public_item["phone_display"] = f"({area}) {exch1}★★-★★★★"
+        public_item["phone_display"] = f"({area})"
     else:
         public_item["phone_prefix"] = ""
         public_item["phone_display"] = ""
     email = str(public_item.get("email_1") or "").strip()
     if email and "@" in email:
-        local_part, domain = email.split("@", 1)
-        half = max(1, len(local_part) // 2)
-        public_item["email_display"] = f"{local_part[:half]}{'★' * (len(local_part) - half)}@{domain}"
+        domain = email.split("@", 1)[1]
+        public_item["email_display"] = f"@{domain}"
     else:
         public_item["email_display"] = ""
     for private_field in ("primary_phone", "phone_2", "email_1", "email_2",
@@ -829,10 +811,30 @@ def normalize_settings(settings):
     return settings
 
 def obfuscate_address(address):
-    parts = address.split(' ', 1)
-    if len(parts) > 1:
-        return f"XXXX {parts[1]}"
-    return "Address Hidden"
+    text = re.sub(r"\s+", " ", str(address or "")).strip()
+    if not text:
+        return "Address hidden"
+    if re.match(r"^\s*(?:parcel|apn)\b", text, re.I):
+        return text
+
+    parts = [part.strip() for part in text.split(",")]
+    street = parts[0] if parts else text
+    city = parts[1] if len(parts) > 1 else ""
+    state_zip = ", ".join(parts[2:]).strip() if len(parts) > 2 else ""
+
+    unit = ""
+    unit_match = re.search(r"\b(?:apt|unit|suite|ste|#)\s*[A-Za-z0-9-]+\b", street, re.I)
+    if unit_match:
+        unit = unit_match.group(0)
+
+    masked_street = "Street hidden"
+    if unit:
+        masked_street = f"{masked_street}, {unit}"
+    if city and state_zip:
+        return f"{masked_street}, {city}, {state_zip}"
+    if city:
+        return f"{masked_street}, {city}"
+    return masked_street
 
 _ADDR_PARSE_RE = re.compile(r'^(.*?),\s*([A-Za-z\.\- ]+),\s*([A-Z]{2})(?:\s+(\d{5}))?\s*$')
 _GARBLED_MARKERS = {
