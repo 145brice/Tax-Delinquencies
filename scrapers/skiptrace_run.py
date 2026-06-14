@@ -182,9 +182,10 @@ def main(argv=None) -> int:
     ap.add_argument("--limit", type=int, default=0, help="max leads to process (0 = no limit)")
     ap.add_argument("--all", action="store_true", help="include leads that already have a phone/email")
     ap.add_argument("--no-write", action="store_true", help="write CSV only, don't modify leads")
-    ap.add_argument("--engine", choices=["ddg", "google", "combo"], default="ddg",
+    ap.add_argument("--engine", choices=["ddg", "google", "combo", "serper"], default="ddg",
                     help="ddg = DuckDuckGo (no browser/CAPTCHA, default); google = HTTP+headed "
-                         "browser (CAPTCHA-prone); combo = DDG first, Google for the misses")
+                         "browser (CAPTCHA-prone); combo = DDG first, Google for the misses; "
+                         "serper = Google via Serper.dev API (paid, no IP rate-limit)")
     ap.add_argument("--headless", action="store_true", help="google/combo: run browser without a window")
     ap.add_argument("--csv", default=str(DEFAULT_CSV), help="review CSV output path")
     ap.add_argument("--gap-min", type=float, default=None, help="min seconds between searches")
@@ -323,7 +324,8 @@ def main(argv=None) -> int:
                         "mailing_address": str(lead.get("mailing_address") or ""),
                         "skiptrace_notes": f"auto ({r.get('engine', args.engine)}-snippet): {r.get('query','')}",
                         "skiptrace_source": {"ddg": "DuckDuckGo", "google": "Google",
-                                             "combo": "DuckDuckGo/Google"}.get(
+                                             "combo": "DuckDuckGo/Google",
+                                             "serper": "Google (Serper)"}.get(
                             r.get("engine", args.engine), "DuckDuckGo"),
                         "skiptraced_at": datetime.now().isoformat(timespec="seconds"),
                         "skiptrace_status": "completed" if (best or emails) else "pending",

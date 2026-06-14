@@ -79,7 +79,7 @@ def start(county: str = "", limit: int = 0, pace: str = "normal", breaks: str = 
         return False, "A run is already in progress."
     if not county:
         return False, "Pick a county first."
-    if engine not in ("ddg", "google", "combo"):
+    if engine not in ("ddg", "google", "combo", "serper"):
         engine = "ddg"
 
     gmin, gmax = PACE_PRESETS.get(pace, PACE_PRESETS["normal"])

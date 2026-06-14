@@ -94,6 +94,17 @@ _SITE_QUERY_TEMPLATES = [
     '"{n}" {c} {s} site:{d}',
     '{n} {c} site:{d}',
 ]
+# Google (via Serper) prefers natural, UNQUOTED queries -- exact-match "quotes" return
+# almost nothing on Google. These lean on the people-search sites Google indexes well.
+_SERPER_PHONE_TEMPLATES = [
+    '{n} {c} {s} phone number',
+    '{n} {c} {s} address phone',
+    '{n} {c} {s} truepeoplesearch',
+]
+_SERPER_EMAIL_TEMPLATES = [
+    '{n} {c} {s} email address',
+    '{n} {c} {s} contact email',
+]
 
 _PHONE_RE = re.compile(r"\(?\b\d{3}\)?[-.\s]\d{3}[-.\s]\d{4}\b")
 _EMAIL_RE = re.compile(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}")
@@ -808,13 +819,163 @@ class ComboSession:
         return g if g.get("phones") else r
 
 
+# --- Serper.dev backend: Google results via API (no scraping, no IP rate-limit) ---
+# Serper proxies the search on THEIR infrastructure and returns JSON, so your IP never
+# trips a CAPTCHA/rate-limit. Costs ~$1 per 1,000 queries. Same multi-pass + name-beside-
+# number extraction as DDG -- only the transport differs (API call vs HTML scrape).
+SERPER_ENDPOINT = "https://google.serper.dev/search"
+# No DDG-style burst limit on YOUR IP, so gaps are tiny -- just polite to Serper's plan.
+SERPER_MIN_GAP = float(os.getenv("SKIPTRACE_SERPER_MIN_GAP", "0.4"))
+SERPER_MAX_GAP = float(os.getenv("SKIPTRACE_SERPER_MAX_GAP", "1.0"))
+
+
+def _serper_key() -> str:
+    """Read the key at runtime (with a dotenv fallback for direct CLI use), not at import
+    -- the env may not be loaded yet when this module is first imported."""
+    key = os.getenv("SERPER_API_KEY", "")
+    if not key:
+        try:
+            from dotenv import load_dotenv
+            load_dotenv()
+            key = os.getenv("SERPER_API_KEY", "")
+        except Exception:
+            pass
+    return key
+
+
+def _serper_blocks(data: dict) -> list[dict]:
+    """Turn a Serper JSON response into {url,text} blocks for _extract_blocks."""
+    blocks: list[dict] = []
+    for item in (data.get("organic") or []):
+        text = " ".join(p for p in (item.get("title"), item.get("snippet")) if p)
+        for sl in (item.get("sitelinks") or []):
+            if sl.get("title"):
+                text += " " + sl["title"]
+        if text:
+            blocks.append({"url": item.get("link", ""), "text": text})
+    kg = data.get("knowledgeGraph") or {}      # can carry a phone directly
+    if kg:
+        bits = [kg.get("title") or "", kg.get("description") or ""]
+        bits += [f"{k}: {v}" for k, v in (kg.get("attributes") or {}).items()]
+        t = " ".join(b for b in bits if b)
+        if t:
+            blocks.append({"url": kg.get("website", ""), "text": t})
+    return blocks
+
+
+class SerperSession:
+    """Google results via the Serper.dev API -- no HTML scraping, no CAPTCHA, and the
+    requests go through Serper, so your IP is never rate-limited. Same four-pass flow and
+    name-beside-number precision gate as the DDG backend."""
+
+    def __init__(self, **_ignored):
+        self._key = _serper_key()
+        if not self._key:
+            raise Blocked("SERPER_API_KEY is not set -- add it to your .env to use the Serper engine.")
+        self._sess = None
+        self._n = 0
+
+    def __enter__(self):
+        self._sess = requests.Session()
+        self._sess.headers.update({"X-API-KEY": self._key, "Content-Type": "application/json"})
+        return self
+
+    def __exit__(self, *exc):
+        if self._sess:
+            self._sess.close()
+
+    @staticmethod
+    def _merge_blocks(blocks, name, addr, state, phones: dict, emails: set) -> None:
+        ranked, em = _extract_blocks(blocks, name, addr, state)
+        for d in ranked:
+            cur = phones.get(d["phone"])
+            if cur is None or d["score"] > cur["score"]:
+                phones[d["phone"]] = d
+        emails.update(em)
+
+    def _search(self, query: str) -> list[dict]:
+        body = json.dumps({"q": query, "gl": "us", "hl": "en", "num": 20})
+        try:
+            r = self._sess.post(SERPER_ENDPOINT, data=body, timeout=30)
+        except Exception:
+            return []
+        if r.status_code in (401, 403):
+            raise Blocked("Serper rejected the API key (HTTP %d) -- check SERPER_API_KEY in .env." % r.status_code)
+        if r.status_code == 429:
+            raise Blocked("Serper credit/rate limit reached (HTTP 429) -- top up credits or slow down.")
+        if r.status_code != 200:
+            return []
+        try:
+            return _serper_blocks(r.json())
+        except Exception:
+            return []
+
+    def lookup(self, owner: str, street: str, city: str, state: str,
+               *, use_cache: bool = True) -> dict:
+        name = clean_owner(owner)
+        addr = clean_addr(street)
+        key = _cache_key(name, f"{city}-{state}".strip("-"))
+        cache = _load_cache()
+        if use_cache and key in cache:
+            out = dict(cache[key]); out["cached"] = True
+            return out
+        if not name:
+            return {"phones": [], "emails": [], "name": name, "cached": False,
+                    "error": "no usable owner name"}
+
+        if self._n:
+            _hp(SERPER_MIN_GAP, SERPER_MAX_GAP)
+        self._n += 1
+
+        phones: dict[str, dict] = {}
+        emails: set[str] = set()
+        queries: list[str] = []
+
+        # Pass 1 -- name + phone (UNQUOTED -- Google returns ~nothing for "exact match")
+        q = random.choice(_SERPER_PHONE_TEMPLATES).format(n=_query_name(name), c=city, s=state)
+        queries.append(q)
+        self._merge_blocks(self._search(q), name, addr, state, phones, emails)
+        # Pass 2 -- reverse-address (only if no phone yet)
+        if not phones and addr:
+            _hp(SERPER_MIN_GAP, SERPER_MAX_GAP)
+            q = random.choice(_ADDR_QUERY_TEMPLATES).format(addr=addr, c=city, s=state)
+            queries.append(q)
+            self._merge_blocks(self._search(q), name, addr, state, phones, emails)
+        # Pass 3 -- dedicated email query
+        if not emails:
+            _hp(SERPER_MIN_GAP, SERPER_MAX_GAP)
+            q = random.choice(_SERPER_EMAIL_TEMPLATES).format(n=_query_name(name), c=city, s=state)
+            queries.append(q)
+            self._merge_blocks(self._search(q), name, addr, state, phones, emails)
+        # Pass 4 -- site: fallback (only on total miss)
+        if not phones and not emails:
+            _hp(SERPER_MIN_GAP, SERPER_MAX_GAP)
+            domain = random.choice(_SITE_DOMAINS)
+            q = random.choice(_SITE_QUERY_TEMPLATES).format(n=_query_name(name), c=city, s=state, d=domain)
+            queries.append(q)
+            self._merge_blocks(self._search(q), name, addr, state, phones, emails)
+
+        ranked = sorted(phones.values(), key=lambda d: (-d["score"], d["phone"]))
+        result = {
+            "name": name, "engine": "serper", "query": " | ".join(queries),
+            "phones": [r["phone"] for r in ranked], "phone_details": ranked[:6],
+            "emails": sorted(emails)[:4], "cached": False,
+        }
+        if result["phones"] or result["emails"]:
+            cache[key] = {k: result[k] for k in ("name", "query", "phones", "phone_details", "emails")}
+            _save_cache(cache)
+        return result
+
+
 def get_session(engine: str = "ddg", **kw):
-    """Factory: 'ddg' (no browser, default), 'google' (HTTP+browser), or
-    'combo' (DDG first, Google fallback for misses)."""
+    """Factory: 'ddg' (no browser, default), 'google' (HTTP+browser),
+    'combo' (DDG first, Google fallback), or 'serper' (Google via API, no IP blocks)."""
     if engine == "google":
         return GoogleSession(**kw)
     if engine == "combo":
         return ComboSession(**kw)
+    if engine == "serper":
+        return SerperSession(**kw)
     return DDGSession(**kw)
 
 
