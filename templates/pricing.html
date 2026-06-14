@@ -100,6 +100,26 @@
         .picker-price strong { color: #fff; }
 
         /* Skip trace */
+        /* Trial box */
+        .trial-box {
+            background: #13151c; border: 1px solid #2a2d3a; border-radius: 14px;
+            padding: 28px 28px; margin-bottom: 40px;
+        }
+        .trial-box .trial-header {
+            display: flex; align-items: baseline; gap: 14px; margin-bottom: 10px; flex-wrap: wrap;
+        }
+        .trial-box h3 { font-size: 1.1rem; font-weight: 800; }
+        .trial-box .trial-tag {
+            background: #1e2130; border: 1px solid #2a2d3a; border-radius: 999px;
+            padding: 3px 12px; font-size: 0.75rem; color: #9ca3af;
+        }
+        .trial-box .trial-note {
+            background: #0f1117; border: 1px solid #2a3550; border-radius: 8px;
+            padding: 12px 16px; font-size: 0.82rem; color: #9ca3af; line-height: 1.6;
+            margin: 14px 0 20px;
+        }
+        .trial-box .trial-note strong { color: #fbbf24; }
+
         .trace-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; margin-bottom: 40px; }
         .trace-card {
             background: #16181f; border: 1px solid #22253a; border-radius: 12px;
@@ -283,6 +303,27 @@
     </script>
 </div>
 
+<!-- TRIAL -->
+<div class="section">
+    <div class="trial-box">
+        <div class="trial-header">
+            <h3>Not ready to commit? Try it for $1.</h3>
+            <span class="trial-tag">7 days</span>
+        </div>
+        <p style="font-size:0.88rem;color:#9ca3af;">Get a real look at the data before you subscribe to a county.</p>
+        <div class="trial-note">
+            <strong>Heads up:</strong> Trial leads are pulled from properties where we don't have an owner name on file — meaning they <strong style="color:#fff;">cannot be skip traced</strong>. You'll see real addresses, parcel IDs, amounts owed, and sale dates — everything except the owner name. Some investors use these to drive by or pull the name themselves at the county. We'd rather tell you upfront than hand you something half-baked and call it a win.
+        </div>
+        <div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap;">
+            <div style="font-size:2rem;font-weight:800;color:#fff;line-height:1;"><sup style="font-size:0.9rem;vertical-align:top;margin-top:5px;">$</sup>1</div>
+            <div style="font-size:0.83rem;color:#6b7280;line-height:1.5;">7 days &middot; Raw lead data &middot; 1 county &middot; No skip traces &middot; Cancel anytime</div>
+            {% if checkout_ready %}
+            <a href="/register" class="btn-primary" style="margin-left:auto;">Start $1 Trial</a>
+            {% endif %}
+        </div>
+    </div>
+</div>
+
 <!-- SKIP TRACE -->
 <div class="section">
     <h2 class="section-title">Skip Trace</h2>
@@ -360,11 +401,21 @@
 
         <div class="faq-item">
             <div class="faq-q" onclick="toggleFaq(this)">
+                What exactly are the trial leads?
+                <span class="chevron">▼</span>
+            </div>
+            <div class="faq-a">
+                Trial leads are real public-record filings — addresses, parcel IDs, amounts owed, sale dates — from properties where we don't have an owner name on file. Because there's no name, they can't be skip traced. We're transparent about that. Some investors use them to scout addresses or pull the owner name themselves through the county recorder. They're real data, just not the full package.
+            </div>
+        </div>
+
+        <div class="faq-item">
+            <div class="faq-q" onclick="toggleFaq(this)">
                 Is there a setup fee or contract?
                 <span class="chevron">▼</span>
             </div>
             <div class="faq-a">
-                No setup fee, no contracts. Subscriptions are month-to-month and you can cancel any time through your account. Individual leads are available at $5 each from the storefront without a subscription.
+                No setup fee, no contracts. The $1 trial gives you 7 days to see the data. County subscriptions are month-to-month and cancel any time through your account. Individual leads are also available at $5 each from the storefront without a subscription.
             </div>
         </div>
 
@@ -374,9 +425,12 @@
 <!-- BOTTOM CTA -->
 <div class="cta-bottom">
     <h2>Ready to lock in your county?</h2>
-    <p>Month-to-month. Cancel any time. Your leads, your territory.</p>
+    <p>Month-to-month. Cancel any time. Or try it for $1 first.</p>
     {% if accounts_ready %}
-    <a href="#subscribe" class="btn-primary">Pick your county</a>
+    <div style="display:flex;gap:12px;justify-content:center;flex-wrap:wrap;">
+        <a href="#subscribe" class="btn-primary">Pick your county</a>
+        <a href="/register" class="btn-primary" style="background:#1e2130;border:1px solid #2a2d3a;">Start $1 Trial</a>
+    </div>
     {% else %}
     <a href="/" class="btn-primary disabled">Appwrite setup pending</a>
     {% endif %}
