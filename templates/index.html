@@ -333,7 +333,7 @@
 
 <div class="table-wrap">
 {% if listings %}
-<table class="leads" id="leads-table">
+<table class="leads" id="leads-table" style="visibility:hidden">
     <thead>
         <tr>
             <th class="col-cb" data-col="select"><input type="checkbox" id="select-all" onclick="toggleAll(this)"></th>
@@ -671,6 +671,7 @@
         if (Array.isArray(SAVED_COL_ORDER) && SAVED_COL_ORDER.length) {
             applyOrder(SAVED_COL_ORDER);
         }
+        document.getElementById('leads-table').style.visibility = '';
     })();
 
     // Filtering
