@@ -849,7 +849,21 @@ def obfuscate_address(address):
     type_token = street_tokens[type_index] if type_index is not None else ""
     name_candidates = street_tokens[:type_index] if type_index is not None else street_tokens
     name_token = next((token for token in name_candidates if token.lower().strip(".") not in directions), "")
-    masked_street = f"{name_token[0].upper()}**** {type_token}" if name_token and type_token else "Street hidden"
+    name_token = name_token or (name_candidates[0] if name_candidates else "")
+    location_types = {"township", "village", "city", "borough"}
+    location_type = (
+        street_tokens[-1]
+        if len(street_tokens) > 1 and street_tokens[-1].lower().strip(".") in location_types
+        else ""
+    )
+    if name_token and type_token:
+        masked_street = f"{name_token[0].upper()}**** {type_token}"
+    elif name_token and location_type:
+        masked_street = f"{name_token[0].upper()}**** {location_type}"
+    elif name_token:
+        masked_street = f"{name_token[0].upper()}****"
+    else:
+        masked_street = "Location hidden"
     if city and state_zip:
         return f"{masked_street}, {city}, {state_zip}"
     if city:
