@@ -22,6 +22,7 @@ _SOURCE_METADATA = None
 _COUNTY_SCRAPER_MAP = None
 OWNER_ADMIN_EMAILS = {"145brice@gmail.com"}
 APP_BUILD = "admin-debug-2026-06-13-1"
+DUVAL_TAX_CERTIFICATE_SALE_DATE = "2026-05-27"
 
 
 def source_metadata():
@@ -380,18 +381,22 @@ def _is_publishable_listing(item):
         return False
     if not (str(item.get("source") or "").strip() or str(item.get("link") or "").strip()):
         return False
-    address = str(item.get("address") or "").strip()
-    if len(address) < 8:
-        return False
     county = str(item.get("county") or "").strip().lower()
     status = str(item.get("status") or item.get("record_type") or "").strip().lower()
     source = str(item.get("source") or "").strip().lower()
+    link = str(item.get("link") or "").strip().lower()
+    parcel = str(item.get("parcel_id") or "").strip()
+    owner = str(item.get("owner") or "").strip()
+    address = str(item.get("address") or "").strip()
+    if len(address) < 8:
+        return False
     if county == "duval":
-        if re.match(r"^(?:apn\s+)?[0-9a-z-]{6,}(?:,\s*jacksonville,\s*fl)?$", address, re.I):
-            return False
+        is_duval_tax = "tax" in status and ("duval" in source or "re_tax" in link)
+        if is_duval_tax:
+            return bool(owner and parcel)
         if re.search(r"\b16-\d{4}-(?:ca|cc)-\d{6}\b", address, re.I):
             return False
-        if "tax" in status and "duval" in source and not re.search(r"\d+\s+[A-Za-z]", address):
+        if re.match(r"^(?:apn\s+)?[0-9a-z-]{6,}(?:,\s*jacksonville,\s*fl)?$", address, re.I):
             return False
         if ("hud" in source or "homepath" in source) and not re.search(
             r"\b(?:jacksonville|jacksonville beach|atlantic beach|neptune beach|baldwin)\b",
@@ -458,7 +463,10 @@ def _storefront_display_row(item):
     public_item = _backfill_fields(dict(item))
     status = str(public_item.get("status") or public_item.get("record_type") or "").lower()
     source = str(public_item.get("source") or "").lower()
+    county = str(public_item.get("county") or "").lower()
+    link = str(public_item.get("link") or "").lower()
     source_id = _source_listing_id(public_item)
+    parcel_display_address = False
 
     public_item["owner"] = _mask_public_owner(_storefront_owner(public_item))
     public_item["scraped_date"] = public_item.get("scraped_date") or public_item.get("date")
@@ -477,10 +485,15 @@ def _storefront_display_row(item):
         public_item["sale_date"] = public_item.get("sale_date") or public_item.get("date") or public_item.get("scraped_date")
     elif "tax" in status:
         public_item["sale_date"] = public_item.get("sale_date") or public_item.get("date") or public_item.get("scraped_date")
+        if county == "duval" and ("duval" in source or "re_tax" in link) and public_item.get("parcel_id"):
+            public_item["address"] = f"Parcel {public_item['parcel_id']}, Jacksonville, FL"
+            public_item["date"] = DUVAL_TAX_CERTIFICATE_SALE_DATE
+            public_item["sale_date"] = DUVAL_TAX_CERTIFICATE_SALE_DATE
+            parcel_display_address = True
     elif "foreclosure" in status:
         public_item["sale_date"] = public_item.get("sale_date") or public_item.get("date") or public_item.get("scraped_date")
 
-    if public_item.get("address"):
+    if public_item.get("address") and not parcel_display_address:
         public_item["address"] = obfuscate_address(str(public_item["address"]))
     public_item["street"] = ""
 
