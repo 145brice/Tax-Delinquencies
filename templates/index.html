@@ -334,6 +334,9 @@
             <th class="col-cb"><input type="checkbox" id="select-all" onclick="toggleAll(this)"></th>
             <th data-sort="status">Type</th>
             <th data-sort="amount" data-type="money">Amount / Value</th>
+            <th data-sort="price" data-type="money">Price</th>
+            <th data-sort="sale_date" data-type="date">Sale / Record Date</th>
+            <th data-sort="scraped_date" data-type="date">Scraped</th>
             <th data-sort="county">County</th>
             <th data-sort="state">State</th>
             <th data-sort="city">City</th>
@@ -344,9 +347,6 @@
             <th title="Domain shown; full address revealed after purchase">Email</th>
             <th data-sort="parcel_id">Parcel/APN</th>
             <th data-sort="case_number">Case#</th>
-            <th data-sort="sale_date" data-type="date">Sale / Record Date</th>
-            <th data-sort="scraped_date" data-type="date">Scraped</th>
-            <th data-sort="price" data-type="money">Price</th>
             <th>Src</th>
         </tr>
     </thead>
@@ -381,6 +381,9 @@
                 {% endif %}
             </td>
             <td>{{ item.amount_owed or ('$' ~ "{:,}".format(item.bid|int) if item.bid else '-') }}</td>
+            <td><span class="price-tag">${{ item.price_display or item.price }}</span></td>
+            <td>{{ item.sale_date or '' }}</td>
+            <td>{{ item.scraped_date or '' }}</td>
             <td><span class="badge-county">{{ item.county or '-' }}</span></td>
             <td>{{ item.state or '' }}</td>
             <td>{{ item.city or '' }}</td>
@@ -405,9 +408,6 @@
             </td>
             <td>{{ item.parcel_id or '-' }}</td>
             <td>{{ item.case_number or '-' }}</td>
-            <td>{{ item.sale_date or '' }}</td>
-            <td>{{ item.scraped_date or '' }}</td>
-            <td><span class="price-tag">${{ item.price_display or item.price }}</span></td>
             <td>
                 {% if item.link %}
                   <a class="src-link" href="{{ item.link }}" target="_blank" rel="noopener">&nearr;</a>
