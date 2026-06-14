@@ -539,8 +539,12 @@ def _storefront_display_row(item):
         public_item["phone_display"] = ""
     email = str(public_item.get("email_1") or "").strip()
     if email and "@" in email:
-        domain = email.split("@", 1)[1]
-        public_item["email_display"] = f"@{domain}"
+        local_part, domain = email.split("@", 1)
+        domain_name, dot, suffix = domain.partition(".")
+        local_initial = local_part[:1].lower()
+        domain_initial = domain_name[:1].lower()
+        suffix_display = f"{dot}{suffix}" if dot and suffix else ""
+        public_item["email_display"] = f"{local_initial}****@{domain_initial}****{suffix_display}"
     else:
         public_item["email_display"] = ""
     for private_field in ("primary_phone", "phone_2", "email_1", "email_2",
