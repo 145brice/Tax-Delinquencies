@@ -1124,6 +1124,18 @@ def account():
             if folder:
                 folders.add(folder)
     active_subs = _user_subs(user["id"]) if _subscriptions_ready() else []
+    for s in active_subs:
+        pt = str(s.get("pending_tier") or "").lower()
+        if pt in TIER_LABELS:
+            s["pending_tier_label"] = TIER_LABELS[pt]
+            ts = s.get("pending_tier_at")
+            try:
+                s["pending_tier_date"] = datetime.fromtimestamp(int(ts)).strftime("%b %-d, %Y")
+            except (TypeError, ValueError):
+                try:
+                    s["pending_tier_date"] = datetime.fromtimestamp(int(ts)).strftime("%b %d, %Y")
+                except (TypeError, ValueError):
+                    s["pending_tier_date"] = ""
     return render_template('account.html', email=user['email'], orders=orders,
                            folders=sorted(folders), statuses=statuses,
                            active_subs=active_subs,
@@ -1880,7 +1892,9 @@ def stripe_webhook():
         status = obj.get("status") or "active"
         new_status = "active" if status == "active" else "canceled"
         _set_sub_status(obj.get("id"), new_status)
-        # Sync tier in case price changed (upgrade/downgrade)
+        # Sync tier in case price changed (immediate upgrade, or a scheduled
+        # downgrade landing at renewal). Clear any pending-downgrade marker
+        # once the live price matches the new tier.
         try:
             price_id = obj["items"]["data"][0]["price"]["id"]
             new_tier = next((k for k, v in TIER_PRICES.items() if v == price_id), None)
@@ -1889,6 +1903,9 @@ def stripe_webhook():
                 for s in subs:
                     if s.get("stripe_subscription_id") == obj.get("id"):
                         s["tier"] = new_tier
+                        if s.get("pending_tier") == new_tier:
+                            s.pop("pending_tier", None)
+                            s.pop("pending_tier_at", None)
                 _save_subs(subs)
         except Exception:
             pass
@@ -2072,8 +2089,10 @@ def subscriber_reveal():
 @app.route('/api/subscriber/change-tier', methods=['POST'])
 @login_required
 def subscriber_change_tier():
-    """Upgrade or downgrade a county subscription to a different tier.
-    Stripe prorates immediately; new tier is stored on success."""
+    """Change a county subscription's tier.
+    Upgrades apply immediately (prorated charge now). Downgrades are scheduled
+    at the next renewal so the buyer keeps the higher lead allowance for the
+    cycle they already paid for."""
     user = current_user()
     payload = request.get_json(silent=True) or {}
     county = str(payload.get("county") or "").strip().lower()
@@ -2099,27 +2118,74 @@ def subscriber_change_tier():
     if not stripe_sub_id:
         return jsonify({"error": "Subscription record missing Stripe ID."}), 500
 
+    is_upgrade = TIER_AMOUNTS.get(new_tier, 0) > TIER_AMOUNTS.get(current_tier, 0)
+    period_end = None
+
     try:
         stripe_sub = stripe.Subscription.retrieve(stripe_sub_id)
-        item_id = stripe_sub["items"]["data"][0]["id"]
-        stripe.Subscription.modify(
-            stripe_sub_id,
-            items=[{"id": item_id, "price": TIER_PRICES[new_tier]}],
-            proration_behavior="always_invoice",
-        )
+        existing_schedule = stripe_sub.get("schedule")
+        period_end = stripe_sub.get("current_period_end")
+
+        if is_upgrade:
+            # Cancel any pending downgrade, then switch now with prorated charge.
+            if existing_schedule:
+                try:
+                    stripe.SubscriptionSchedule.release(existing_schedule)
+                except stripe.error.StripeError:
+                    pass
+                stripe_sub = stripe.Subscription.retrieve(stripe_sub_id)
+            item_id = stripe_sub["items"]["data"][0]["id"]
+            stripe.Subscription.modify(
+                stripe_sub_id,
+                items=[{"id": item_id, "price": TIER_PRICES[new_tier]}],
+                proration_behavior="always_invoice",
+            )
+        else:
+            # Downgrade: schedule the new price to start at the next renewal.
+            # Rebuild the schedule fresh so the current phase mirrors reality.
+            if existing_schedule:
+                try:
+                    stripe.SubscriptionSchedule.release(existing_schedule)
+                except stripe.error.StripeError:
+                    pass
+            schedule = stripe.SubscriptionSchedule.create(from_subscription=stripe_sub_id)
+            phase = schedule["phases"][0]
+            stripe.SubscriptionSchedule.modify(
+                schedule["id"],
+                end_behavior="release",
+                phases=[
+                    {
+                        "items": [{"price": phase["items"][0]["price"], "quantity": 1}],
+                        "start_date": phase["start_date"],
+                        "end_date": phase["end_date"],
+                    },
+                    {
+                        "items": [{"price": TIER_PRICES[new_tier], "quantity": 1}],
+                    },
+                ],
+            )
     except stripe.error.StripeError as exc:
         return jsonify({"error": str(exc)}), 502
 
-    # Update local record immediately — webhook will also fire as backup
+    # Persist local record. Upgrade flips tier now; downgrade keeps the current
+    # tier and records the pending change (webhook clears it at renewal).
     subs = _load_subs()
     for s in subs:
         if s.get("stripe_subscription_id") == stripe_sub_id:
-            s["tier"] = new_tier
+            if is_upgrade:
+                s["tier"] = new_tier
+                s.pop("pending_tier", None)
+                s.pop("pending_tier_at", None)
+            else:
+                s["pending_tier"] = new_tier
+                s["pending_tier_at"] = period_end
     _save_subs(subs)
 
     return jsonify({
         "ok": True,
-        "tier": new_tier,
+        "scheduled": (not is_upgrade),
+        "tier": new_tier if is_upgrade else current_tier,
+        "pending_tier": (None if is_upgrade else new_tier),
         "label": TIER_LABELS[new_tier],
         "amount": TIER_AMOUNTS[new_tier],
         "included": TIER_INCLUDED[new_tier],

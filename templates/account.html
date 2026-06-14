@@ -142,6 +142,11 @@
         .tp-note { font-size: 0.75rem; color: #6b7280; margin-bottom: 10px; }
         .tp-cancel { background: none; border: 1px solid #374151; color: #9ca3af; border-radius: 6px; padding: 6px 14px; font-size: 0.8rem; cursor: pointer; }
         .tp-cancel:hover { color: #fff; border-color: #6b7280; }
+        .pending-downgrade {
+            margin-top: 12px; background: #2a210a; border: 1px solid #a16207;
+            border-radius: 8px; padding: 9px 14px; font-size: 0.82rem; color: #fcd34d;
+        }
+        .pending-downgrade strong { color: #fde68a; }
     </style>
 </head>
 <body>
@@ -171,7 +176,8 @@
     <div style="display:grid;gap:14px;margin-bottom:36px;">
         {% for sub in active_subs %}
         {% set tier = sub.tier or 'professional' %}
-        <div class="sub-card" id="sub-card-{{ loop.index }}">
+        {% set card_idx = loop.index %}
+        <div class="sub-card" id="sub-card-{{ card_idx }}">
             <div class="sub-card-top">
                 <div>
                     <div class="sub-county">{{ sub.county | title }}</div>
@@ -181,27 +187,36 @@
                         <span class="sub-used">{{ sub.traces_used or 0 }} used this cycle</span>
                     </div>
                 </div>
-                <button class="btn-change-tier" onclick="toggleTierPicker({{ loop.index }})">Change Plan</button>
+                <button class="btn-change-tier" onclick="toggleTierPicker({{ card_idx }})">Change Plan</button>
             </div>
-            <div class="tier-picker" id="picker-{{ loop.index }}" style="display:none;">
+            {% if sub.pending_tier_label %}
+            <div class="pending-downgrade">
+                Scheduled to switch to <strong>{{ sub.pending_tier_label }}</strong>
+                {% if sub.pending_tier_date %}on {{ sub.pending_tier_date }}{% else %}at your next renewal{% endif %}.
+                You keep {{ tier_labels[tier] }} benefits until then.
+            </div>
+            {% endif %}
+            <div class="tier-picker" id="picker-{{ card_idx }}" style="display:none;">
                 <div class="tier-picker-cards">
                     {% for t, label in tier_labels.items() %}
-                    <div class="tp-card {% if t == tier %}tp-current{% endif %}" id="tp-{{ loop.index }}-{{ t }}">
+                    <div class="tp-card {% if t == tier %}tp-current{% endif %}" id="tp-{{ card_idx }}-{{ t }}">
                         <div class="tp-name">{{ label }}</div>
                         <div class="tp-price">${{ tier_amounts[t] }}/mo</div>
                         <div class="tp-leads">{{ tier_included[t] }} leads</div>
                         {% if t == tier %}
                             <div class="tp-current-label">Current plan</div>
+                        {% elif t == sub.pending_tier %}
+                            <div class="tp-current-label" style="color:#facc15;">Scheduled</div>
                         {% else %}
-                            <button class="tp-select-btn" onclick="changeTier('{{ sub.county }}', '{{ t }}', {{ loop.index }})">
+                            <button class="tp-select-btn" onclick="changeTier('{{ sub.county }}', '{{ t }}', {{ card_idx }})">
                                 {% if tier_amounts[t] > tier_amounts[tier] %}Upgrade{% else %}Downgrade{% endif %} to {{ label }}
                             </button>
                         {% endif %}
                     </div>
                     {% endfor %}
                 </div>
-                <p class="tp-note">Upgrades charge a prorated amount immediately. Downgrades take effect at the next billing date.</p>
-                <button class="tp-cancel" onclick="toggleTierPicker({{ loop.index }})">Cancel</button>
+                <p class="tp-note">Upgrades take effect immediately (prorated charge now). Downgrades take effect at your next billing date &mdash; you keep your current allowance until then.</p>
+                <button class="tp-cancel" onclick="toggleTierPicker({{ card_idx }})">Cancel</button>
             </div>
         </div>
         {% endfor %}
@@ -485,7 +500,11 @@ async function changeTier(county, tier, cardIdx) {
             btns.forEach(function(b) { b.disabled = false; });
             return;
         }
-        // Refresh the page so the card reflects the new tier
+        if (d.scheduled) {
+            alert('Downgrade to ' + d.label + ' scheduled for your next billing date. '
+                  + 'You keep your current plan and lead allowance until then.');
+        }
+        // Refresh the page so the card reflects the change
         window.location.reload();
     } catch (e) {
         alert('Network error — try again.');
