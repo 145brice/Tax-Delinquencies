@@ -288,6 +288,10 @@
     (function () {
         var btn = document.getElementById('subBtn');
         if (!btn) return;
+        // Reset button when user navigates back from Stripe checkout
+        window.addEventListener('pageshow', function () {
+            btn.disabled = false; btn.textContent = 'Subscribe';
+        });
         btn.addEventListener('click', async function () {
             var county = document.getElementById('subCounty').value;
             var msg = document.getElementById('subMsg');
