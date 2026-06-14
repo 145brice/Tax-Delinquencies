@@ -1123,8 +1123,13 @@ def account():
             folder = str(lead.get("buyer_folder") or "").strip()
             if folder:
                 folders.add(folder)
+    active_subs = _user_subs(user["id"]) if _subscriptions_ready() else []
     return render_template('account.html', email=user['email'], orders=orders,
-                           folders=sorted(folders), statuses=statuses)
+                           folders=sorted(folders), statuses=statuses,
+                           active_subs=active_subs,
+                           tier_labels=TIER_LABELS, tier_amounts=TIER_AMOUNTS,
+                           tier_included=TIER_INCLUDED,
+                           subscriptions_ready=_subscriptions_ready())
 
 
 @app.route('/account/debug')
@@ -1873,8 +1878,20 @@ def stripe_webhook():
         _set_sub_status(obj.get("id"), "canceled")    # releases the county claim
     elif etype == "customer.subscription.updated":
         status = obj.get("status") or "active"
-        # any non-active status frees the county; keep 'active' otherwise
-        _set_sub_status(obj.get("id"), "active" if status == "active" else "canceled")
+        new_status = "active" if status == "active" else "canceled"
+        _set_sub_status(obj.get("id"), new_status)
+        # Sync tier in case price changed (upgrade/downgrade)
+        try:
+            price_id = obj["items"]["data"][0]["price"]["id"]
+            new_tier = next((k for k, v in TIER_PRICES.items() if v == price_id), None)
+            if new_tier:
+                subs = _load_subs()
+                for s in subs:
+                    if s.get("stripe_subscription_id") == obj.get("id"):
+                        s["tier"] = new_tier
+                _save_subs(subs)
+        except Exception:
+            pass
     elif etype == "invoice.paid" and obj.get("subscription"):
         # renewal -> reset the monthly included-trace allowance
         subs = _load_subs()
@@ -2049,6 +2066,63 @@ def subscriber_reveal():
         "email": email,
         "overage": result.get("overage", False),
         "used": result.get("used", 0),
+    })
+
+
+@app.route('/api/subscriber/change-tier', methods=['POST'])
+@login_required
+def subscriber_change_tier():
+    """Upgrade or downgrade a county subscription to a different tier.
+    Stripe prorates immediately; new tier is stored on success."""
+    user = current_user()
+    payload = request.get_json(silent=True) or {}
+    county = str(payload.get("county") or "").strip().lower()
+    new_tier = str(payload.get("tier") or "").strip().lower()
+
+    if not county:
+        return jsonify({"error": "county required"}), 400
+    if new_tier not in TIER_PRICES:
+        return jsonify({"error": "Invalid tier"}), 400
+
+    user_subs = _user_subs(user["id"])
+    sub = next((s for s in user_subs
+                if str(s.get("county") or "").lower() == county
+                and s.get("status") == "active"), None)
+    if not sub:
+        return jsonify({"error": "No active subscription found for this county."}), 404
+
+    current_tier = str(sub.get("tier") or "professional").lower()
+    if current_tier == new_tier:
+        return jsonify({"error": f"You're already on the {TIER_LABELS[new_tier]} plan."}), 400
+
+    stripe_sub_id = sub.get("stripe_subscription_id")
+    if not stripe_sub_id:
+        return jsonify({"error": "Subscription record missing Stripe ID."}), 500
+
+    try:
+        stripe_sub = stripe.Subscription.retrieve(stripe_sub_id)
+        item_id = stripe_sub["items"]["data"][0]["id"]
+        stripe.Subscription.modify(
+            stripe_sub_id,
+            items=[{"id": item_id, "price": TIER_PRICES[new_tier]}],
+            proration_behavior="always_invoice",
+        )
+    except stripe.error.StripeError as exc:
+        return jsonify({"error": str(exc)}), 502
+
+    # Update local record immediately — webhook will also fire as backup
+    subs = _load_subs()
+    for s in subs:
+        if s.get("stripe_subscription_id") == stripe_sub_id:
+            s["tier"] = new_tier
+    _save_subs(subs)
+
+    return jsonify({
+        "ok": True,
+        "tier": new_tier,
+        "label": TIER_LABELS[new_tier],
+        "amount": TIER_AMOUNTS[new_tier],
+        "included": TIER_INCLUDED[new_tier],
     })
 
 

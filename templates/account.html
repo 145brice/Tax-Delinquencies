@@ -3,7 +3,8 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>My Purchases &middot; ForeclosureLeads Pro</title>
+    <meta name="csrf-token" content="{{ csrf_token() }}">
+    <title>My Account &middot; ForeclosureLeads Pro</title>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body { font-family: 'Segoe UI', sans-serif; background: #0f1117; color: #e0e0e0; min-height: 100vh; font-size: 13px; }
@@ -100,6 +101,47 @@
         }
         .toast.error { background: #7f1d1d; border-color: #dc2626; color: #fca5a5; }
         tr.row-saved td { background: #14321f !important; transition: background 1.5s; }
+
+        /* Subscription cards */
+        .sub-card {
+            background: #16181f; border: 1px solid #2a2d3a; border-radius: 12px;
+            padding: 18px 22px;
+        }
+        .sub-card-top { display: flex; justify-content: space-between; align-items: center; gap: 16px; flex-wrap: wrap; }
+        .sub-county { font-size: 1.05rem; font-weight: 700; color: #fff; margin-bottom: 6px; }
+        .sub-meta { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; font-size: 0.82rem; color: #9ca3af; }
+        .sub-used { color: #6b7280; }
+        .tier-chip { padding: 2px 10px; border-radius: 999px; font-size: 0.72rem; font-weight: 700; text-transform: uppercase; }
+        .tier-chip.tier-starter { background: #1e2130; color: #9ca3af; border: 1px solid #374151; }
+        .tier-chip.tier-professional { background: #1e3a5f; color: #93c5fd; border: 1px solid #2563eb; }
+        .tier-chip.tier-power { background: #3b1f07; color: #fb923c; border: 1px solid #c2410c; }
+        .btn-change-tier {
+            background: #1e2130; color: #e5e7eb; border: 1px solid #374151;
+            border-radius: 7px; padding: 8px 14px; font-size: 0.82rem; font-weight: 700; cursor: pointer;
+        }
+        .btn-change-tier:hover { border-color: #3b82f6; color: #93c5fd; }
+
+        /* Tier picker */
+        .tier-picker { margin-top: 18px; border-top: 1px solid #1e2130; padding-top: 18px; }
+        .tier-picker-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; margin-bottom: 14px; }
+        .tp-card {
+            background: #13151c; border: 1px solid #22253a; border-radius: 10px;
+            padding: 16px; text-align: center;
+        }
+        .tp-card.tp-current { border-color: #2563eb; }
+        .tp-name { font-size: 0.78rem; font-weight: 700; color: #6b7280; text-transform: uppercase; letter-spacing: .08em; margin-bottom: 4px; }
+        .tp-price { font-size: 1.4rem; font-weight: 800; color: #fff; }
+        .tp-leads { font-size: 0.78rem; color: #3b82f6; margin-bottom: 12px; }
+        .tp-current-label { font-size: 0.72rem; color: #4ade80; font-weight: 700; text-transform: uppercase; }
+        .tp-select-btn {
+            background: #2563eb; color: #fff; border: 0; border-radius: 6px;
+            padding: 8px 12px; font-size: 0.8rem; font-weight: 700; cursor: pointer; width: 100%;
+        }
+        .tp-select-btn:hover { background: #1d4ed8; }
+        .tp-select-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+        .tp-note { font-size: 0.75rem; color: #6b7280; margin-bottom: 10px; }
+        .tp-cancel { background: none; border: 1px solid #374151; color: #9ca3af; border-radius: 6px; padding: 6px 14px; font-size: 0.8rem; cursor: pointer; }
+        .tp-cancel:hover { color: #fff; border-color: #6b7280; }
     </style>
 </head>
 <body>
@@ -121,8 +163,52 @@
 </nav>
 
 <div class="page">
-    <h1>My Purchases</h1>
-    <div class="subtitle">Full, unmasked details for every lead you've purchased. Organize leads into folders and track follow-up.</div>
+    <h1>My Account</h1>
+    <div class="subtitle">Manage your county subscriptions and view purchased leads.</div>
+
+    {% if subscriptions_ready and active_subs %}
+    <h2 style="color:#fff;font-size:1.1rem;margin-bottom:14px;">Active Subscriptions</h2>
+    <div style="display:grid;gap:14px;margin-bottom:36px;">
+        {% for sub in active_subs %}
+        {% set tier = sub.tier or 'professional' %}
+        <div class="sub-card" id="sub-card-{{ loop.index }}">
+            <div class="sub-card-top">
+                <div>
+                    <div class="sub-county">{{ sub.county | title }}</div>
+                    <div class="sub-meta">
+                        <span class="tier-chip tier-{{ tier }}">{{ tier_labels[tier] }}</span>
+                        <span>${{ tier_amounts[tier] }}/mo &middot; {{ tier_included[tier] }} leads included</span>
+                        <span class="sub-used">{{ sub.traces_used or 0 }} used this cycle</span>
+                    </div>
+                </div>
+                <button class="btn-change-tier" onclick="toggleTierPicker({{ loop.index }})">Change Plan</button>
+            </div>
+            <div class="tier-picker" id="picker-{{ loop.index }}" style="display:none;">
+                <div class="tier-picker-cards">
+                    {% for t, label in tier_labels.items() %}
+                    <div class="tp-card {% if t == tier %}tp-current{% endif %}" id="tp-{{ loop.index }}-{{ t }}">
+                        <div class="tp-name">{{ label }}</div>
+                        <div class="tp-price">${{ tier_amounts[t] }}/mo</div>
+                        <div class="tp-leads">{{ tier_included[t] }} leads</div>
+                        {% if t == tier %}
+                            <div class="tp-current-label">Current plan</div>
+                        {% else %}
+                            <button class="tp-select-btn" onclick="changeTier('{{ sub.county }}', '{{ t }}', {{ loop.index }})">
+                                {% if tier_amounts[t] > tier_amounts[tier] %}Upgrade{% else %}Downgrade{% endif %} to {{ label }}
+                            </button>
+                        {% endif %}
+                    </div>
+                    {% endfor %}
+                </div>
+                <p class="tp-note">Upgrades charge a prorated amount immediately. Downgrades take effect at the next billing date.</p>
+                <button class="tp-cancel" onclick="toggleTierPicker({{ loop.index }})">Cancel</button>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+    {% endif %}
+
+    <h2 style="color:#fff;font-size:1.1rem;margin-bottom:14px;">Purchased Leads</h2>
 
     {% if not orders %}
         <div class="empty">
@@ -377,6 +463,35 @@ function showToast(msg, isError) {
         history.replaceState(null, '', window.location.pathname);
     }
 })();
+
+function toggleTierPicker(idx) {
+    var el = document.getElementById('picker-' + idx);
+    el.style.display = el.style.display === 'none' ? 'block' : 'none';
+}
+
+async function changeTier(county, tier, cardIdx) {
+    var btns = document.querySelectorAll('#picker-' + cardIdx + ' .tp-select-btn');
+    btns.forEach(function(b) { b.disabled = true; });
+    const csrf = document.querySelector('meta[name="csrf-token"]').content;
+    try {
+        const r = await fetch('/api/subscriber/change-tier', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json', 'X-CSRF-Token': csrf},
+            body: JSON.stringify({county: county, tier: tier})
+        });
+        const d = await r.json();
+        if (!d.ok) {
+            alert(d.error || 'Could not change plan.');
+            btns.forEach(function(b) { b.disabled = false; });
+            return;
+        }
+        // Refresh the page so the card reflects the new tier
+        window.location.reload();
+    } catch (e) {
+        alert('Network error — try again.');
+        btns.forEach(function(b) { b.disabled = false; });
+    }
+}
 </script>
 </body>
 </html>
