@@ -213,6 +213,36 @@ def csrf_protect():
             return jsonify({"error": "Invalid or missing CSRF token. Refresh the page and try again."}), 403
         return "Invalid or missing CSRF token. Refresh the page and try again.", 403
     return None
+
+
+# Google Analytics 4 — measurement ID for the Tax Delinquencies stream.
+GA_MEASUREMENT_ID = os.environ.get("GA_MEASUREMENT_ID", "G-62TXZTPFMH")
+_GA_SNIPPET = (
+    '<script async src="https://www.googletagmanager.com/gtag/js?id=%(id)s"></script>'
+    '<script>window.dataLayer=window.dataLayer||[];'
+    'function gtag(){dataLayer.push(arguments);}'
+    "gtag('js',new Date());gtag('config','%(id)s');</script>"
+) % {"id": GA_MEASUREMENT_ID}
+
+
+@app.after_request
+def inject_analytics(response):
+    """Insert the GA4 gtag snippet into every full HTML page, once, before </head>."""
+    if not GA_MEASUREMENT_ID:
+        return response
+    ctype = (response.content_type or "")
+    if "text/html" not in ctype or response.direct_passthrough:
+        return response
+    try:
+        body = response.get_data(as_text=True)
+    except (RuntimeError, UnicodeDecodeError):
+        return response
+    if "</head>" not in body or "googletagmanager.com/gtag" in body:
+        return response
+    response.set_data(body.replace("</head>", _GA_SNIPPET + "</head>", 1))
+    return response
+
+
 scrape_status = {
     "running": False,
     "last": None,
