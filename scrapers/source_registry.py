@@ -36,6 +36,7 @@ from scrapers.jaxdailyrecord_legalnotices import (
 )
 from scrapers.jaxdailyrecord_tax import DuvalJaxDailyRecordRealEstateTaxScraper
 from scrapers.kern_legalnotices import KernLegalNoticesScraper
+from scrapers.ontario_taxsale import OntarioTaxSaleScraper
 from scrapers.losangeles_legalnotices import LosAngelesLegalNoticesScraper
 from scrapers.orange_legalnotices import OrangeLegalNoticesScraper
 from scrapers.orange_taxsale import OrangeTaxSaleScraper
@@ -244,6 +245,12 @@ SOURCES = {
         "saginaw_mi", "Legal notices", SaginawLegalNoticesScraper,
         "https://www.mipublicnotices.com/",
     ),
+    # ── Ontario, Canada — municipal tax sales (OntarioTaxSales.ca) ─────────
+    "ontario_taxsale": SourceDefinition(
+        "ontario_taxsale", "Ontario CA municipal tax sales",
+        "ontario_ca", "Tax sale", OntarioTaxSaleScraper,
+        "https://www.ontariotaxsales.ca/tax-sale-properties",
+    ),
 }
 
 
@@ -293,6 +300,7 @@ UI_COUNTY_SOURCES = {
     "stjohns-fl": ["stjohns_jaxdailyrecord"],
     "nassau-fl": ["nassau_jaxdailyrecord"],
     "clay-fl": ["clay_jaxdailyrecord"],
+    "ontario-ca": ["ontario_taxsale"],
 }
 
 
