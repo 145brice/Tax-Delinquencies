@@ -89,7 +89,9 @@ def property_records_to_listings(records: list[dict]) -> list[dict]:
         bid = int(bid_digits) if bid_digits else 0
 
         record_type = (r.get("record_type") or "").lower()
-        if "delinquent" in record_type or "tax" in record_type:
+        if "tax sale" in record_type or "tax-sale" in record_type:
+            status = "Tax Sale"
+        elif "delinquent" in record_type or "tax" in record_type:
             status = "Tax Lien"
         elif "foreclos" in record_type:
             status = "Pre-foreclosure"

@@ -57,7 +57,7 @@ class OntarioTaxSaleScraper(BaseScraper):
         if not records:
             records.append(PropertyRecord(
                 county=self.county_name,
-                record_type="Tax Delinquent",
+                record_type="Tax Sale",
                 state="ON",
                 source_url=LISTINGS_URL,
                 scraped_date=today,
@@ -145,7 +145,7 @@ class OntarioTaxSaleScraper(BaseScraper):
 
             records.append(PropertyRecord(
                 county=municipality,
-                record_type="Tax Delinquent",
+                record_type="Tax Sale",
                 owner_name="",
                 property_address=street,
                 city=city,
