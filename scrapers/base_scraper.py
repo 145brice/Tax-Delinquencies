@@ -140,6 +140,25 @@ class BaseScraper:
         log.error(f"[{self.county_name}] All attempts failed for {url}")
         return None
 
+    def post(self, url: str, **kwargs) -> Optional[requests.Response]:
+        _check_kill()
+        _polite_wait(url)
+        _check_kill()
+        self._rotate_ua()
+        for attempt in range(3):
+            _check_kill()
+            try:
+                resp = self.session.post(url, timeout=30, **kwargs)
+                resp.raise_for_status()
+                return resp
+            except requests.RequestException as e:
+                log.warning(f"[{self.county_name}] Attempt {attempt+1} failed for {url}: {e}")
+                if attempt < 2:
+                    backoff = (2 ** attempt) + random.uniform(1, 3)
+                    time.sleep(backoff)
+        log.error(f"[{self.county_name}] All attempts failed for {url}")
+        return None
+
     def soup(self, html: str) -> BeautifulSoup:
         return BeautifulSoup(html, "lxml")
 

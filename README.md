@@ -28,8 +28,10 @@ Upcoming SD tax-sale parcel lists are gated behind a registered bidder account; 
 > also includes: CA (Los Angeles, Orange, Riverside, San Bernardino, Ventura,
 > Sacramento, Alameda, Santa Clara, Kern, Fresno, Contra Costa, San Mateo),
 > AZ (Maricopa — trustee sales + two legal-notice papers), TX (Harris tax sale),
-> FL northeast (Duval/St. Johns/Nassau/Clay via Jax Daily Record), and
-> **MI (Barry — tax-foreclosure auction + Hastings Banner foreclosure notices)**.
+> TX major metros (Harris, Collin, Bexar), NV (Clark/Las Vegas sheriff sales),
+> FL major metros (Miami-Dade, Broward, Palm Beach, Orange, Hillsborough) plus
+> northeast Florida (Duval/St. Johns/Nassau/Clay via Jax Daily Record), and
+> **MI (26 counties via statewide foreclosure notices, plus Barry tax auctions)**.
 
 ## Repository Structure
 

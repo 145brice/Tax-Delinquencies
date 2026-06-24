@@ -4,23 +4,43 @@ from scrapers.alameda_legalnotices import AlamedaLegalNoticesScraper
 from scrapers.barry_legalnotices import BarryLegalNoticesScraper
 from scrapers.barry_taxforeclosure import BarryTaxForeclosureScraper
 from scrapers.mi_legalnotices_counties import (
+    AlleganLegalNoticesScraper,
+    BayLegalNoticesScraper,
     BerienLegalNoticesScraper,
     CalhounLegalNoticesScraper,
+    CassLegalNoticesScraper,
+    EatonLegalNoticesScraper,
     GenesseeLegalNoticesScraper,
+    HillsdaleLegalNoticesScraper,
     InghamLegalNoticesScraper,
     JacksonLegalNoticesScraper,
     KalamazooLegalNoticesScraper,
     KentLegalNoticesScraper,
+    LapeerLegalNoticesScraper,
+    LenaweeLegalNoticesScraper,
     LivingstonLegalNoticesScraper,
     MacombLegalNoticesScraper,
+    MonroeLegalNoticesScraper,
+    MontcalmLegalNoticesScraper,
     MuskegonLegalNoticesScraper,
     OaklandLegalNoticesScraper,
     OttawaLegalNoticesScraper,
     SaginawLegalNoticesScraper,
+    TuscolaLegalNoticesScraper,
     WashtenawLegalNoticesScraper,
     WayneLegalNoticesScraper,
 )
 from scrapers.cheatham import CheathamScraper
+from scrapers.clark_sheriff_sales import ClarkSheriffSalesScraper
+from scrapers.collin_foreclosures import CollinForeclosuresScraper
+from scrapers.bexar_foreclosures import BexarForeclosuresScraper
+from scrapers.fl_publicnotices import (
+    BrowardPublicNoticesScraper,
+    HillsboroughPublicNoticesScraper,
+    MiamiDadePublicNoticesScraper,
+    OrangeFLPublicNoticesScraper,
+    PalmBeachPublicNoticesScraper,
+)
 from scrapers.harris_taxsale import HarrisTaxSaleScraper
 from scrapers.maricopa_azcapitoltimes import MaricopaAzCapitolTimesScraper
 from scrapers.maricopa_recordreporter import MaricopaRecordReporterScraper
@@ -100,6 +120,46 @@ SOURCES = {
     "harris_taxsale": SourceDefinition(
         "harris_taxsale", "Harris County TX delinquent tax sale", "harris_tx", "Tax sale",
         HarrisTaxSaleScraper, "https://www.hctax.net/Property/listings/taxsalelisting"
+    ),
+    "collin_foreclosures": SourceDefinition(
+        "collin_foreclosures", "Collin County TX foreclosure notices",
+        "collin_tx", "Legal notices", CollinForeclosuresScraper,
+        "https://apps2.collincountytx.gov/ForeclosureNotices",
+    ),
+    "bexar_foreclosures": SourceDefinition(
+        "bexar_foreclosures", "Bexar County TX mortgage + tax foreclosures",
+        "bexar_tx", "Foreclosure map", BexarForeclosuresScraper,
+        "https://maps.bexar.org/foreclosures/",
+    ),
+    "clark_sheriff_sales": SourceDefinition(
+        "clark_sheriff_sales", "Clark County NV sheriff sales",
+        "clark_nv", "Sheriff sale", ClarkSheriffSalesScraper,
+        "https://www.clarkcountynv.gov/government/departments/sheriff_civil/sheriff_s_sales/",
+    ),
+    "broward_publicnotices": SourceDefinition(
+        "broward_publicnotices", "Broward County FL foreclosure notices",
+        "south_fl", "Legal notices", BrowardPublicNoticesScraper,
+        "https://floridapublicnotices.com/",
+    ),
+    "miamidade_publicnotices": SourceDefinition(
+        "miamidade_publicnotices", "Miami-Dade County FL foreclosure notices",
+        "south_fl", "Legal notices", MiamiDadePublicNoticesScraper,
+        "https://floridapublicnotices.com/",
+    ),
+    "palmbeach_publicnotices": SourceDefinition(
+        "palmbeach_publicnotices", "Palm Beach County FL foreclosure notices",
+        "south_fl", "Legal notices", PalmBeachPublicNoticesScraper,
+        "https://floridapublicnotices.com/",
+    ),
+    "orangefl_publicnotices": SourceDefinition(
+        "orangefl_publicnotices", "Orange County FL foreclosure notices",
+        "central_fl", "Legal notices", OrangeFLPublicNoticesScraper,
+        "https://floridapublicnotices.com/",
+    ),
+    "hillsborough_publicnotices": SourceDefinition(
+        "hillsborough_publicnotices", "Hillsborough County FL foreclosure notices",
+        "tampa_bay", "Legal notices", HillsboroughPublicNoticesScraper,
+        "https://floridapublicnotices.com/",
     ),
     "maricopa_trusteesale": SourceDefinition(
         "maricopa_trusteesale", "Maricopa County AZ trustee sales (Tiffany & Bosco)", "maricopa_az", "Trustee sale",
@@ -245,6 +305,56 @@ SOURCES = {
         "saginaw_mi", "Legal notices", SaginawLegalNoticesScraper,
         "https://www.mipublicnotices.com/",
     ),
+    "monroe_legalnotices": SourceDefinition(
+        "monroe_legalnotices", "Monroe County MI foreclosure notices",
+        "monroe_mi", "Legal notices", MonroeLegalNoticesScraper,
+        "https://www.mipublicnotices.com/",
+    ),
+    "lenawee_legalnotices": SourceDefinition(
+        "lenawee_legalnotices", "Lenawee County MI foreclosure notices",
+        "lenawee_mi", "Legal notices", LenaweeLegalNoticesScraper,
+        "https://www.mipublicnotices.com/",
+    ),
+    "hillsdale_legalnotices": SourceDefinition(
+        "hillsdale_legalnotices", "Hillsdale County MI foreclosure notices",
+        "hillsdale_mi", "Legal notices", HillsdaleLegalNoticesScraper,
+        "https://www.mipublicnotices.com/",
+    ),
+    "lapeer_legalnotices": SourceDefinition(
+        "lapeer_legalnotices", "Lapeer County MI foreclosure notices",
+        "lapeer_mi", "Legal notices", LapeerLegalNoticesScraper,
+        "https://www.mipublicnotices.com/",
+    ),
+    "eaton_legalnotices": SourceDefinition(
+        "eaton_legalnotices", "Eaton County MI foreclosure notices",
+        "eaton_mi", "Legal notices", EatonLegalNoticesScraper,
+        "https://www.mipublicnotices.com/",
+    ),
+    "bay_legalnotices": SourceDefinition(
+        "bay_legalnotices", "Bay County MI foreclosure notices",
+        "bay_mi", "Legal notices", BayLegalNoticesScraper,
+        "https://www.mipublicnotices.com/",
+    ),
+    "montcalm_legalnotices": SourceDefinition(
+        "montcalm_legalnotices", "Montcalm County MI foreclosure notices",
+        "montcalm_mi", "Legal notices", MontcalmLegalNoticesScraper,
+        "https://www.mipublicnotices.com/",
+    ),
+    "tuscola_legalnotices": SourceDefinition(
+        "tuscola_legalnotices", "Tuscola County MI foreclosure notices",
+        "tuscola_mi", "Legal notices", TuscolaLegalNoticesScraper,
+        "https://www.mipublicnotices.com/",
+    ),
+    "allegan_legalnotices": SourceDefinition(
+        "allegan_legalnotices", "Allegan County MI foreclosure notices",
+        "allegan_mi", "Legal notices", AlleganLegalNoticesScraper,
+        "https://www.mipublicnotices.com/",
+    ),
+    "cass_legalnotices": SourceDefinition(
+        "cass_legalnotices", "Cass County MI foreclosure notices",
+        "cass_mi", "Legal notices", CassLegalNoticesScraper,
+        "https://www.mipublicnotices.com/",
+    ),
     # ── Ontario, Canada — municipal tax sales (OntarioTaxSales.ca) ─────────
     "ontario_taxsale": SourceDefinition(
         "ontario_taxsale", "Ontario CA municipal tax sales",
@@ -276,6 +386,14 @@ UI_COUNTY_SOURCES = {
     "contracosta": ["contracosta_legalnotices"],
     "sanmateo": ["sanmateo_legalnotices"],
     "harris-tx": ["harris_taxsale"],
+    "collin-tx": ["collin_foreclosures"],
+    "bexar-tx": ["bexar_foreclosures"],
+    "clark-nv": ["clark_sheriff_sales"],
+    "broward-fl": ["broward_publicnotices"],
+    "miamidade-fl": ["miamidade_publicnotices"],
+    "palmbeach-fl": ["palmbeach_publicnotices"],
+    "orange-fl": ["orangefl_publicnotices"],
+    "hillsborough-fl": ["hillsborough_publicnotices"],
     "maricopa-az": ["maricopa_trusteesale", "maricopa_azcapitoltimes"],
     # Backward-compatible UI keys from the original broad county list.
     "harris": ["harris_taxsale"],
@@ -296,6 +414,16 @@ UI_COUNTY_SOURCES = {
     "livingston-mi": ["livingston_legalnotices"],
     "ottawa-mi": ["ottawa_legalnotices"],
     "saginaw-mi": ["saginaw_legalnotices"],
+    "monroe-mi": ["monroe_legalnotices"],
+    "lenawee-mi": ["lenawee_legalnotices"],
+    "hillsdale-mi": ["hillsdale_legalnotices"],
+    "lapeer-mi": ["lapeer_legalnotices"],
+    "eaton-mi": ["eaton_legalnotices"],
+    "bay-mi": ["bay_legalnotices"],
+    "montcalm-mi": ["montcalm_legalnotices"],
+    "tuscola-mi": ["tuscola_legalnotices"],
+    "allegan-mi": ["allegan_legalnotices"],
+    "cass-mi": ["cass_legalnotices"],
     "duval-fl": ["duval_jaxdailyrecord", "duval_jaxdailyrecord_retax"],
     "stjohns-fl": ["stjohns_jaxdailyrecord"],
     "nassau-fl": ["nassau_jaxdailyrecord"],

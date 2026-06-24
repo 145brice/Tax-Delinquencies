@@ -12,8 +12,10 @@ between counties is:
 Lead volume (90-day window, 2026-06):
   Wayne: ~971  Macomb: ~467  Oakland: ~444  Genesee: ~243  Ingham: ~168
   Kent: ~140   Jackson: ~109  Muskegon: ~95  Calhoun: ~74   Kalamazoo: ~69
-  Berrien: ~62  Washtenaw: ~59  Livingston: ~42  Ottawa: ~32  Saginaw: ~3
-  Barry: ~23
+  Monroe: ~68   Lenawee: ~65  Berrien: ~62  Hillsdale: ~60  Washtenaw: ~59
+  Lapeer: ~45   Eaton: ~43  Livingston: ~42  Bay: ~34  Montcalm: ~34
+  Tuscola: ~33  Ottawa: ~32  Allegan: ~26  Cass: ~23  Barry: ~23
+  Saginaw: ~3
 """
 from .mi_legalnotices_base import MILegalNoticesScraper
 
@@ -57,6 +59,13 @@ class WashtenawLegalNoticesScraper(MILegalNoticesScraper):
 
 # ── Mid-Michigan ────────────────────────────────────────────────────────────
 
+class EatonLegalNoticesScraper(MILegalNoticesScraper):
+    """Eaton County (Charlotte) — alias 23."""
+    county_name = "Eaton"
+    area_alias = "23"
+    default_city = "Charlotte"
+
+
 class GenesseeLegalNoticesScraper(MILegalNoticesScraper):
     """Genesee County (Flint) — alias 25."""
     county_name = "Genesee"
@@ -86,6 +95,20 @@ class JacksonLegalNoticesScraper(MILegalNoticesScraper):
 
 
 # ── West Michigan ───────────────────────────────────────────────────────────
+
+class AlleganLegalNoticesScraper(MILegalNoticesScraper):
+    """Allegan County (Allegan) — alias 3."""
+    county_name = "Allegan"
+    area_alias = "3"
+    default_city = "Allegan"
+
+
+class BayLegalNoticesScraper(MILegalNoticesScraper):
+    """Bay County (Bay City) — alias 9."""
+    county_name = "Bay"
+    area_alias = "9"
+    default_city = "Bay City"
+
 
 class KentLegalNoticesScraper(MILegalNoticesScraper):
     """Kent County (Grand Rapids) — alias 41."""
@@ -127,3 +150,52 @@ class CalhounLegalNoticesScraper(MILegalNoticesScraper):
     county_name = "Calhoun"
     area_alias = "13"
     default_city = "Battle Creek"
+
+
+class CassLegalNoticesScraper(MILegalNoticesScraper):
+    """Cass County (Cassopolis) — alias 14."""
+    county_name = "Cass"
+    area_alias = "14"
+    default_city = "Cassopolis"
+
+
+class HillsdaleLegalNoticesScraper(MILegalNoticesScraper):
+    """Hillsdale County (Hillsdale) — alias 30."""
+    county_name = "Hillsdale"
+    area_alias = "30"
+    default_city = "Hillsdale"
+
+
+class LapeerLegalNoticesScraper(MILegalNoticesScraper):
+    """Lapeer County (Lapeer) — alias 44."""
+    county_name = "Lapeer"
+    area_alias = "44"
+    default_city = "Lapeer"
+
+
+class LenaweeLegalNoticesScraper(MILegalNoticesScraper):
+    """Lenawee County (Adrian) — alias 46."""
+    county_name = "Lenawee"
+    area_alias = "46"
+    default_city = "Adrian"
+
+
+class MonroeLegalNoticesScraper(MILegalNoticesScraper):
+    """Monroe County (Monroe) — alias 58."""
+    county_name = "Monroe"
+    area_alias = "58"
+    default_city = "Monroe"
+
+
+class MontcalmLegalNoticesScraper(MILegalNoticesScraper):
+    """Montcalm County (Stanton) — alias 59."""
+    county_name = "Montcalm"
+    area_alias = "59"
+    default_city = "Stanton"
+
+
+class TuscolaLegalNoticesScraper(MILegalNoticesScraper):
+    """Tuscola County (Caro) — alias 79."""
+    county_name = "Tuscola"
+    area_alias = "79"
+    default_city = "Caro"

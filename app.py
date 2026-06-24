@@ -2600,6 +2600,11 @@ _COUNTY_SCHEDULE = [
     {"ui_key":"clay-fl",     "label":"Clay",                 "state":"FL", "region":"Florida (Northeast)", "frequency":"Daily",    "freq_note":"Jax Daily Record, weekdays",         "listing_names":["clay"],        "source_keys":["clay_jaxdailyrecord"]},
     {"ui_key":"nassau-fl",   "label":"Nassau",               "state":"FL", "region":"Florida (Northeast)", "frequency":"Daily",    "freq_note":"Jax Daily Record, weekdays",         "listing_names":["nassau"],      "source_keys":["nassau_jaxdailyrecord"]},
     {"ui_key":"stjohns-fl",  "label":"St. Johns",            "state":"FL", "region":"Florida (Northeast)", "frequency":"Daily",    "freq_note":"Jax Daily Record, weekdays",         "listing_names":["st. johns"],   "source_keys":["stjohns_jaxdailyrecord"]},
+    {"ui_key":"broward-fl",      "label":"Broward (Fort Lauderdale)", "state":"FL", "region":"Florida (South)", "frequency":"Daily", "freq_note":"Statewide public notices", "listing_names":["broward"], "source_keys":["broward_publicnotices"]},
+    {"ui_key":"miamidade-fl",    "label":"Miami-Dade",                "state":"FL", "region":"Florida (South)", "frequency":"Daily", "freq_note":"Statewide public notices", "listing_names":["miami-dade"], "source_keys":["miamidade_publicnotices"]},
+    {"ui_key":"palmbeach-fl",    "label":"Palm Beach",                "state":"FL", "region":"Florida (South)", "frequency":"Daily", "freq_note":"Statewide public notices", "listing_names":["palm beach"], "source_keys":["palmbeach_publicnotices"]},
+    {"ui_key":"orange-fl",       "label":"Orange (Orlando)",          "state":"FL", "region":"Florida (Central)", "frequency":"Daily", "freq_note":"Statewide public notices", "listing_names":["orange"], "source_keys":["orangefl_publicnotices"]},
+    {"ui_key":"hillsborough-fl", "label":"Hillsborough (Tampa)",      "state":"FL", "region":"Florida (Tampa Bay)", "frequency":"Daily", "freq_note":"Statewide public notices", "listing_names":["hillsborough"], "source_keys":["hillsborough_publicnotices"]},
     # Michigan — Weekly (mipublicnotices.com, new filings weekly)
     {"ui_key":"wayne-mi",       "label":"Wayne (Detroit)",       "state":"MI", "region":"Michigan", "frequency":"Weekly", "freq_note":"~971 leads/90d", "listing_names":["wayne"],      "source_keys":["wayne_legalnotices"]},
     {"ui_key":"macomb-mi",      "label":"Macomb (Warren)",       "state":"MI", "region":"Michigan", "frequency":"Weekly", "freq_note":"~467 leads/90d", "listing_names":["macomb"],     "source_keys":["macomb_legalnotices"]},
@@ -2616,6 +2621,16 @@ _COUNTY_SCHEDULE = [
     {"ui_key":"livingston-mi",  "label":"Livingston (Howell)",   "state":"MI", "region":"Michigan", "frequency":"Weekly", "freq_note":"~42 leads/90d",  "listing_names":["livingston"], "source_keys":["livingston_legalnotices"]},
     {"ui_key":"ottawa-mi",      "label":"Ottawa (Holland)",      "state":"MI", "region":"Michigan", "frequency":"Weekly", "freq_note":"~32 leads/90d",  "listing_names":["ottawa"],     "source_keys":["ottawa_legalnotices"]},
     {"ui_key":"saginaw-mi",     "label":"Saginaw",               "state":"MI", "region":"Michigan", "frequency":"Weekly", "freq_note":"~3 leads/90d",   "listing_names":["saginaw"],    "source_keys":["saginaw_legalnotices"]},
+    {"ui_key":"monroe-mi",      "label":"Monroe",                "state":"MI", "region":"Michigan", "frequency":"Weekly", "freq_note":"~68 leads/90d",  "listing_names":["monroe"],     "source_keys":["monroe_legalnotices"]},
+    {"ui_key":"lenawee-mi",     "label":"Lenawee (Adrian)",      "state":"MI", "region":"Michigan", "frequency":"Weekly", "freq_note":"~65 leads/90d",  "listing_names":["lenawee"],    "source_keys":["lenawee_legalnotices"]},
+    {"ui_key":"hillsdale-mi",   "label":"Hillsdale",             "state":"MI", "region":"Michigan", "frequency":"Weekly", "freq_note":"~60 leads/90d",  "listing_names":["hillsdale"],  "source_keys":["hillsdale_legalnotices"]},
+    {"ui_key":"lapeer-mi",      "label":"Lapeer",                "state":"MI", "region":"Michigan", "frequency":"Weekly", "freq_note":"~45 leads/90d",  "listing_names":["lapeer"],     "source_keys":["lapeer_legalnotices"]},
+    {"ui_key":"eaton-mi",       "label":"Eaton (Charlotte)",     "state":"MI", "region":"Michigan", "frequency":"Weekly", "freq_note":"~43 leads/90d",  "listing_names":["eaton"],      "source_keys":["eaton_legalnotices"]},
+    {"ui_key":"bay-mi",         "label":"Bay (Bay City)",        "state":"MI", "region":"Michigan", "frequency":"Weekly", "freq_note":"~34 leads/90d",  "listing_names":["bay"],        "source_keys":["bay_legalnotices"]},
+    {"ui_key":"montcalm-mi",    "label":"Montcalm (Stanton)",    "state":"MI", "region":"Michigan", "frequency":"Weekly", "freq_note":"~34 leads/90d",  "listing_names":["montcalm"],   "source_keys":["montcalm_legalnotices"]},
+    {"ui_key":"tuscola-mi",     "label":"Tuscola (Caro)",        "state":"MI", "region":"Michigan", "frequency":"Weekly", "freq_note":"~33 leads/90d",  "listing_names":["tuscola"],    "source_keys":["tuscola_legalnotices"]},
+    {"ui_key":"allegan-mi",     "label":"Allegan",               "state":"MI", "region":"Michigan", "frequency":"Weekly", "freq_note":"~26 leads/90d",  "listing_names":["allegan"],    "source_keys":["allegan_legalnotices"]},
+    {"ui_key":"cass-mi",        "label":"Cass (Cassopolis)",     "state":"MI", "region":"Michigan", "frequency":"Weekly", "freq_note":"~23 leads/90d",  "listing_names":["cass"],       "source_keys":["cass_legalnotices"]},
     {"ui_key":"barry-mi",       "label":"Barry (Hastings)",      "state":"MI", "region":"Michigan", "frequency":"Weekly / Quarterly", "freq_note":"Notices: weekly | Tax auction: quarterly", "listing_names":["barry"], "source_keys":["barry_legalnotices","barry_taxforeclosure"]},
     # California — Weekly (trustee-sale notices filed weekly with county recorder)
     {"ui_key":"sandiego",       "label":"San Diego",             "state":"CA", "region":"California", "frequency":"Weekly", "freq_note":"Trustee-sale notices", "listing_names":["san diego"],     "source_keys":["sandiego_legalnotices","sandiego_taxsale"]},
@@ -2635,6 +2650,10 @@ _COUNTY_SCHEDULE = [
     {"ui_key":"maricopa-az",    "label":"Maricopa (Phoenix)",    "state":"AZ", "region":"Arizona", "frequency":"Weekly", "freq_note":"Trustee sales published weekly", "listing_names":["maricopa"], "source_keys":["maricopa_trusteesale","maricopa_azcapitoltimes","maricopa_recordreporter"]},
     # Texas — Monthly
     {"ui_key":"harris-tx",      "label":"Harris (Houston)",      "state":"TX", "region":"Texas", "frequency":"Monthly", "freq_note":"Delinquent tax list updates ~monthly", "listing_names":["harris"], "source_keys":["harris_taxsale"]},
+    {"ui_key":"collin-tx",      "label":"Collin (Plano / Frisco)","state":"TX", "region":"Texas", "frequency":"Daily", "freq_note":"County foreclosure notice portal", "listing_names":["collin"], "source_keys":["collin_foreclosures"]},
+    {"ui_key":"bexar-tx",       "label":"Bexar (San Antonio)",   "state":"TX", "region":"Texas", "frequency":"Monthly", "freq_note":"Mortgage + tax foreclosure map", "listing_names":["bexar"], "source_keys":["bexar_foreclosures"]},
+    # Nevada — Weekly
+    {"ui_key":"clark-nv",       "label":"Clark (Las Vegas)",     "state":"NV", "region":"Nevada", "frequency":"Weekly", "freq_note":"County sheriff sales", "listing_names":["clark"], "source_keys":["clark_sheriff_sales"]},
     # Tennessee — Monthly
     {"ui_key":"davidson",       "label":"Davidson (Nashville)",  "state":"TN", "region":"Tennessee", "frequency":"Monthly", "freq_note":"Chancery Court posts lists ~monthly", "listing_names":["davidson"],   "source_keys":["davidson"]},
     {"ui_key":"williamson",     "label":"Williamson (Franklin)", "state":"TN", "region":"Tennessee", "frequency":"Monthly", "freq_note":"County delinquent tax list ~monthly",  "listing_names":["williamson"], "source_keys":["williamson"]},
