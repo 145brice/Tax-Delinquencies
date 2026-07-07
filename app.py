@@ -4,6 +4,7 @@ import json
 import hashlib
 import secrets
 import threading
+import time
 import csv
 import io
 import shutil
@@ -893,7 +894,7 @@ def _upgrade_listing(existing, incoming):
                 existing[key] = value
     return existing
 
-def source_result(source_key, raw_count, kept_count, new_count, status, note=""):
+def source_result(source_key, raw_count, kept_count, new_count, status, note="", seconds=None):
     meta = source_metadata().get(source_key, {})
     return {
         "count": new_count,
@@ -903,6 +904,7 @@ def source_result(source_key, raw_count, kept_count, new_count, status, note="")
         "duplicates": max(0, kept_count - new_count),
         "status": status,
         "note": note,
+        "seconds": round(seconds, 1) if seconds is not None else None,
         "label": meta.get("label", source_key),
         "region": meta.get("region", ""),
         "source_type": meta.get("source_type", ""),
@@ -2930,8 +2932,10 @@ def run_scraper():
                         if stop_event.is_set():
                             break
                         update_progress(f"Scraping: {sk}")
+                        t0 = time.monotonic()
                         try:
                             recs = run_scrapers([sk], lookback_days=lookback)
+                            elapsed = time.monotonic() - t0
                             csv_file = _write_scrape_csv(sk, recs)
                             listings = property_records_to_listings(recs)
                             real = [r for r in recs if r.get("owner_name") or r.get("parcel_id") or r.get("property_address")]
@@ -2942,14 +2946,19 @@ def run_scraper():
                             if csv_file:
                                 note += f" / CSV: {csv_file}"
                             scrape_status["scraper_results"][sk] = source_result(
-                                sk, len(recs), len(listings), new_count, status, note
+                                sk, len(recs), len(listings), new_count, status, note,
+                                seconds=elapsed,
                             )
                         except ScraperKilled:
-                            scrape_status["scraper_results"][sk] = source_result(sk, 0, 0, 0, "error", "killed mid-run")
+                            scrape_status["scraper_results"][sk] = source_result(
+                                sk, 0, 0, 0, "error", "killed mid-run",
+                                seconds=time.monotonic() - t0)
                             update_progress(f"{sk} killed mid-run")
                             break  # exit the per-scraper loop entirely
                         except Exception as e:
-                            scrape_status["scraper_results"][sk] = source_result(sk, 0, 0, 0, "error", str(e)[:120])
+                            scrape_status["scraper_results"][sk] = source_result(
+                                sk, 0, 0, 0, "error", str(e)[:120],
+                                seconds=time.monotonic() - t0)
                             update_progress(f"Error scraping {sk}: {e}")
 
             # Phase 2: HUD + HomePath REO via scraper.py

@@ -148,6 +148,10 @@
         .badge-ok    { background: #14532d; color: #86efac; padding: 2px 8px; border-radius: 10px; font-size: 0.72rem; font-weight: 700; }
         .badge-empty { background: #78350f; color: #fcd34d; padding: 2px 8px; border-radius: 10px; font-size: 0.72rem; font-weight: 700; }
         .badge-error { background: #7f1d1d; color: #fca5a5; padding: 2px 8px; border-radius: 10px; font-size: 0.72rem; font-weight: 700; }
+        .result-time { padding: 2px 8px; border-radius: 10px; font-size: 0.72rem; font-weight: 700;
+                       background: #1e3a5f; color: #93c5fd; margin-left: 8px; white-space: nowrap; }
+        .result-time.time-slow    { background: #78350f; color: #fcd34d; }  /* > 2 min */
+        .result-time.time-vslow   { background: #7f1d1d; color: #fca5a5; }  /* > 5 min */
     </style>
 </head>
 <body>
@@ -606,6 +610,13 @@ const CSRF_TOKEN = document.querySelector('meta[name="csrf-token"]').content;
         wrap.style.display = running ? 'block' : 'none';
     }
 
+    function formatScrapeTime(seconds) {
+        if (seconds == null) return '';
+        if (seconds < 60) return `${seconds.toFixed(1)}s`;
+        const m = Math.floor(seconds / 60), s = Math.round(seconds % 60);
+        return `${m}m ${String(s).padStart(2, '0')}s`;
+    }
+
     function renderResults(results) {
         if (!results || !Object.keys(results).length) return;
         const panel = document.getElementById('results-panel');
@@ -618,12 +629,22 @@ const CSRF_TOKEN = document.querySelector('meta[name="csrf-token"]').content;
                 : r.status === 'empty'
                     ? `<span class="badge-empty">stub only</span>`
                     : `<span class="badge-error">error</span>`;
+            // Per-source scrape timer — spot slow sources worth cutting.
+            let timeChip = '';
+            if (r.seconds != null) {
+                const cls = r.seconds > 300 ? 'result-time time-vslow'
+                          : r.seconds > 120 ? 'result-time time-slow'
+                          : 'result-time';
+                const perLead = (r.raw > 0 && r.seconds > 0)
+                    ? ` title="${(r.seconds / r.raw).toFixed(1)}s per record"` : '';
+                timeChip = `<span class="${cls}"${perLead}>&#9201; ${formatScrapeTime(r.seconds)}</span>`;
+            }
             const title = r.label || key;
             const duplicateNote = r.duplicates ? ` (${r.duplicates} duplicate)` : '';
             const stats = `${r.note || ''}${duplicateNote}`;
             return `<div class="result-row">
                 <span class="result-key">${title}</span>
-                ${badge}
+                ${badge}${timeChip}
                 <span class="result-note">${stats}</span>
             </div>`;
         }).join('');

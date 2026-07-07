@@ -10,6 +10,7 @@ import argparse
 import csv
 import os
 import re
+import time
 from dataclasses import fields
 from datetime import date, datetime, timedelta
 
@@ -54,8 +55,15 @@ def _within_lookback(record: dict, lookback_days: int | None, today: date | None
     return True
 
 
+def _fmt_secs(seconds: float) -> str:
+    if seconds < 60:
+        return f"{seconds:.1f}s"
+    return f"{int(seconds // 60)}m {int(seconds % 60):02d}s"
+
+
 def run_scrapers(county_names: list[str], lookback_days: int | None = None) -> list[dict]:
     all_records = []
+    timings: list[tuple[str, float, int]] = []
     for name in county_names:
         key = name.lower()
         cls = ALL_SCRAPERS.get(key)
@@ -65,17 +73,31 @@ def run_scrapers(county_names: list[str], lookback_days: int | None = None) -> l
         scraper = cls()
         scraper.lookback_days = lookback_days
         label = SOURCE_METADATA.get(key, {}).get("label", key)
+        t0 = time.monotonic()
         try:
             records = scraper.scrape()
+            elapsed = time.monotonic() - t0
             rows = [r.to_dict() for r in records]
             kept = [r for r in rows if _within_lookback(r, lookback_days)]
             all_records.extend(kept)
+            timings.append((label, elapsed, len(kept)))
             if len(kept) != len(rows):
-                print(f"[{label}] {len(rows)} records scraped, {len(kept)} within {lookback_days} days.")
+                print(f"[{label}] {len(rows)} records scraped, {len(kept)} within {lookback_days} days. ({_fmt_secs(elapsed)})")
             else:
-                print(f"[{label}] {len(records)} records scraped.")
+                print(f"[{label}] {len(records)} records scraped. ({_fmt_secs(elapsed)})")
         except Exception as e:
-            print(f"[{label}] ERROR: {e}")
+            elapsed = time.monotonic() - t0
+            timings.append((label, elapsed, 0))
+            print(f"[{label}] ERROR after {_fmt_secs(elapsed)}: {e}")
+
+    # Timing summary, slowest first — spot sources worth cutting.
+    if len(timings) > 1:
+        print("\n=== Scrape timing (slowest first) ===")
+        for label, elapsed, kept in sorted(timings, key=lambda t: -t[1]):
+            rate = f" ({elapsed / kept:.1f}s/record)" if kept else ""
+            print(f"  {_fmt_secs(elapsed):>8s}  {label} - {kept} records{rate}")
+        total = sum(t[1] for t in timings)
+        print(f"  {_fmt_secs(total):>8s}  TOTAL")
     return all_records
 
 
