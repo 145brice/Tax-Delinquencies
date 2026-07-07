@@ -1,0 +1,11 @@
+.git
+__pycache__/
+*.pyc
+.env
+*.sqlite3
+*.log
+scrape_progress.json
+data/*.csv
+data/*.html
+.claude/
+UsersuserOneDriveDesktop*
