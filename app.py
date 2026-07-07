@@ -79,7 +79,17 @@ def property_records_to_listings(records: list[dict]) -> list[dict]:
 
         date_str = (r.get("sale_date") or r.get("scraped_date") or
                     datetime.now().strftime('%Y-%m-%d'))
-        key = hashlib.md5(f"{address.lower().strip()}-{date_str}".encode()).hexdigest()[:8]
+        # Probate/divorce (and some notice) records carry no street address or
+        # parcel, so the address is just "City, ST" — without the case number
+        # every record for that city+date would collapse into one listing, and
+        # keying on scraped date would mint a new id for the same case each
+        # run. Key those on county+case instead.
+        case_no = str(r.get("case_number") or "").strip().lower()
+        if not street and not parcel and case_no:
+            key_basis = f"{r.get('county', '').lower().strip()}-case-{case_no}"
+        else:
+            key_basis = f"{address.lower().strip()}-{date_str}"
+        key = hashlib.md5(key_basis.encode()).hexdigest()[:8]
         if key in seen:
             continue
         seen.add(key)

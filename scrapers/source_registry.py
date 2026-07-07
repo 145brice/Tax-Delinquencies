@@ -47,6 +47,18 @@ from scrapers.maricopa_recordreporter import MaricopaRecordReporterScraper
 from scrapers.maricopa_trusteesale import MaricopaTrusteeSaleScraper
 from scrapers.contracosta_legalnotices import ContraCostaLegalNoticesScraper
 from scrapers.davidson import DavidsonScraper
+from scrapers.fl_probate_divorce import (
+    BrowardDivorceScraper,
+    BrowardProbateScraper,
+    HillsboroughDivorceScraper,
+    HillsboroughProbateScraper,
+    MiamiDadeDivorceScraper,
+    MiamiDadeProbateScraper,
+    OrangeFLDivorceScraper,
+    OrangeFLProbateScraper,
+    PalmBeachDivorceScraper,
+    PalmBeachProbateScraper,
+)
 from scrapers.fresno_legalnotices import FresnoLegalNoticesScraper
 from scrapers.jaxdailyrecord_legalnotices import (
     ClayJaxDailyRecordScraper,
@@ -54,8 +66,16 @@ from scrapers.jaxdailyrecord_legalnotices import (
     NassauJaxDailyRecordScraper,
     StJohnsJaxDailyRecordScraper,
 )
+from scrapers.jaxdailyrecord_probate import (
+    ClayJaxProbateScraper,
+    DuvalJaxDissolutionScraper,
+    DuvalJaxProbateScraper,
+    NassauJaxProbateScraper,
+    StJohnsJaxProbateScraper,
+)
 from scrapers.jaxdailyrecord_tax import DuvalJaxDailyRecordRealEstateTaxScraper
 from scrapers.kern_legalnotices import KernLegalNoticesScraper
+from scrapers.mi_probate import MI_PROBATE_SCRAPERS
 from scrapers.ontario_taxsale import OntarioTaxSaleScraper
 from scrapers.losangeles_legalnotices import LosAngelesLegalNoticesScraper
 from scrapers.orange_legalnotices import OrangeLegalNoticesScraper
@@ -361,7 +381,96 @@ SOURCES = {
         "ontario_ca", "Tax sale", OntarioTaxSaleScraper,
         "https://www.ontariotaxsales.ca/tax-sale-properties",
     ),
+    # ── Florida probate (Notice to Creditors) — floridapublicnotices.com ───
+    "broward_probate": SourceDefinition(
+        "broward_probate", "Broward County FL probate notices",
+        "south_fl", "Probate", BrowardProbateScraper,
+        "https://floridapublicnotices.com/",
+    ),
+    "miamidade_probate": SourceDefinition(
+        "miamidade_probate", "Miami-Dade County FL probate notices",
+        "south_fl", "Probate", MiamiDadeProbateScraper,
+        "https://floridapublicnotices.com/",
+    ),
+    "palmbeach_probate": SourceDefinition(
+        "palmbeach_probate", "Palm Beach County FL probate notices",
+        "south_fl", "Probate", PalmBeachProbateScraper,
+        "https://floridapublicnotices.com/",
+    ),
+    "orangefl_probate": SourceDefinition(
+        "orangefl_probate", "Orange County FL probate notices",
+        "central_fl", "Probate", OrangeFLProbateScraper,
+        "https://floridapublicnotices.com/",
+    ),
+    "hillsborough_probate": SourceDefinition(
+        "hillsborough_probate", "Hillsborough County FL probate notices",
+        "tampa_bay", "Probate", HillsboroughProbateScraper,
+        "https://floridapublicnotices.com/",
+    ),
+    # ── Florida divorce (Dissolution of Marriage notices of action) ────────
+    "broward_divorce": SourceDefinition(
+        "broward_divorce", "Broward County FL divorce notices",
+        "south_fl", "Divorce", BrowardDivorceScraper,
+        "https://floridapublicnotices.com/",
+    ),
+    "miamidade_divorce": SourceDefinition(
+        "miamidade_divorce", "Miami-Dade County FL divorce notices",
+        "south_fl", "Divorce", MiamiDadeDivorceScraper,
+        "https://floridapublicnotices.com/",
+    ),
+    "palmbeach_divorce": SourceDefinition(
+        "palmbeach_divorce", "Palm Beach County FL divorce notices",
+        "south_fl", "Divorce", PalmBeachDivorceScraper,
+        "https://floridapublicnotices.com/",
+    ),
+    "orangefl_divorce": SourceDefinition(
+        "orangefl_divorce", "Orange County FL divorce notices",
+        "central_fl", "Divorce", OrangeFLDivorceScraper,
+        "https://floridapublicnotices.com/",
+    ),
+    "hillsborough_divorce": SourceDefinition(
+        "hillsborough_divorce", "Hillsborough County FL divorce notices",
+        "tampa_bay", "Divorce", HillsboroughDivorceScraper,
+        "https://floridapublicnotices.com/",
+    ),
+    # ── Northeast FL probate + divorce — Jax Daily Record ──────────────────
+    "duval_jax_probate": SourceDefinition(
+        "duval_jax_probate", "Duval Jax Daily Record probate notices",
+        "northeast_fl", "Probate", DuvalJaxProbateScraper,
+        "https://legals.jaxdailyrecord.com/public_notices/publicnotices.php?Category=Probate&mode=daily",
+    ),
+    "stjohns_jax_probate": SourceDefinition(
+        "stjohns_jax_probate", "St. Johns Jax Daily Record probate notices",
+        "northeast_fl", "Probate", StJohnsJaxProbateScraper,
+        "https://legals.jaxdailyrecord.com/public_notices/publicnotices.php?Category=Probate&mode=daily",
+    ),
+    "clay_jax_probate": SourceDefinition(
+        "clay_jax_probate", "Clay Jax Daily Record probate notices",
+        "northeast_fl", "Probate", ClayJaxProbateScraper,
+        "https://legals.jaxdailyrecord.com/public_notices/publicnotices.php?Category=Probate&mode=daily",
+    ),
+    "nassau_jax_probate": SourceDefinition(
+        "nassau_jax_probate", "Nassau Jax Daily Record probate notices",
+        "northeast_fl", "Probate", NassauJaxProbateScraper,
+        "https://legals.jaxdailyrecord.com/public_notices/publicnotices.php?Category=Probate&mode=daily",
+    ),
+    "duval_jax_dissolution": SourceDefinition(
+        "duval_jax_dissolution", "Duval Jax Daily Record divorce notices",
+        "northeast_fl", "Divorce", DuvalJaxDissolutionScraper,
+        "https://legals.jaxdailyrecord.com/public_notices/publicnotices.php?Category=Notice+of+Action+-+Dissolution+of+Marriage&mode=daily",
+    ),
 }
+
+# ── Michigan probate — one source per county, mirroring foreclosure coverage ─
+for _key, _cls in MI_PROBATE_SCRAPERS.items():
+    SOURCES[_key] = SourceDefinition(
+        _key,
+        f"{_cls.county_name} County MI probate notices",
+        f"{_cls.county_name.lower().replace(' ', '').replace('.', '')}_mi",
+        "Probate",
+        _cls,
+        "https://www.mipublicnotices.com/",
+    )
 
 
 UI_COUNTY_SOURCES = {
@@ -424,12 +533,30 @@ UI_COUNTY_SOURCES = {
     "tuscola-mi": ["tuscola_legalnotices"],
     "allegan-mi": ["allegan_legalnotices"],
     "cass-mi": ["cass_legalnotices"],
-    "duval-fl": ["duval_jaxdailyrecord", "duval_jaxdailyrecord_retax"],
-    "stjohns-fl": ["stjohns_jaxdailyrecord"],
-    "nassau-fl": ["nassau_jaxdailyrecord"],
-    "clay-fl": ["clay_jaxdailyrecord"],
+    "duval-fl": ["duval_jaxdailyrecord", "duval_jaxdailyrecord_retax",
+                 "duval_jax_probate", "duval_jax_dissolution"],
+    "stjohns-fl": ["stjohns_jaxdailyrecord", "stjohns_jax_probate"],
+    "nassau-fl": ["nassau_jaxdailyrecord", "nassau_jax_probate"],
+    "clay-fl": ["clay_jaxdailyrecord", "clay_jax_probate"],
     "ontario-ca": ["ontario_taxsale"],
 }
+
+# Attach FL probate + divorce sources to their county UI keys.
+for _ui_key, _extra in {
+    "broward-fl": ["broward_probate", "broward_divorce"],
+    "miamidade-fl": ["miamidade_probate", "miamidade_divorce"],
+    "palmbeach-fl": ["palmbeach_probate", "palmbeach_divorce"],
+    "orange-fl": ["orangefl_probate", "orangefl_divorce"],
+    "hillsborough-fl": ["hillsborough_probate", "hillsborough_divorce"],
+}.items():
+    UI_COUNTY_SOURCES[_ui_key] = UI_COUNTY_SOURCES[_ui_key] + _extra
+
+# Attach each Michigan county's probate source to its UI key
+# (probate source keys are "<county>_probate"; UI keys are "<county>-mi").
+for _probate_key in MI_PROBATE_SCRAPERS:
+    _ui_key = _probate_key.replace("_probate", "-mi")
+    if _ui_key in UI_COUNTY_SOURCES:
+        UI_COUNTY_SOURCES[_ui_key] = UI_COUNTY_SOURCES[_ui_key] + [_probate_key]
 
 
 ALL_SCRAPERS = {key: source.cls for key, source in SOURCES.items()}

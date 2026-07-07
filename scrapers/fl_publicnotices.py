@@ -44,6 +44,9 @@ class FLPublicNoticesScraper(BaseScraper):
     county_pattern = ""
     state = "FL"
     base_url = SEARCH_URL
+    # Multi-word phrases must be quoted or the search ORs the words together.
+    search_keyword = "foreclosure"
+    notice_label = "foreclosure"
 
     def scrape(self) -> list[PropertyRecord]:
         today_d = date.today()
@@ -58,7 +61,7 @@ class FLPublicNoticesScraper(BaseScraper):
                 "counties": [self.county_id],
                 "date-range--start-date": first.isoformat(),
                 "date-range--end-date": today_d.isoformat(),
-                "keywords": "foreclosure",
+                "keywords": self.search_keyword,
                 "offset": offset or None,
                 "paper": "-1",
                 "sort-by": None,
@@ -82,7 +85,7 @@ class FLPublicNoticesScraper(BaseScraper):
             if len(notices) < PAGE_SIZE:
                 break
 
-        log.info(f"[{self.county_name}] Florida foreclosure notices: {len(records)}")
+        log.info(f"[{self.county_name}] Florida {self.notice_label} notices: {len(records)}")
         return records or [self._stub(today)]
 
     def _parse_notice(self, notice: dict, today: str) -> PropertyRecord | None:

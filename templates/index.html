@@ -195,6 +195,8 @@
         .badge-auction { background: #7f1d1d; color: #fca5a5; }
         .badge-pre-foreclosure { background: #78350f; color: #fcd34d; }
         .badge-tax-lien { background: #1e3a5f; color: #93c5fd; }
+        .badge-probate { background: #3b0764; color: #d8b4fe; }
+        .badge-divorce { background: #831843; color: #f9a8d4; }
         .badge-tax-sale { background: #14532d; color: #86efac; }
         .badge-county {
             background: #1e2130; color: #93c5fd;
@@ -319,6 +321,8 @@
             <option value="Pre-foreclosure">Pre-Foreclosure</option>
             <option value="Tax Lien">Tax Delinquent</option>
             <option value="Tax Sale">Tax Sale</option>
+            <option value="Probate">Probate</option>
+            <option value="Divorce">Divorce</option>
         </select>
         <select id="state-filter" onchange="applyFilters()">
             <option value="">All states</option>
@@ -399,6 +403,10 @@
                     <span class="badge badge-pre-foreclosure">Pre-Foreclosure</span>
                 {% elif item.status == 'Tax Sale' %}
                     <span class="badge badge-tax-sale">Tax Sale</span>
+                {% elif item.status == 'Probate' %}
+                    <span class="badge badge-probate">Probate</span>
+                {% elif item.status == 'Divorce' %}
+                    <span class="badge badge-divorce">Divorce</span>
                 {% else %}
                     <span class="badge badge-tax-lien">Tax Delinquent</span>
                 {% endif %}
