@@ -22,3 +22,7 @@ listings.json.bak
 listings.json.tmp
 data/.skiptrace_ddg_cookies.json
 data/.skiptrace_google_cookies.json
+
+data/parcels_cache_duval.json
+data/listings_backup_pre_enrich.json
+data/enrich_duval.log
