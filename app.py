@@ -1213,11 +1213,17 @@ def register():
             return render_template('auth.html', mode='register', error="Enter a valid email.", email=email)
         if len(password) < 8:
             return render_template('auth.html', mode='register', error="Password must be at least 8 characters.", email=email)
-        db.init_db()
-        user = db.create_user(
-            email,
-            generate_password_hash(password),
-        )
+        try:
+            db.init_db()
+            user = db.create_user(
+                email,
+                generate_password_hash(password),
+            )
+        except Exception:
+            # e.g. Appwrite project paused for inactivity — don't 500 on the user
+            app.logger.exception("Account backend unavailable during register")
+            return render_template('auth.html', mode='register', email=email,
+                                   error="Account service is temporarily unavailable. Please try again in a few minutes.")
         if not user:
             return render_template('auth.html', mode='register', error="That email is already registered. Try logging in.", email=email)
         session['user_id'] = user['id']
@@ -1235,8 +1241,14 @@ def login():
     if request.method == 'POST':
         email = (request.form.get('email') or '').strip().lower()
         password = request.form.get('password') or ''
-        db.init_db()
-        user = db.get_user_by_email(email)
+        try:
+            db.init_db()
+            user = db.get_user_by_email(email)
+        except Exception:
+            # e.g. Appwrite project paused for inactivity — don't 500 on the user
+            app.logger.exception("Account backend unavailable during login")
+            return render_template('auth.html', mode='login', email=email,
+                                   error="Account service is temporarily unavailable. Please try again in a few minutes.")
         if not user or not check_password_hash(user['password_hash'], password):
             return render_template('auth.html', mode='login', error="Incorrect email or password.", email=email)
         session['user_id'] = user['id']

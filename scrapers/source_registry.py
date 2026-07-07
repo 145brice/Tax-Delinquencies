@@ -507,6 +507,7 @@ UI_COUNTY_SOURCES = {
     # Backward-compatible UI keys from the original broad county list.
     "harris": ["harris_taxsale"],
     "maricopa": ["maricopa_trusteesale", "maricopa_azcapitoltimes"],
+    "miami-dade": ["miamidade_publicnotices"],
     "barry-mi": ["barry_taxforeclosure", "barry_legalnotices"],
     "wayne-mi": ["wayne_legalnotices"],
     "macomb-mi": ["macomb_legalnotices"],

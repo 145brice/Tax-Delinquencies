@@ -55,6 +55,15 @@
         .county-item input[type="checkbox"] { width: 17px; height: 17px; accent-color: #2563eb; cursor: pointer; }
         .county-name { font-size: 0.9rem; font-weight: 500; }
         .county-state { font-size: 0.75rem; color: #6b7280; }
+        .county-caps { display: flex; flex-wrap: wrap; gap: 3px; margin-top: 3px; }
+        .cap-tag { font-size: 0.6rem; padding: 1px 5px; border-radius: 3px; background: #1f2937; color: #9ca3af; white-space: nowrap; }
+        .cap-probate { background: #3b0764; color: #d8b4fe; }
+        .cap-divorce { background: #831843; color: #f9a8d4; }
+        .cap-legal-notices { background: #78350f; color: #fcd34d; }
+        .cap-tax-sale, .cap-tax-delinquent { background: #1e3a5f; color: #93c5fd; }
+        .cap-trustee-sale, .cap-sheriff-sale, .cap-foreclosure-map { background: #7f1d1d; color: #fca5a5; }
+        .cap-county-public-records { background: #14532d; color: #86efac; }
+        .cap-none { background: #1f2937; color: #4b5563; font-style: italic; }
         .mini-actions { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 16px; }
         .mini-btn { background: #1e3a5f; color: #93c5fd; border: 1px solid #2563eb; border-radius: 999px; padding: 6px 12px; cursor: pointer; font-size: 0.78rem; font-weight: 700; }
         .mini-btn:hover { background: #1d4ed8; color: #fff; }
@@ -509,6 +518,36 @@ const CSRF_TOKEN = document.querySelector('meta[name="csrf-token"]').content;
     function setCountyChecks(checked) {
         document.querySelectorAll('input[name="county"]').forEach(cb => cb.checked = checked);
     }
+
+    // Tag each county checkbox with the record types its registered sources pull
+    // (Legal notices, Tax sale, Probate, Divorce, ...) from the source registry.
+    async function tagCountyCapabilities() {
+        try {
+            const res = await fetch('/api/sources');
+            const data = await res.json();
+            const typeByKey = {};
+            (data.sources || []).forEach(s => { typeByKey[s.key] = s.source_type || ''; });
+            const countySources = data.county_sources || {};
+            document.querySelectorAll('input[name="county"]').forEach(cb => {
+                const holder = cb.nextElementSibling;
+                if (!holder) return;
+                const tagRow = document.createElement('div');
+                tagRow.className = 'county-caps';
+                const srcKeys = countySources[cb.value] || [];
+                const types = [...new Set(srcKeys.map(k => typeByKey[k]).filter(Boolean))];
+                if (!types.length) {
+                    tagRow.innerHTML = '<span class="cap-tag cap-none">no scraper</span>';
+                } else {
+                    tagRow.innerHTML = types.map(t => {
+                        const slug = t.toLowerCase().replace(/[^a-z]+/g, '-');
+                        return `<span class="cap-tag cap-${slug}">${t}</span>`;
+                    }).join('');
+                }
+                holder.appendChild(tagRow);
+            });
+        } catch (e) { /* capability tags are cosmetic — never block the panel */ }
+    }
+    tagCountyCapabilities();
 
     async function saveSettings() {
         const counties = selectedCounties();
