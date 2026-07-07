@@ -488,6 +488,7 @@
         <div class="btn-row">
             <button type="button" class="btn btn-save" id="save-btn">Save Settings</button>
             <button type="button" class="btn btn-run" id="run-btn">Launch Scraper</button>
+            <button type="button" class="btn btn-run" id="resume-btn" style="display:none; background:#78350f;" title="Continue the interrupted run: skips sources that already finished">Resume Last Run</button>
             <button type="button" class="btn btn-stop" id="stop-btn" onclick="stopScrape(false)" style="display:none;">Stop After Current</button>
             <button type="button" class="btn btn-stop" id="kill-btn" onclick="stopScrape(true)" style="display:none; background:#991b1b;">Kill Now</button>
         </div>
@@ -592,12 +593,24 @@ const CSRF_TOKEN = document.querySelector('meta[name="csrf-token"]').content;
         msg.style.display = 'block';
     }
 
+    function updateResumeButton(s) {
+        const btn = document.getElementById('resume-btn');
+        if (s.resumable && s.resume_info) {
+            const done = s.resume_info.completed, planned = s.resume_info.planned;
+            btn.innerText = `Resume Last Run (${done}/${planned} done)`;
+            btn.style.display = 'inline-block';
+        } else {
+            btn.style.display = 'none';
+        }
+    }
+
     function setRunning(running) {
         const runBtn  = document.getElementById('run-btn');
         const stopBtn = document.getElementById('stop-btn');
         const killBtn = document.getElementById('kill-btn');
         const saveBtn = document.getElementById('save-btn');
         const wrap    = document.getElementById('progress-wrap');
+        if (running) document.getElementById('resume-btn').style.display = 'none';
         runBtn.disabled = running;
         runBtn.innerText = running ? 'Running...' : 'Launch Scraper';
         stopBtn.style.display = running ? 'inline-block' : 'none';
@@ -670,9 +683,9 @@ const CSRF_TOKEN = document.querySelector('meta[name="csrf-token"]').content;
         }
     }
 
-    async function triggerScrape() {
+    async function triggerScrape(resume = false) {
         setRunning(true);
-        showMsg('Starting scraper...', '#facc15');
+        showMsg(resume ? 'Resuming last run...' : 'Starting scraper...', '#facc15');
         document.getElementById('progress-step').innerText = 'Initializing...';
         document.getElementById('progress-bar').style.width = '5%';
 
@@ -681,7 +694,8 @@ const CSRF_TOKEN = document.querySelector('meta[name="csrf-token"]').content;
         const payload = {
             counties,
             lookback_days: lookback,
-            save_defaults: true,
+            save_defaults: !resume,
+            resume: resume,
             include_tax_records: document.getElementById('tog-taxlien').checked,
             include_hud: document.getElementById('tog-auction').checked,
             include_homepath: document.getElementById('tog-auction').checked,
@@ -714,6 +728,7 @@ const CSRF_TOKEN = document.querySelector('meta[name="csrf-token"]').content;
                 clearInterval(pollInterval);
                 setRunning(false);
                 renderResults(s.scraper_results);
+                updateResumeButton(s);
                 document.getElementById('progress-bar').style.width = '100%';
                 if (s.last === 'success') {
                     document.getElementById('progress-step').innerText = 'Complete!';
@@ -734,9 +749,13 @@ const CSRF_TOKEN = document.querySelector('meta[name="csrf-token"]').content;
 
     document.addEventListener('DOMContentLoaded', async () => {
         document.getElementById('save-btn').addEventListener('click', saveSettings);
-        document.getElementById('run-btn').addEventListener('click', triggerScrape);
+        // Wrap in arrow functions: passing the handler directly would hand the
+        // click event to triggerScrape's `resume` parameter (always truthy).
+        document.getElementById('run-btn').addEventListener('click', () => triggerScrape(false));
+        document.getElementById('resume-btn').addEventListener('click', () => triggerScrape(true));
         const r = await fetch('/api/scrape/status');
         const s = await r.json();
+        updateResumeButton(s);
         if (s.scraper_results && Object.keys(s.scraper_results).length) {
             renderResults(s.scraper_results);
         }

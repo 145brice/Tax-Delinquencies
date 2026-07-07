@@ -354,6 +354,8 @@ def _runtime_data_file(filename):
 
 DATA_FILE = _runtime_data_file('listings.json')
 SETTINGS_FILE = _runtime_data_file('settings.json')
+# Per-source progress of the last scrape run, so an interrupted run can resume.
+SCRAPE_PROGRESS_FILE = _runtime_data_file('scrape_progress.json')
 DEFAULT_SOURCES = {
     "include_tax_records": True,
     "include_hud": True,
@@ -2870,10 +2872,18 @@ def run_scraper():
         return jsonify({"status": "already_running"})
 
     payload = request.get_json(silent=True) or {}
+    resume = bool(payload.get("resume"))
+    prior_progress = load_json(SCRAPE_PROGRESS_FILE, {}) if resume else {}
+    if resume and (prior_progress.get("finished") or not prior_progress.get("completed")):
+        prior_progress = {}   # nothing to resume — run fresh
     settings = normalize_settings(load_json(SETTINGS_FILE, {}))
     counties = payload.get("counties") or settings.get("counties") or ["chatham-ga", "glynn-ga", "camden-ga", "duval-fl", "stjohns-fl", "nassau-fl"]
     lookback = int(payload.get("lookback_days", settings.get("lookback_days", 30)))
     lookback = max(1, min(365, lookback))
+    if prior_progress:
+        # Re-run the interrupted run's own config so "resume" means exactly that.
+        counties = prior_progress.get("counties") or counties
+        lookback = int(prior_progress.get("lookback_days") or lookback)
     sources = {
         "include_tax_records": bool(payload.get("include_tax_records", settings["sources"]["include_tax_records"])),
         "include_hud": bool(payload.get("include_hud", settings["sources"]["include_hud"])),
@@ -2926,11 +2936,39 @@ def run_scraper():
                     sk for c in counties if c in scraper_map
                     for sk in scraper_map[c]
                 ]
+                # Resume: skip sources the interrupted run already finished and
+                # surface their prior results so the panel shows the full run.
+                completed = dict(prior_progress.get("completed") or {})
+                if completed:
+                    for sk, prior in completed.items():
+                        if sk in scraper_counties and isinstance(prior, dict):
+                            prior = dict(prior)
+                            prior["note"] = (prior.get("note") or "") + " [previous run]"
+                            scrape_status["scraper_results"][sk] = prior
+                    update_progress(f"Resuming: {len(completed)} source(s) already done")
+                progress = {
+                    "started_at": prior_progress.get("started_at") or scrape_status["started_at"],
+                    "updated_at": scrape_status["started_at"],
+                    "finished": False,
+                    "counties": counties,
+                    "lookback_days": lookback,
+                    "planned": scraper_counties,
+                    "completed": completed,
+                }
+                save_json(SCRAPE_PROGRESS_FILE, progress)
+
+                def _record_done(sk, result):
+                    progress["completed"][sk] = result
+                    progress["updated_at"] = datetime.now().isoformat(timespec="seconds")
+                    save_json(SCRAPE_PROGRESS_FILE, progress)
+
                 if scraper_counties:
                     # Run each scraper individually so we can track per-key results
                     for sk in scraper_counties:
                         if stop_event.is_set():
                             break
+                        if sk in completed:
+                            continue    # finished in the interrupted run
                         update_progress(f"Scraping: {sk}")
                         t0 = time.monotonic()
                         try:
@@ -2945,10 +2983,12 @@ def run_scraper():
                             note = "stub/portal link only" if stub_only else f"{new_count} new / {len(listings)} kept / {len(recs)} raw"
                             if csv_file:
                                 note += f" / CSV: {csv_file}"
-                            scrape_status["scraper_results"][sk] = source_result(
+                            result = source_result(
                                 sk, len(recs), len(listings), new_count, status, note,
                                 seconds=elapsed,
                             )
+                            scrape_status["scraper_results"][sk] = result
+                            _record_done(sk, result)
                         except ScraperKilled:
                             scrape_status["scraper_results"][sk] = source_result(
                                 sk, 0, 0, 0, "error", "killed mid-run",
@@ -2956,10 +2996,15 @@ def run_scraper():
                             update_progress(f"{sk} killed mid-run")
                             break  # exit the per-scraper loop entirely
                         except Exception as e:
+                            # Errors are not marked completed, so a resume retries them.
                             scrape_status["scraper_results"][sk] = source_result(
                                 sk, 0, 0, 0, "error", str(e)[:120],
                                 seconds=time.monotonic() - t0)
                             update_progress(f"Error scraping {sk}: {e}")
+
+                if not stop_event.is_set():
+                    progress["finished"] = True
+                    save_json(SCRAPE_PROGRESS_FILE, progress)
 
             # Phase 2: HUD + HomePath REO via scraper.py
             if not stop_event.is_set():
@@ -3028,7 +3073,25 @@ def stop_scraper():
 def scrape_status_check():
     if STOREFRONT_ONLY:
         return jsonify({"running": False, "last": "storefront_only"})
-    return jsonify(scrape_status)
+    status = dict(scrape_status)
+    # Let the admin UI offer "Resume last run" when a run was interrupted.
+    progress = load_json(SCRAPE_PROGRESS_FILE, {})
+    done = len(progress.get("completed") or {})
+    planned = len(progress.get("planned") or [])
+    status["resumable"] = bool(
+        not scrape_status["running"]
+        and progress
+        and not progress.get("finished")
+        and done
+        and planned > done
+    )
+    if status["resumable"]:
+        status["resume_info"] = {
+            "completed": done,
+            "planned": planned,
+            "started_at": progress.get("started_at"),
+        }
+    return jsonify(status)
 
 @app.route('/api/listings')
 @admin_required
