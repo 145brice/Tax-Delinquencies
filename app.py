@@ -336,17 +336,35 @@ def _sqlite_set(key, data):
 def current_listings():
     return sort_storefront_listings(load_json(DATA_FILE, []))
 
+# Where runtime-writable files live:
+#   local   -> the project dir (persists, git-tracked)
+#   Vercel  -> /tmp (only writable path; wiped between invocations)
+#   Railway -> the mounted volume, so scrape output + resume progress survive
+#              container restarts (an OOM restart does NOT rebuild the image)
+if IS_VERCEL:
+    _RUNTIME_DIR = "/tmp/foreclosure-app"
+elif os.getenv("RAILWAY_VOLUME_MOUNT_PATH"):
+    _RUNTIME_DIR = os.path.join(os.getenv("RAILWAY_VOLUME_MOUNT_PATH"), "app-data")
+else:
+    _RUNTIME_DIR = None
+
+
 def _runtime_data_file(filename):
-    """Use /tmp on Vercel (writable), project files locally."""
-    if not IS_VERCEL:
+    """Runtime-writable path for a data file, seeded from the bundled git copy.
+
+    On a hosted volume we seed only when the runtime copy is missing or the
+    bundled (freshly deployed) copy is strictly newer. We deliberately do NOT
+    reseed on size differences, so writes made during a hosted scrape are
+    preserved across container restarts and only refreshed when a new deploy
+    ships updated data.
+    """
+    if not _RUNTIME_DIR:
         return os.path.join(BASE_DIR, filename)
-    runtime_dir = "/tmp/foreclosure-app"
-    os.makedirs(runtime_dir, exist_ok=True)
-    runtime_file = os.path.join(runtime_dir, filename)
+    os.makedirs(_RUNTIME_DIR, exist_ok=True)
+    runtime_file = os.path.join(_RUNTIME_DIR, filename)
     bundled_file = os.path.join(BASE_DIR, filename)
     if os.path.exists(bundled_file) and (
         not os.path.exists(runtime_file)
-        or os.path.getsize(runtime_file) != os.path.getsize(bundled_file)
         or os.path.getmtime(runtime_file) < os.path.getmtime(bundled_file)
     ):
         shutil.copyfile(bundled_file, runtime_file)

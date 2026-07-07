@@ -533,12 +533,22 @@ async def run_scraper(
     seen = set()
     all_results = []
 
+    # Container-safe Chromium flags. --disable-dev-shm-usage is the important
+    # one on Railway/Docker: /dev/shm defaults to ~64MB there, and without this
+    # Chromium tries to use it for larger pages and gets OOM-killed, which
+    # restarts the whole container mid-scrape. The rest trim baseline memory.
+    launch_args = [
+        "--disable-blink-features=AutomationControlled",
+        "--disable-dev-shm-usage",
+        "--no-sandbox",
+        "--disable-gpu",
+        "--disable-extensions",
+        "--disable-background-networking",
+        "--no-first-run",
+    ]
     async with async_playwright() as p:
         try:
-            browser = await p.chromium.launch(
-                headless=True,
-                args=["--disable-blink-features=AutomationControlled"],
-            )
+            browser = await p.chromium.launch(headless=True, args=launch_args)
         except Exception as e:
             # Fallback for Windows setups where Playwright browser binaries
             # were not installed yet; use local Chrome if available.
@@ -546,9 +556,7 @@ async def run_scraper(
             if "executable doesn't exist" in msg or "please run the following command" in msg:
                 print("[Playwright] Bundled Chromium missing. Falling back to local Chrome channel...")
                 browser = await p.chromium.launch(
-                    channel="chrome",
-                    headless=True,
-                    args=["--disable-blink-features=AutomationControlled"],
+                    channel="chrome", headless=True, args=launch_args,
                 )
             else:
                 raise
