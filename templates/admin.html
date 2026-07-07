@@ -136,6 +136,13 @@
         .progress-step { font-size: 0.82rem; color: #facc15; margin-top: 8px; min-height: 1.2em; }
         .progress-count { font-size: 0.8rem; color: #4b5563; margin-top: 4px; }
 
+        .results-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+        .results-title { font-size: 0.8rem; color: #9ca3af; text-transform: uppercase; letter-spacing: 0.07em; }
+        .results-sort-label { font-size: 0.72rem; color: #6b7280; display: flex; align-items: center; gap: 6px; }
+        .results-sort-label select {
+            background: #1e2130; color: #e5e7eb; border: 1px solid #374151;
+            border-radius: 6px; padding: 4px 8px; font-size: 0.78rem; cursor: pointer;
+        }
         .results-grid { display: flex; flex-direction: column; gap: 8px; margin-top: 16px; }
         .result-row {
             display: flex; align-items: center; justify-content: space-between;
@@ -506,7 +513,18 @@
         </div>
 
         <div id="results-panel" style="display:none; margin-top:20px;">
-            <div style="font-size:0.8rem; color:#9ca3af; text-transform:uppercase; letter-spacing:0.07em; margin-bottom:10px;">Per-Scraper Results</div>
+            <div class="results-header">
+                <span class="results-title">Per-Scraper Results</span>
+                <label class="results-sort-label">Sort:
+                    <select id="results-sort">
+                        <option value="slow">Slowest first</option>
+                        <option value="fast">Fastest first</option>
+                        <option value="leads">Most leads</option>
+                        <option value="fewest">Fewest leads</option>
+                        <option value="name">Name (A–Z)</option>
+                    </select>
+                </label>
+            </div>
             <div class="results-grid" id="results-grid"></div>
         </div>
     </div>
@@ -630,12 +648,38 @@ const CSRF_TOKEN = document.querySelector('meta[name="csrf-token"]').content;
         return `${m}m ${String(s).padStart(2, '0')}s`;
     }
 
+    // Keep the latest results so the sort dropdown can re-render without a refetch.
+    let lastResults = null;
+
+    function sortResultEntries(entries, mode) {
+        const secs = r => (r.seconds == null ? -1 : r.seconds);
+        const leads = r => (r.new ?? r.count ?? 0);
+        const arr = entries.slice();
+        switch (mode) {
+            case 'fast':   // fastest first; unknown-time sources sink to the bottom
+                return arr.sort((a, b) => {
+                    const av = a[1].seconds == null ? Infinity : a[1].seconds;
+                    const bv = b[1].seconds == null ? Infinity : b[1].seconds;
+                    return av - bv;
+                });
+            case 'leads':  return arr.sort((a, b) => leads(b[1]) - leads(a[1]));
+            case 'fewest': return arr.sort((a, b) => leads(a[1]) - leads(b[1]));
+            case 'name':   return arr.sort((a, b) =>
+                                (a[1].label || a[0]).localeCompare(b[1].label || b[0]));
+            case 'slow':
+            default:       return arr.sort((a, b) => secs(b[1]) - secs(a[1]));
+        }
+    }
+
     function renderResults(results) {
+        if (results) lastResults = results;
+        results = lastResults;
         if (!results || !Object.keys(results).length) return;
         const panel = document.getElementById('results-panel');
         const grid  = document.getElementById('results-grid');
         panel.style.display = 'block';
-        grid.innerHTML = Object.entries(results).map(([key, r]) => {
+        const mode = (document.getElementById('results-sort') || {}).value || 'slow';
+        grid.innerHTML = sortResultEntries(Object.entries(results), mode).map(([key, r]) => {
             const count = r.new ?? r.count ?? 0;
             const badge = r.status === 'ok'
                 ? `<span class="badge-ok">OK ${count} new</span>`
@@ -753,6 +797,8 @@ const CSRF_TOKEN = document.querySelector('meta[name="csrf-token"]').content;
         // click event to triggerScrape's `resume` parameter (always truthy).
         document.getElementById('run-btn').addEventListener('click', () => triggerScrape(false));
         document.getElementById('resume-btn').addEventListener('click', () => triggerScrape(true));
+        // Re-render (from cached results) when the sort choice changes.
+        document.getElementById('results-sort').addEventListener('change', () => renderResults());
         const r = await fetch('/api/scrape/status');
         const s = await r.json();
         updateResumeButton(s);
