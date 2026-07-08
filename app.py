@@ -1485,12 +1485,18 @@ def account():
                     s["pending_tier_date"] = datetime.fromtimestamp(int(ts)).strftime("%b %d, %Y")
                 except (TypeError, ValueError):
                     s["pending_tier_date"] = ""
+    wallet = _load_wallets().get(str(user["id"])) or {}
+    wallet_ledger = list(reversed(wallet.get("ledger", [])))[:25]
     return render_template('account.html', email=user['email'], orders=orders,
                            folders=sorted(folders), statuses=statuses,
                            active_subs=active_subs,
                            tier_labels=TIER_LABELS, tier_amounts=TIER_AMOUNTS,
                            tier_included=TIER_INCLUDED,
-                           subscriptions_ready=_subscriptions_ready())
+                           subscriptions_ready=_subscriptions_ready(),
+                           wallet_balance_cents=int(wallet.get("balance_cents", 0)),
+                           wallet_ledger=wallet_ledger,
+                           credit_packs=_load_credit_packs(),
+                           payments_ready=bool(stripe.api_key))
 
 
 @app.route('/account/debug')

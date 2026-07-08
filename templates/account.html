@@ -147,6 +147,28 @@
             border-radius: 8px; padding: 9px 14px; font-size: 0.82rem; color: #fcd34d;
         }
         .pending-downgrade strong { color: #fde68a; }
+        .credits-card {
+            background: #111827; border: 1px solid #1f2937; border-radius: 12px;
+            padding: 20px 22px; margin-bottom: 34px;
+        }
+        .credits-top { display: flex; justify-content: space-between; align-items: center; gap: 20px; flex-wrap: wrap; }
+        .credits-label { font-size: 0.78rem; color: #9ca3af; text-transform: uppercase; letter-spacing: 0.06em; }
+        .credits-balance { font-size: 2rem; font-weight: 800; color: #86efac; line-height: 1.1; }
+        .credits-hint { font-size: 0.78rem; color: #6b7280; margin-top: 4px; }
+        .pack-buttons { display: flex; gap: 10px; flex-wrap: wrap; }
+        .pack-btn {
+            background: #1f2937; color: #e5e7eb; border: 1px solid #374151;
+            border-radius: 9px; padding: 12px 16px; cursor: pointer; font-size: 0.88rem;
+            display: flex; flex-direction: column; align-items: center; gap: 3px; min-width: 108px;
+        }
+        .pack-btn:hover { border-color: #7c3aed; background: #262f42; }
+        .pack-btn strong { color: #bbf7d0; }
+        .pack-bonus { color: #86efac; font-size: 0.72rem; font-weight: 700; }
+        .credits-history { margin-top: 18px; }
+        .credits-history summary { cursor: pointer; color: #9ca3af; font-size: 0.84rem; }
+        .ledger { width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 0.82rem; }
+        .ledger th { text-align: left; color: #6b7280; font-weight: 600; padding: 6px 8px; border-bottom: 1px solid #1f2937; }
+        .ledger td { padding: 6px 8px; border-bottom: 1px solid #161d2b; color: #cbd5e1; }
     </style>
 </head>
 <body>
@@ -169,7 +191,45 @@
 
 <div class="page">
     <h1>My Account</h1>
-    <div class="subtitle">Manage your county subscriptions and view purchased leads.</div>
+    <div class="subtitle">Manage your credits, county subscriptions, and purchased leads.</div>
+
+    <div class="credits-card">
+        <div class="credits-top">
+            <div>
+                <div class="credits-label">Credit balance</div>
+                <div class="credits-balance">${{ '%.2f' | format(wallet_balance_cents / 100) }}</div>
+                <div class="credits-hint">Spend on lead unlocks &middot; non-contact $3 &middot; contact $10</div>
+            </div>
+            {% if payments_ready %}
+            <div class="pack-buttons">
+                {% for p in credit_packs %}
+                <button class="pack-btn" onclick="buyCredits('{{ p.id }}')">
+                    Pay ${{ (p.price_cents / 100) | int }} &rarr; <strong>${{ (p.credit_cents / 100) | int }}</strong>
+                    {% if p.bonus %}<span class="pack-bonus">+${{ (p.bonus / 100) | int }} free</span>{% endif %}
+                </button>
+                {% endfor %}
+            </div>
+            {% endif %}
+        </div>
+        {% if wallet_ledger %}
+        <details class="credits-history">
+            <summary>Credit history</summary>
+            <table class="ledger">
+                <tr><th>When</th><th>Activity</th><th style="text-align:right;">Amount</th><th style="text-align:right;">Balance</th></tr>
+                {% for e in wallet_ledger %}
+                <tr>
+                    <td>{{ e.at | replace('T', ' ') }}</td>
+                    <td>{{ e.reason }}</td>
+                    <td style="text-align:right; color: {% if e.delta_cents >= 0 %}#86efac{% else %}#fca5a5{% endif %};">
+                        {{ '+' if e.delta_cents >= 0 else '' }}${{ '%.2f' | format(e.delta_cents / 100) }}
+                    </td>
+                    <td style="text-align:right;">${{ '%.2f' | format(e.balance_after / 100) }}</td>
+                </tr>
+                {% endfor %}
+            </table>
+        </details>
+        {% endif %}
+    </div>
 
     {% if subscriptions_ready and active_subs %}
     <h2 style="color:#fff;font-size:1.1rem;margin-bottom:14px;">Active Subscriptions</h2>
@@ -393,6 +453,21 @@
 </div>
 
 <script>
+async function buyCredits(packId) {
+    const csrf = document.querySelector('meta[name="csrf-token"]').content;
+    try {
+        const resp = await fetch('/api/buy-credits', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json', 'X-CSRF-Token': csrf},
+            body: JSON.stringify({ pack_id: packId })
+        });
+        const data = await resp.json();
+        if (resp.status === 401 || data.login_required) { window.location.href = '/login?next=/account'; return; }
+        if (!resp.ok || !data.url) return alert(data.error || 'Could not start checkout.');
+        window.location.href = data.url;
+    } catch (e) { alert('Could not reach checkout. Please try again.'); }
+}
+
 var PRIORITY_RANK = {hot: 0, warm: 1, normal: 2, cold: 3};
 var STATUS_RANK = {};
 {% if statuses %}
