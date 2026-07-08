@@ -20,9 +20,19 @@ LOOKBACK_DAYS = int(os.getenv("CA_NOTICE_LOOKBACK_DAYS", "60"))
 MAX_NOTICE_DETAILS = int(os.getenv("CA_NOTICE_MAX_DETAILS", "150"))
 
 _TS_RE = re.compile(r"T\.?S\.?\s*No\.?\s*[:#]?\s*([A-Z0-9\-]+)", re.I)
-_APN_RE = re.compile(r"A\.?P\.?N\.?[:#\s]+([0-9][\d\-A-Z]+)", re.I)
-_ADDR_RE = re.compile(r"Property Address[:\s]+([^\n]{10,120})", re.I)
-_CITY_STATE_RE = re.compile(r"([A-Za-z ]+),\s*CA\s+(\d{5})", re.I)
+# Notices write the parcel as "A.P.N." OR "Assessor's Parcel No./Number".
+_APN_RE = re.compile(
+    r"(?:A\.?P\.?N\.?|Assessor'?s?\s+Parcel\s+(?:No|Number|#))[:#\s.]+([0-9][\d\-]{5,})", re.I)
+_CITY_STATE_RE = re.compile(r"([A-Za-z .]+),\s*CA\s+(\d{5})", re.I)
+# A clean "street, City, CA 92065" location. The notice text is space-joined
+# (no newlines), so we must stop at the zip instead of grabbing N characters —
+# otherwise trailing boilerplate ("Assessor's Parcel No... All bidders...")
+# leaked into the address.
+_LOCATION_RE = re.compile(r"(\d[^,\n]{2,60},\s*[A-Za-z .]+,\s*CA\s*\d{5})", re.I)
+# Prefer a location that follows the address label, tolerating "is:"/"of".
+_LABELED_LOCATION_RE = re.compile(
+    r"(?:Property Address|commonly known as|more (?:particularly|fully) described as)"
+    r"[^0-9]{0,20}(\d[^,\n]{2,60},\s*[A-Za-z .]+,\s*CA\s*\d{5})", re.I)
 _OWNER_PATTERNS = [
     re.compile(r"\bTrustor\(s\)?\s*[:\-]\s*([^\n]{3,120})", re.I),
     re.compile(r"\bTrustor\s*[:\-]\s*([^\n]{3,120})", re.I),
@@ -225,19 +235,25 @@ class CALegalNoticesScraper(BaseScraper):
             apn_m = _APN_RE.search(full_text or "")
             apn = apn_m.group(1).strip(" -") if apn_m else ""
 
-            address = city_name = zip_code = ""
-            addr_m = _ADDR_RE.search(full_text or "")
-            if addr_m:
-                address = addr_m.group(1).strip()
-                cs_m = _CITY_STATE_RE.search(address)
+            # Extract a clean "street, City, CA zip" and split off the street so
+            # property_address holds only the street (city/zip carried separately).
+            street = city_name = zip_code = ""
+            loc_m = _LABELED_LOCATION_RE.search(full_text or "") or _LOCATION_RE.search(full_text or "")
+            if loc_m:
+                location = re.sub(r"\s+", " ", loc_m.group(1)).strip()
+                cs_m = _CITY_STATE_RE.search(location)
                 if cs_m:
                     city_name = cs_m.group(1).strip().title()
                     zip_code = cs_m.group(2)
+                    street = location[:cs_m.start()].strip(" ,")
+                else:
+                    street = location
             else:
                 cs_m = _CITY_STATE_RE.search(full_text or "")
                 if cs_m:
                     city_name = cs_m.group(1).strip().title()
                     zip_code = cs_m.group(2)
+            address = street
 
             amount = _extract_amount(full_text or "")
             owner = _extract_owner(full_text or "")

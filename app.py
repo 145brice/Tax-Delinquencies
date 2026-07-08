@@ -919,12 +919,14 @@ def merge_listings_only(existing, incoming):
     return merged
 
 def _parcel_date_key(item):
+    # County + parcel only (no date): the same parcel scraped on different
+    # publish dates is the same property and must collapse to one listing,
+    # not a new row per date. Different parcels in a county stay distinct.
     parcel = re.sub(r"\D", "", str(item.get("parcel_id") or ""))
     county = str(item.get("county") or "").lower().strip()
-    date_value = str(item.get("sale_date") or item.get("date") or "").strip()
     if not parcel or not county:
         return ""
-    return f"{county}|{parcel}|{date_value}"
+    return f"{county}|{parcel}"
 
 def _upgrade_listing(existing, incoming):
     """Keep existing lead identity, but fill in better data from newer scrapes."""
@@ -3174,30 +3176,128 @@ def listings_csv():
         headers={"Content-Disposition": "attachment; filename=listings.csv"},
     )
 
-def _migrate_clean_owner_names():
-    """One-time, idempotent cleanup of stored owners polluted with foreclosure
-    boilerplate (e.g. 'Mortgage Foreclosure Sale-<name>'). Runs at startup; only
-    writes when something actually changes, so it's a no-op after the first pass."""
+# --- CA trustee-sale address cleanup + cross-source dedupe -------------------
+_CA_LOCATION_RE = re.compile(r"(\d[^,\n]{2,60},\s*[A-Za-z .]+,\s*CA\s*\d{5})", re.I)
+_CA_CITY_STATE_RE = re.compile(r"([A-Za-z .]+),\s*CA\s+(\d{5})", re.I)
+_CA_APN_RE = re.compile(
+    r"(?:A\.?P\.?N\.?|Assessor'?s?\s+Parcel\s+(?:No|Number|#))[:#\s.]+([0-9][\d\-]{5,})", re.I)
+
+
+def _clean_ca_address_inplace(item):
+    """Some CA trustee-sale rows stored the raw notice blurb as the address
+    ('is: 24638 PAPPAS ROAD, RAMONA, CA 92065 Assessor's Parcel No. ...'). Pull
+    out the clean street/city/zip and the parcel. Returns True if it changed."""
+    addr = str(item.get("address") or "")
+    # A raw notice address embeds the location as "..., CA 92065" (no comma
+    # before the zip), whereas our cleaned output is "..., CA, 92065". So a
+    # _CA_LOCATION_RE hit uniquely identifies a still-messy row, and the check
+    # is self-idempotent (cleaned rows no longer match).
+    loc = _CA_LOCATION_RE.search(addr)
+    if not loc:
+        return False
+    changed = False
+    location = re.sub(r"\s+", " ", loc.group(1)).strip()
+    cs = _CA_CITY_STATE_RE.search(location)
+    if cs:
+        street = location[:cs.start()].strip(" ,")
+        item["street"] = street
+        item["city"] = cs.group(1).strip().title()
+        item["zip"] = cs.group(2)
+        item["state"] = "CA"
+        item["address"] = ", ".join(p for p in [street, item["city"], "CA", cs.group(2)] if p)
+        changed = True
+    apn = _CA_APN_RE.search(addr)
+    if apn and not str(item.get("parcel_id") or "").strip():
+        item["parcel_id"] = apn.group(1)
+        changed = True
+    return changed
+
+
+def _dedupe_key(item):
+    """Strong per-property key, or None when we can't safely dedupe. Parcel and
+    case number are stable across publish dates; owner+street is the last resort."""
+    county = str(item.get("county") or "").lower().strip()
+    if not county:
+        return None
+    parcel = re.sub(r"\D", "", str(item.get("parcel_id") or ""))
+    if parcel:
+        return f"{county}|apn|{parcel}"
+    case = str(item.get("case_number") or "").strip().lower()
+    if case:
+        return f"{county}|case|{case}"
+    owner = str(item.get("owner") or "").strip().lower()
+    street = str(item.get("street") or "").strip().lower()
+    if owner and street:
+        return f"{county}|os|{owner}|{street}"
+    return None
+
+
+def _completeness(item):
+    return sum(1 for k in ("owner", "street", "parcel_id", "zip", "amount_owed", "price")
+               if str(item.get(k) or "").strip() and str(item.get(k)) != "5")
+
+
+def _pick_better(a, b):
+    """Keep the more complete row (tie: more recent scrape), filling any blanks
+    on the winner from the loser so no field is lost."""
+    winner, loser = (a, b)
+    if _completeness(b) > _completeness(a):
+        winner, loser = b, a
+    elif _completeness(b) == _completeness(a):
+        if str(b.get("scraped_date") or "") > str(a.get("scraped_date") or ""):
+            winner, loser = b, a
+    for k, v in loser.items():
+        if str(winner.get(k) or "").strip() in ("", "5") and str(v or "").strip() not in ("", "5"):
+            winner[k] = v
+    return winner
+
+
+def _migrate_clean_and_dedupe():
+    """One-time, idempotent startup maintenance: clean polluted owner names,
+    clean messy CA addresses (+parcels), then collapse duplicate rows for the
+    same property. Only writes when something changes, so it no-ops afterward."""
     if STOREFRONT_ONLY:
         return
     try:
         listings = load_json(DATA_FILE, [])
-        changed = 0
+        original = len(listings)
+        owners = addrs = 0
         for item in listings:
-            owner = item.get("owner")
-            if owner_looks_polluted(owner):
-                cleaned = clean_owner_name(owner)
-                if cleaned != owner:
+            if owner_looks_polluted(item.get("owner")):
+                cleaned = clean_owner_name(item.get("owner"))
+                if cleaned != item.get("owner"):
                     item["owner"] = cleaned
-                    changed += 1
-        if changed:
-            save_json(DATA_FILE, listings)
-            print(f"[migrate] Cleaned {changed} polluted owner name(s).")
+                    owners += 1
+            if _clean_ca_address_inplace(item):
+                addrs += 1
+
+        best, order, passthrough = {}, [], []
+        for item in listings:
+            k = _dedupe_key(item)
+            if k is None:
+                passthrough.append(item)
+                continue
+            if k in best:
+                best[k] = _pick_better(best[k], item)
+            else:
+                best[k] = item
+                order.append(k)
+        deduped = [best[k] for k in order] + passthrough
+        removed = original - len(deduped)
+
+        # Safety valve: a correct dedupe never nukes a huge share of the store.
+        if removed > original * 0.25:
+            print(f"[migrate] ABORT dedupe: would remove {removed}/{original} (>25%).")
+            return
+        if owners or addrs or removed:
+            save_json(DATA_FILE, deduped)
+            print(f"[migrate] owners={owners} ca_addr={addrs} deduped={removed} "
+                  f"({original}->{len(deduped)}).")
     except Exception as e:
-        print(f"[migrate] owner-name cleanup skipped: {e}")
+        print(f"[migrate] cleanup/dedupe skipped: {e}")
 
 
-_migrate_clean_owner_names()
+_migrate_clean_and_dedupe()
 
 
 if __name__ == '__main__':
