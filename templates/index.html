@@ -69,6 +69,15 @@
         }
         .btn-checkout:hover { background: #1d4ed8; }
         .btn-checkout:disabled { background: #334155; color: #94a3b8; cursor: not-allowed; }
+        .btn-unlock { background: #16a34a; }
+        .btn-unlock:hover { background: #15803d; }
+        .cart-actions { display: flex; gap: 8px; align-items: center; }
+        .wallet-chip {
+            display: inline-flex; align-items: center; gap: 4px;
+            background: #14321f; color: #86efac; border: 1px solid #166534;
+            padding: 3px 10px; border-radius: 999px; font-size: 0.8rem; font-weight: 600;
+        }
+        .wallet-chip strong { color: #bbf7d0; }
 
         /* Toolbar */
         .toolbar {
@@ -303,10 +312,14 @@
     <div class="cart-info">
         &#128722; <strong id="cart-count">0</strong> leads selected
         &nbsp;|&nbsp; Total: <strong>$<span id="cart-total">0</span></strong>
+        <span class="wallet-chip" id="wallet-chip" style="display:none;">&#128179; Credits: <strong>$<span id="wallet-balance">0</span></strong></span>
     </div>
-    <button class="btn-checkout" onclick="checkout()" {% if not checkout_ready %}disabled title="Connect Appwrite and Stripe to enable checkout"{% endif %}>
-        {% if checkout_ready %}Checkout &rarr;{% else %}Checkout setup pending{% endif %}
-    </button>
+    <div class="cart-actions">
+        <button class="btn-checkout btn-unlock" id="unlock-btn" onclick="unlockWithCredits()" style="display:none;">Unlock with credits</button>
+        <button class="btn-checkout" onclick="checkout()" {% if not checkout_ready %}disabled title="Connect Appwrite and Stripe to enable checkout"{% endif %}>
+            {% if checkout_ready %}Pay by card &rarr;{% else %}Checkout setup pending{% endif %}
+        </button>
+    </div>
 </div>
 
 <div class="toolbar">
@@ -740,6 +753,8 @@
         });
         updateCart();
     }
+    let WALLET_CENTS = null;   // null until we learn the user is logged in
+
     function updateCart() {
         const checked = [...document.querySelectorAll('.lead-cb:checked')];
         const total = checked.reduce((s, cb) => s + parseFloat(cb.dataset.price), 0);
@@ -747,6 +762,68 @@
         document.getElementById('cart-total').innerText = total;
         document.getElementById('selected-metric').innerText = checked.length.toLocaleString();
         document.getElementById('selected-total-metric').innerText = total.toLocaleString();
+
+        // Credit-unlock button reflects the current selection vs. the balance.
+        const btn = document.getElementById('unlock-btn');
+        if (WALLET_CENTS !== null && checked.length) {
+            const costCents = Math.round(total * 100);
+            btn.style.display = 'inline-block';
+            if (costCents <= WALLET_CENTS) {
+                btn.textContent = `Unlock ${checked.length} (−$${total})`;
+                btn.disabled = false;
+            } else {
+                const short = ((costCents - WALLET_CENTS) / 100).toFixed(2);
+                btn.textContent = `Add $${short} to unlock`;
+                btn.disabled = false;   // click routes to card checkout for the rest
+            }
+        } else if (btn) {
+            btn.style.display = 'none';
+        }
+    }
+
+    async function loadWallet() {
+        try {
+            const r = await fetch('/api/wallet');
+            if (!r.ok) return;                 // not logged in -> no chip
+            const d = await r.json();
+            WALLET_CENTS = d.balance_cents || 0;
+            document.getElementById('wallet-balance').innerText = (WALLET_CENTS / 100).toFixed(2);
+            document.getElementById('wallet-chip').style.display = 'inline-flex';
+            updateCart();
+        } catch (e) { /* leave wallet hidden */ }
+    }
+
+    async function unlockWithCredits() {
+        const checked = [...document.querySelectorAll('.lead-cb:checked')];
+        if (!checked.length) return alert('Select at least one lead first.');
+        const selected_county = document.getElementById('county-filter').value;
+        if (!selected_county) return alert('Choose a county before unlocking.');
+        const lead_ids = checked.map(cb => cb.dataset.id);
+        try {
+            const resp = await fetch('/api/unlock', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': CSRF_TOKEN },
+                body: JSON.stringify({ lead_ids, selected_county })
+            });
+            const data = await resp.json();
+            if (resp.status === 401 || data.login_required) {
+                window.location.href = '/login?next=/';
+                return;
+            }
+            if (resp.status === 402) {
+                const short = (data.short_cents / 100).toFixed(2);
+                if (confirm(`You're $${short} short on credits. Pay the full amount by card instead?`)) {
+                    checkout();
+                }
+                return;
+            }
+            if (!resp.ok || !data.ok) {
+                return alert(data.error || 'Could not unlock. Please try again.');
+            }
+            window.location.href = '/account';   // show the unlocked leads
+        } catch (err) {
+            alert('Could not reach the server. Please try again.');
+        }
     }
     async function checkout() {
         const checked = [...document.querySelectorAll('.lead-cb:checked')];
@@ -777,6 +854,7 @@
 
     // Initial paginated render
     renderPage();
+    loadWallet();   // shows the credit chip + unlock button when logged in
 
     const SUB_COUNTIES = new Set({{ sub_counties | tojson }});
 
