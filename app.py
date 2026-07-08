@@ -195,8 +195,8 @@ SUB_MIN_UNTAPPED = 40
 # skip-traced contact data (phone or email) is worth $7; a raw lead with only an
 # owner name is $2.50. Mirrors the subscription overage ($7) and raw-lead ($2.50)
 # prices so the standalone store stays consistent with the subscription model.
-LEAD_PRICE_TRACED = 7.0
-LEAD_PRICE_RAW    = 2.50
+LEAD_PRICE_TRACED = float(os.getenv("LEAD_PRICE_TRACED", "10.0"))   # has phone/email (contact)
+LEAD_PRICE_RAW    = float(os.getenv("LEAD_PRICE_RAW", "3.0"))       # address/owner only (non-contact)
 
 
 def _lead_is_traced(item):
@@ -760,6 +760,76 @@ def _save_subs(subs):
         save_json(SUBS_FILE, subs)
 
 
+# --- Credit wallet (prepaid balance for per-lead unlocks) --------------------
+# A dollar-denominated wallet (stored in cents) that everything plugs into:
+#   * one-time signup grant  -> break the barrier once, not a monthly giveaway
+#   * credit packs (Stripe)  -> top up the balance  [phase 2]
+#   * unlock a lead          -> spend balance at the lead's price ($3 non-contact
+#                               / $10 contact via _listing_price_cents)
+# Persisted in the app_json/SQLite store so it survives on the Railway volume.
+WALLET_FILE = _runtime_data_file('credit_wallets.json')
+# One-time signup taste: $9 == three $3 non-contact leads (not enough for a
+# $10 contact lead, so the free grant stays a non-contact sampler).
+SIGNUP_GRANT_CENTS = int(os.getenv("SIGNUP_GRANT_CENTS", "900"))
+
+
+def _load_wallets():
+    if _sqlite_enabled():
+        return _sqlite_get("credit_wallets", {})
+    return load_json(WALLET_FILE, {})
+
+
+def _save_wallets(wallets):
+    if _sqlite_enabled():
+        _sqlite_set("credit_wallets", wallets)
+    else:
+        save_json(WALLET_FILE, wallets)
+
+
+def _wallet_balance_cents(user_id):
+    return int((_load_wallets().get(str(user_id)) or {}).get("balance_cents", 0))
+
+
+def _wallet_adjust(user_id, delta_cents, reason):
+    """Add (or subtract) credit and append a ledger entry. Returns new balance."""
+    uid = str(user_id)
+    wallets = _load_wallets()
+    entry = wallets.get(uid) or {"balance_cents": 0, "ledger": []}
+    entry["balance_cents"] = int(entry.get("balance_cents", 0)) + int(delta_cents)
+    entry.setdefault("ledger", []).append({
+        "delta_cents": int(delta_cents),
+        "reason": reason,
+        "at": datetime.now().isoformat(timespec="seconds"),
+        "balance_after": entry["balance_cents"],
+    })
+    entry["ledger"] = entry["ledger"][-100:]   # cap history
+    wallets[uid] = entry
+    _save_wallets(wallets)
+    return entry["balance_cents"]
+
+
+def _grant_signup_credits(user_id):
+    """Give the one-time signup credit exactly once per account."""
+    if SIGNUP_GRANT_CENTS <= 0:
+        return
+    uid = str(user_id)
+    wallets = _load_wallets()
+    entry = wallets.get(uid) or {}
+    if entry.get("signup_granted"):
+        return
+    entry.setdefault("balance_cents", 0)
+    entry["balance_cents"] = int(entry["balance_cents"]) + SIGNUP_GRANT_CENTS
+    entry["signup_granted"] = True
+    entry.setdefault("ledger", []).append({
+        "delta_cents": SIGNUP_GRANT_CENTS,
+        "reason": "signup_bonus",
+        "at": datetime.now().isoformat(timespec="seconds"),
+        "balance_after": entry["balance_cents"],
+    })
+    wallets[uid] = entry
+    _save_wallets(wallets)
+
+
 # --- Per-user preferences (storefront column order, etc.) --------------------
 # Stored in the SQLite app_json table under "prefs:<user_id>", so they live on
 # the Railway volume and roam across the user's devices. Falls back to a flat
@@ -1283,6 +1353,10 @@ def register():
                                    error="Account service is temporarily unavailable. Please try again in a few minutes.")
         if not user:
             return render_template('auth.html', mode='register', error="That email is already registered. Try logging in.", email=email)
+        try:
+            _grant_signup_credits(user['id'])   # one-time free-lead taste
+        except Exception:
+            app.logger.exception("Could not grant signup credits")
         session['user_id'] = user['id']
         return redirect(url_for('account'))
     return render_template('auth.html', mode='register')
@@ -2057,6 +2131,83 @@ def create_checkout_session():
         return jsonify({"error": "Could not record this order before checkout."}), 503
 
     return jsonify({"url": checkout_session.url})
+
+
+def _user_active_sub_counties(user_id):
+    """Counties this user has an active subscription for (unlimited unlocks)."""
+    return {
+        str(s.get("county") or "").strip().lower()
+        for s in _load_subs()
+        if str(s.get("user_id")) == str(user_id) and s.get("status") == "active"
+    }
+
+
+@app.route('/api/wallet')
+def wallet_status():
+    user = current_user()
+    if not user:
+        return jsonify({"login_required": True}), 401
+    return jsonify({
+        "balance_cents": _wallet_balance_cents(user["id"]),
+        "price_traced_cents": int(round(LEAD_PRICE_TRACED * 100)),
+        "price_raw_cents": int(round(LEAD_PRICE_RAW * 100)),
+    })
+
+
+@app.route('/api/unlock', methods=['POST'])
+def unlock_with_credits():
+    """Unlock selected leads by spending wallet credit (free within a county the
+    user subscribes to). Records a paid order so the account page shows them."""
+    if not _accounts_ready():
+        return jsonify({"error": "Accounts are not configured yet."}), 503
+    user = current_user()
+    if not user:
+        return jsonify({"login_required": True, "error": "Please log in to unlock leads."}), 401
+
+    payload = request.get_json(silent=True) or {}
+    selected_ids = {str(x) for x in payload.get("lead_ids", [])}
+    selected_county = str(payload.get("selected_county") or "").strip().lower()
+    if not selected_ids:
+        return jsonify({"error": "Select at least one lead first."}), 400
+
+    listings = current_listings()
+    selected = [it for it in listings if str(it.get("id")) in selected_ids]
+    if not selected:
+        return jsonify({"error": "Selected leads were not found."}), 400
+    if len({str(it.get("county") or "").strip().lower() for it in selected}) > 1:
+        return jsonify({"error": "Unlock one county at a time."}), 400
+
+    covered = selected_county in _user_active_sub_counties(user["id"])
+    cost = 0 if covered else sum(_listing_price_cents(it) for it in selected)
+    balance = _wallet_balance_cents(user["id"])
+    if cost > balance:
+        return jsonify({
+            "error": "Not enough credit.",
+            "need_cents": cost, "balance_cents": balance,
+            "short_cents": cost - balance,
+        }), 402
+
+    # Record the unlock as a paid order (synthetic session id, no Stripe charge).
+    session_id = "credit_" + os.urandom(8).hex()
+    try:
+        db.init_db()
+        db.create_pending_order(
+            user_id=user["id"], email=user["email"],
+            stripe_session_id=session_id, amount_cents=cost,
+            leads=_prepare_purchased_leads(selected),
+        )
+        db.mark_order_paid(session_id)
+    except Exception as exc:
+        return jsonify({"error": f"Could not record unlock: {type(exc).__name__}"}), 503
+
+    if cost:
+        balance = _wallet_adjust(user["id"], -cost,
+                                 f"unlock:{selected_county}:{len(selected)}")
+    return jsonify({
+        "ok": True, "unlocked": len(selected),
+        "charged_cents": cost, "balance_cents": balance,
+        "covered_by_subscription": covered,
+    })
 
 
 def _fulfill_session(session_id):
