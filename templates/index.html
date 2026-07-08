@@ -78,6 +78,23 @@
             padding: 3px 10px; border-radius: 999px; font-size: 0.8rem; font-weight: 600;
         }
         .wallet-chip strong { color: #bbf7d0; }
+        .btn-credits { background: #7c3aed; }
+        .btn-credits:hover { background: #6d28d9; }
+        .pack-wrap { position: relative; }
+        .pack-menu {
+            position: absolute; bottom: 110%; right: 0; z-index: 50;
+            background: #111827; border: 1px solid #374151; border-radius: 10px;
+            padding: 8px; min-width: 210px; box-shadow: 0 8px 24px rgba(0,0,0,0.5);
+        }
+        .pack-menu h5 { margin: 4px 6px 8px; font-size: 0.78rem; color: #9ca3af; font-weight: 600; }
+        .pack-opt {
+            display: flex; justify-content: space-between; align-items: center;
+            width: 100%; background: #1f2937; color: #e5e7eb; border: 1px solid #374151;
+            border-radius: 7px; padding: 9px 12px; margin-bottom: 6px; cursor: pointer;
+            font-size: 0.85rem;
+        }
+        .pack-opt:hover { border-color: #7c3aed; background: #262f42; }
+        .pack-opt .pack-bonus { color: #86efac; font-size: 0.72rem; font-weight: 700; }
 
         /* Toolbar */
         .toolbar {
@@ -315,6 +332,10 @@
         <span class="wallet-chip" id="wallet-chip" style="display:none;">&#128179; Credits: <strong>$<span id="wallet-balance">0</span></strong></span>
     </div>
     <div class="cart-actions">
+        <div class="pack-wrap" id="pack-wrap" style="display:none;">
+            <button class="btn-checkout btn-credits" onclick="togglePackMenu()">&#43; Add credits</button>
+            <div class="pack-menu" id="pack-menu" style="display:none;"></div>
+        </div>
         <button class="btn-checkout btn-unlock" id="unlock-btn" onclick="unlockWithCredits()" style="display:none;">Unlock with credits</button>
         <button class="btn-checkout" onclick="checkout()" {% if not checkout_ready %}disabled title="Connect Appwrite and Stripe to enable checkout"{% endif %}>
             {% if checkout_ready %}Pay by card &rarr;{% else %}Checkout setup pending{% endif %}
@@ -789,8 +810,46 @@
             WALLET_CENTS = d.balance_cents || 0;
             document.getElementById('wallet-balance').innerText = (WALLET_CENTS / 100).toFixed(2);
             document.getElementById('wallet-chip').style.display = 'inline-flex';
+            document.getElementById('pack-wrap').style.display = 'inline-block';
             updateCart();
         } catch (e) { /* leave wallet hidden */ }
+    }
+
+    let PACK_MENU_BUILT = false;
+    async function togglePackMenu() {
+        const menu = document.getElementById('pack-menu');
+        if (menu.style.display === 'block') { menu.style.display = 'none'; return; }
+        if (!PACK_MENU_BUILT) {
+            try {
+                const r = await fetch('/api/credit-packs');
+                const d = await r.json();
+                let html = '<h5>Add credits</h5>';
+                (d.packs || []).forEach(p => {
+                    const pay = (p.price_cents / 100).toFixed(0);
+                    const credit = (p.credit_cents / 100).toFixed(0);
+                    const bonus = p.bonus ? `<span class="pack-bonus">+$${(p.bonus/100).toFixed(0)} free</span>` : '';
+                    html += `<button class="pack-opt" onclick="buyCredits('${p.id}')">`
+                          + `<span>Pay $${pay} → <strong>$${credit}</strong> credit</span>${bonus}</button>`;
+                });
+                menu.innerHTML = html;
+                PACK_MENU_BUILT = true;
+            } catch (e) { menu.innerHTML = '<h5>Could not load packs</h5>'; }
+        }
+        menu.style.display = 'block';
+    }
+
+    async function buyCredits(packId) {
+        try {
+            const resp = await fetch('/api/buy-credits', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': CSRF_TOKEN },
+                body: JSON.stringify({ pack_id: packId })
+            });
+            const data = await resp.json();
+            if (resp.status === 401 || data.login_required) { window.location.href = '/login?next=/'; return; }
+            if (!resp.ok || !data.url) return alert(data.error || 'Could not start checkout.');
+            window.location.href = data.url;
+        } catch (e) { alert('Could not reach checkout. Please try again.'); }
     }
 
     async function unlockWithCredits() {

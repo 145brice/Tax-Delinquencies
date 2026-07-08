@@ -808,6 +808,63 @@ def _wallet_adjust(user_id, delta_cents, reason):
     return entry["balance_cents"]
 
 
+# Credit packs (pay-as-you-go top-ups). price_cents = charged, credit_cents =
+# added to the wallet (higher tiers include bonus credit). Built on the fly at
+# checkout, so no Stripe dashboard products are required. Override via env
+# CREDIT_PACKS_JSON if you want to retune without a deploy.
+def _load_credit_packs():
+    raw = os.getenv("CREDIT_PACKS_JSON", "")
+    if raw:
+        try:
+            return json.loads(raw)
+        except json.JSONDecodeError:
+            pass
+    return [
+        {"id": "p25",  "price_cents": 2500,  "credit_cents": 2500,  "label": "$25",  "bonus": 0},
+        {"id": "p60",  "price_cents": 6000,  "credit_cents": 7000,  "label": "$60",  "bonus": 1000},
+        {"id": "p120", "price_cents": 12000, "credit_cents": 15000, "label": "$120", "bonus": 3000},
+    ]
+
+
+def _credit_pack_sessions():
+    if _sqlite_enabled():
+        return set(_sqlite_get("credit_pack_fulfilled", []))
+    return set(load_json(_runtime_data_file("credit_pack_fulfilled.json"), []))
+
+
+def _mark_credit_pack_fulfilled(session_id):
+    done = _credit_pack_sessions()
+    done.add(session_id)
+    data = sorted(done)[-1000:]
+    if _sqlite_enabled():
+        _sqlite_set("credit_pack_fulfilled", data)
+    else:
+        save_json(_runtime_data_file("credit_pack_fulfilled.json"), data)
+
+
+def _fulfill_credit_pack(session_id):
+    """Credit the wallet for a paid credit-pack session. Idempotent; no-op for
+    non-pack sessions."""
+    if not session_id or not stripe.api_key:
+        return False
+    if session_id in _credit_pack_sessions():
+        return True   # already granted
+    try:
+        cs = stripe.checkout.Session.retrieve(session_id)
+    except stripe.error.StripeError:
+        return False
+    meta = cs.get("metadata") or {}
+    if meta.get("kind") != "credit_pack" or cs.get("payment_status") != "paid":
+        return False
+    user_id = meta.get("user_id")
+    credit_cents = int(meta.get("credit_cents") or 0)
+    if not user_id or credit_cents <= 0:
+        return False
+    _mark_credit_pack_fulfilled(session_id)   # mark first: avoid double-grant on retry
+    _wallet_adjust(user_id, credit_cents, f"pack:{session_id}")
+    return True
+
+
 def _grant_signup_credits(user_id):
     """Give the one-time signup credit exactly once per account."""
     if SIGNUP_GRANT_CENTS <= 0:
@@ -2210,6 +2267,54 @@ def unlock_with_credits():
     })
 
 
+@app.route('/api/credit-packs')
+def credit_packs():
+    return jsonify({"packs": _load_credit_packs()})
+
+
+@app.route('/api/buy-credits', methods=['POST'])
+def buy_credits():
+    """Start a Stripe checkout to top up the wallet. Built on the fly (no Stripe
+    dashboard products needed). Credit is granted on fulfillment."""
+    if not stripe.api_key:
+        return jsonify({"error": "Payments are not configured yet."}), 503
+    user = current_user()
+    if not user:
+        return jsonify({"login_required": True, "error": "Please log in to buy credits."}), 401
+
+    pack_id = str((request.get_json(silent=True) or {}).get("pack_id") or "")
+    pack = next((p for p in _load_credit_packs() if p["id"] == pack_id), None)
+    if not pack:
+        return jsonify({"error": "Unknown credit pack."}), 400
+
+    origin = request.host_url.rstrip("/")
+    try:
+        cs = stripe.checkout.Session.create(
+            mode="payment",
+            payment_method_types=["card"],
+            customer_email=user["email"],
+            line_items=[{
+                "price_data": {
+                    "currency": "usd",
+                    "product_data": {"name": f"Lead credits ({pack['label']})"},
+                    "unit_amount": int(pack["price_cents"]),
+                },
+                "quantity": 1,
+            }],
+            metadata={
+                "kind": "credit_pack",
+                "user_id": str(user["id"]),
+                "credit_cents": str(int(pack["credit_cents"])),
+                "pack_id": pack["id"],
+            },
+            success_url=f"{origin}/checkout/success?session_id={{CHECKOUT_SESSION_ID}}",
+            cancel_url=f"{origin}/checkout/cancel",
+        )
+    except stripe.error.StripeError as exc:
+        return jsonify({"error": str(exc)}), 502
+    return jsonify({"url": cs.url})
+
+
 def _fulfill_session(session_id):
     """Mark the matching order paid if Stripe confirms payment. Idempotent."""
     if not session_id or not stripe.api_key:
@@ -2230,6 +2335,9 @@ def _fulfill_session(session_id):
 @app.route('/checkout/success')
 def checkout_success():
     session_id = request.args.get('session_id')
+    # Fallback fulfillment (in case the webhook is delayed/missed). Both no-op
+    # for the wrong kind, so calling both is safe and idempotent.
+    _fulfill_credit_pack(session_id)
     _fulfill_session(session_id)
     if current_user():
         return redirect(url_for('account'))
@@ -2253,6 +2361,8 @@ def stripe_webhook():
     if etype == "checkout.session.completed":
         if obj.get("mode") == "subscription":
             _fulfill_subscription(obj.get("id"))      # county subscription
+        elif (obj.get("metadata") or {}).get("kind") == "credit_pack":
+            _fulfill_credit_pack(obj.get("id"))       # wallet top-up
         else:
             _fulfill_session(obj.get("id"))           # per-lead one-time order
     elif etype == "customer.subscription.deleted":
