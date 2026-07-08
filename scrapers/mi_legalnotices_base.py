@@ -49,6 +49,16 @@ _SALE_RE = re.compile(
     r"\bon\s+(?:[A-Z][a-z]+day,?\s*)?([A-Z][a-z]+\s+\d{1,2},?\s+\d{4})")
 _REDEEM_RE = re.compile(
     r"redemption period\s+(?:will be|shall be|is)?\s*(\d+\s*(?:month|year)s?)", re.I)
+# Notice titles are "Mortgage Foreclosure Sale-<mortgagor name(s)>". Strip the
+# boilerplate prefix so owner_name is the actual homeowner, not "M.F.S.".
+_TITLE_PREFIX_RE = re.compile(
+    r"^\s*(?:Notice of\s+)?(?:Mortgage|Judicial)?\s*Foreclosure\s+(?:Sale|Notice)\b\s*[-–—:]*\s*",
+    re.I)
+# Fallback: the mortgagor named in the notice body when the title lacks a name.
+_MORTGAGOR_RE = re.compile(
+    r"mortgage\s+(?:made|granted|executed)\s+by[:\s]+(.+?)"
+    r"(?:,?\s+(?:to\b|a single|an unmarried|a married|whose address|as mortgagor|dated))",
+    re.I)
 
 
 class MILegalNoticesScraper(BaseScraper):
@@ -111,7 +121,13 @@ class MILegalNoticesScraper(BaseScraper):
         publication = (notice.get("publication") or {}).get("name", "")
         posted = (notice.get("firstDatePublished") or "")[:10]
 
-        owner = re.sub(r"\s*(Foreclosure\s+)?Notice\s*$", "", title, flags=re.I).strip()
+        # Real homeowner is the part after the boilerplate title prefix; fall
+        # back to the mortgagor named in the notice body, then to the raw title.
+        owner = _TITLE_PREFIX_RE.sub("", title).strip()
+        owner = re.sub(r"\s*(Foreclosure\s+)?Notice\s*$", "", owner, flags=re.I).strip()
+        if not owner or len(owner) < 3:
+            m = _MORTGAGOR_RE.search(content)
+            owner = m.group(1).strip() if m else title.strip()
 
         address = city = zip_code = ""
         known = _KNOWN_RE.search(content)

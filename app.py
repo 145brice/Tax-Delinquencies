@@ -56,6 +56,36 @@ def skiptrace_control():
     return skiptrace_ctl
 
 
+# Some legal-notice sources (esp. Michigan foreclosure notices) title records
+# "Mortgage Foreclosure Sale-<homeowner>", so the owner field ended up as boiler-
+# plate ("Mortgage Foreclosure Sale") that the storefront masked to "M.F.S.".
+# Strip that prefix so the real mortgagor name shows.
+_OWNER_BOILERPLATE_RE = re.compile(
+    r"^\s*(?:Notice of\s+)?(?:Mortgage|Judicial)?\s*Foreclosure\s+(?:Sale|Notice)\b\s*[-–—:]*\s*",
+    re.I)
+# If what's left after stripping still contains notice-speak, it isn't a name.
+_NON_NAME_RE = re.compile(
+    r"foreclos|advertisement|\bnotice\b|state journal|county\)|purchasers|default\b", re.I)
+
+
+def clean_owner_name(owner):
+    """Return the real homeowner from an owner field, or "" if it's just
+    foreclosure-notice boilerplate with no recoverable name."""
+    if not owner:
+        return owner
+    cleaned = _OWNER_BOILERPLATE_RE.sub("", str(owner)).strip()
+    if len(cleaned) < 3 or _NON_NAME_RE.search(cleaned):
+        return ""
+    return cleaned
+
+
+def owner_looks_polluted(owner):
+    """True if an owner value is foreclosure boilerplate rather than a real name."""
+    if not owner:
+        return False
+    return bool(_OWNER_BOILERPLATE_RE.match(str(owner))) or bool(_NON_NAME_RE.search(str(owner)))
+
+
 def property_records_to_listings(records: list[dict]) -> list[dict]:
     """Convert PropertyRecord dicts (from scrapers/) to the Flask listing format."""
     listings = []
@@ -117,7 +147,7 @@ def property_records_to_listings(records: list[dict]) -> list[dict]:
             "city":         city,
             "state":        state,
             "zip":          zip_code,
-            "owner":        r.get("owner_name", ""),
+            "owner":        clean_owner_name(r.get("owner_name", "")),
             "parcel_id":    r.get("parcel_id", ""),
             "case_number":  r.get("case_number", ""),
             "status":       status,
@@ -912,6 +942,9 @@ def _upgrade_listing(existing, incoming):
                 existing[key] = value
             elif key == "address" and len(new_text) > len(old_text) and "APN " not in new_text:
                 existing[key] = value
+        elif key == "owner" and owner_looks_polluted(old) and not owner_looks_polluted(value):
+            # Replace stale "Mortgage Foreclosure Sale-..." owners with the real name.
+            existing[key] = value
     return existing
 
 def source_result(source_key, raw_count, kept_count, new_count, status, note="", seconds=None):
@@ -3140,6 +3173,32 @@ def listings_csv():
         mimetype="text/csv",
         headers={"Content-Disposition": "attachment; filename=listings.csv"},
     )
+
+def _migrate_clean_owner_names():
+    """One-time, idempotent cleanup of stored owners polluted with foreclosure
+    boilerplate (e.g. 'Mortgage Foreclosure Sale-<name>'). Runs at startup; only
+    writes when something actually changes, so it's a no-op after the first pass."""
+    if STOREFRONT_ONLY:
+        return
+    try:
+        listings = load_json(DATA_FILE, [])
+        changed = 0
+        for item in listings:
+            owner = item.get("owner")
+            if owner_looks_polluted(owner):
+                cleaned = clean_owner_name(owner)
+                if cleaned != owner:
+                    item["owner"] = cleaned
+                    changed += 1
+        if changed:
+            save_json(DATA_FILE, listings)
+            print(f"[migrate] Cleaned {changed} polluted owner name(s).")
+    except Exception as e:
+        print(f"[migrate] owner-name cleanup skipped: {e}")
+
+
+_migrate_clean_owner_names()
+
 
 if __name__ == '__main__':
     host = os.getenv("HOST", "0.0.0.0")
