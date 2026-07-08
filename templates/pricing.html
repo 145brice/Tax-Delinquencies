@@ -168,26 +168,80 @@
 
 <!-- HERO -->
 <div class="hero">
-    <h1>Lock in your county.<br><span>Own the leads.</span></h1>
-    <p>Fresh tax-delinquent and pre-foreclosure contacts pulled weekly from public records — owner names, addresses, and up to 25 skip-traced contacts included every month.</p>
+    <h1>Start free.<br><span>Pay only for what you need.</span></h1>
+    <p>Fresh tax-delinquent and pre-foreclosure records pulled from public records — owner names and mailing addresses on every lead, with skip-traced phone &amp; email on contact leads. Grab a few, buy a credit pack, or lock down a whole county.</p>
 
     <div class="price-chips">
         <div class="price-chip featured">
-            <div class="amount"><sup>$</sup>199<sub>/mo</sub></div>
-            <div class="label">First county</div>
+            <div class="amount">Free</div>
+            <div class="label">3 leads to start</div>
+        </div>
+        <div class="price-chip">
+            <div class="amount"><sup>$</sup>3<sub>+</sub></div>
+            <div class="label">Per lead, no commitment</div>
         </div>
         <div class="price-chip">
             <div class="amount"><sup>$</sup>99<sub>/mo</sub></div>
-            <div class="label">Each additional</div>
+            <div class="label">Whole-county plans</div>
         </div>
     </div>
 
     <div>
         {% if accounts_ready %}
-        <a href="#subscribe" class="btn-primary">Pick your county</a>
+        <a href="/register" class="btn-primary">Start free</a>
         {% else %}
         <a href="/" class="btn-primary disabled">Appwrite setup pending</a>
         {% endif %}
+    </div>
+</div>
+
+<!-- WAYS TO BUY -->
+<div class="section">
+    <h2 class="section-title">Three ways to buy</h2>
+    <p class="section-sub">Start with a free taste, pay as you go, or go all-in on a county. Mix and match.</p>
+    <div class="tier-grid">
+        <div class="tier-card">
+            <div class="tier-name">Free start</div>
+            <div class="tier-price">$0</div>
+            <div class="tier-leads">3 leads free</div>
+            <div class="tier-desc">Create an account and unlock your first 3 leads on us — see the data quality before you spend a dime.</div>
+            <ul class="tier-features">
+                <li><span class="ck">&#10003;</span> Browse every county, masked, free</li>
+                <li><span class="ck">&#10003;</span> 3 free unlocks on signup</li>
+                <li><span class="ck">&#10003;</span> No card required</li>
+            </ul>
+            {% if accounts_ready %}
+            <a href="/register" class="tier-btn" style="text-align:center;text-decoration:none;">Create free account</a>
+            {% endif %}
+        </div>
+
+        <div class="tier-card featured">
+            <div class="featured-badge">Pay as you go</div>
+            <div class="tier-name">Per lead &amp; credit packs</div>
+            <div class="tier-price"><sup>$</sup>3<sub>–$10</sub></div>
+            <div class="tier-leads">per lead, no subscription</div>
+            <div class="tier-desc">Unlock leads with prepaid credit. Address-only leads are cheap; skip-traced contact leads cost more. Buy credit in packs and save.</div>
+            <ul class="tier-features">
+                <li><span class="ck">&#10003;</span> $3 per non-contact lead (address + owner)</li>
+                <li><span class="ck">&#10003;</span> $10 per contact lead (phone &amp; email)</li>
+                <li><span class="ck">&#10003;</span> Credit packs: $60 → $70, $120 → $150</li>
+                <li><span class="ck">&#10003;</span> Credit never expires · no monthly fee</li>
+            </ul>
+            <a href="/" class="tier-btn primary" style="text-align:center;text-decoration:none;">Browse &amp; unlock</a>
+        </div>
+
+        <div class="tier-card">
+            <div class="tier-name">County subscription</div>
+            <div class="tier-price"><sup>$</sup>99<sub>+/mo</sub></div>
+            <div class="tier-leads">unlimited in your county</div>
+            <div class="tier-desc">Working a market seriously? Claim a county and unlock its leads without spending credit — the cheapest path at volume.</div>
+            <ul class="tier-features">
+                <li><span class="ck">&#10003;</span> Unlock every lead in your county</li>
+                <li><span class="ck">&#10003;</span> Weekly data refresh</li>
+                <li><span class="ck">&#10003;</span> Limited slots — reserves the county</li>
+            </ul>
+            <a href="#subscribe" class="tier-btn" style="text-align:center;text-decoration:none;">See plans</a>
+        </div>
     </div>
 </div>
 
@@ -222,7 +276,7 @@
             <div class="tier-desc">Test a new market before committing. Enough to validate before scaling.</div>
             <ul class="tier-features">
                 <li><span class="ck">&#10003;</span> 8 skip-traced leads included</li>
-                <li><span class="ck">&#10003;</span> $7/lead after 8</li>
+                <li><span class="ck">&#10003;</span> $10/lead after 8</li>
                 <li><span class="ck">&#10003;</span> Weekly data refresh</li>
                 <li><span class="ck">&#10003;</span> Browse full county filing list</li>
                 <li><span class="ck">&#10003;</span> Limited slots per county</li>
@@ -238,7 +292,7 @@
             <div class="tier-desc">The full play. Enough leads to run a real acquisition pipeline every month.</div>
             <ul class="tier-features">
                 <li><span class="ck">&#10003;</span> 25 skip-traced leads included</li>
-                <li><span class="ck">&#10003;</span> $7/lead after 25</li>
+                <li><span class="ck">&#10003;</span> $10/lead after 25</li>
                 <li><span class="ck">&#10003;</span> Weekly data refresh</li>
                 <li><span class="ck">&#10003;</span> Browse full county filing list</li>
                 <li><span class="ck">&#10003;</span> Limited slots per county</li>
@@ -253,7 +307,7 @@
             <div class="tier-desc">High volume. Built for investors running multi-offer campaigns every week.</div>
             <ul class="tier-features">
                 <li><span class="ck">&#10003;</span> 80 skip-traced leads included</li>
-                <li><span class="ck">&#10003;</span> $7/lead after 80</li>
+                <li><span class="ck">&#10003;</span> $10/lead after 80</li>
                 <li><span class="ck">&#10003;</span> Weekly data refresh</li>
                 <li><span class="ck">&#10003;</span> Browse full county filing list</li>
                 <li><span class="ck">&#10003;</span> Limited slots per county</li>
@@ -265,7 +319,7 @@
 
     {% else %}
     <div style="background:#13151c;border:1px solid #1e2130;border-radius:12px;padding:28px;text-align:center;">
-        <p style="color:#6b7280;">County subscriptions coming soon. Individual leads available from the <a href="/" style="color:#3b82f6;">storefront</a> &mdash; $7 for skip-traced leads, $2.50 for raw leads.</p>
+        <p style="color:#6b7280;">County subscriptions coming soon. Individual leads available from the <a href="/" style="color:#3b82f6;">storefront</a> &mdash; $10 for contact leads, $3 for non-contact leads.</p>
     </div>
     {% endif %}
 
@@ -329,7 +383,7 @@
                 <span class="chevron">&#9660;</span>
             </div>
             <div class="faq-a">
-                All tiers get access to the same county data and weekly refresh. The only difference is how many skip-traced leads are included each month — 8 (Starter), 25 (Professional), or 80 (Power). Additional leads are $7 each regardless of tier.
+                All tiers get access to the same county data and weekly refresh. The only difference is how many skip-traced leads are included each month — 8 (Starter), 25 (Professional), or 80 (Power). Additional leads are $10 each regardless of tier.
             </div>
         </div>
 
