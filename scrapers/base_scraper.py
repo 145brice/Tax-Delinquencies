@@ -66,7 +66,7 @@ def _polite_wait(url: str):
 @dataclass
 class PropertyRecord:
     county: str = ""
-    record_type: str = ""          # "Tax Delinquent" | "Pre-Foreclosure"
+    record_type: str = ""          # "Tax Delinquent" | "Pre-Foreclosure" | "Notice of Default" | "Auction" | "Tax Sale" | "Probate" | "Divorce"
     owner_name: str = ""
     property_address: str = ""
     city: str = ""

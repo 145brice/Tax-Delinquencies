@@ -223,6 +223,7 @@
             letter-spacing: 0.04em;
         }
         .badge-auction { background: #7f1d1d; color: #fca5a5; }
+        .badge-nod { background: #164e63; color: #67e8f9; }
         .badge-pre-foreclosure { background: #78350f; color: #fcd34d; }
         .badge-tax-lien { background: #1e3a5f; color: #93c5fd; }
         .badge-probate { background: #3b0764; color: #d8b4fe; }
@@ -356,6 +357,7 @@
         <select id="status-filter" onchange="applyFilters()">
             <option value="">All types</option>
             <option value="Auction">Auction</option>
+            <option value="Notice of Default">Notice of Default</option>
             <option value="Pre-foreclosure">Pre-Foreclosure</option>
             <option value="Tax Lien">Tax Delinquent</option>
             <option value="Tax Sale">Tax Sale</option>
@@ -435,15 +437,20 @@
                 <input type="checkbox" class="lead-cb" data-id="{{ item.id }}" data-price="{{ item.price }}" onchange="toggleRow(this)">
             </td>
             <td>
-                {% if item.status == 'Auction' %}
+                {# Match case-insensitively so state-specific casing (e.g. MI 'Pre-Foreclosure'
+                   vs CA 'Pre-foreclosure') shows correctly without rewriting the stored value. #}
+                {% set st = (item.status or '')|lower %}
+                {% if st == 'auction' %}
                     <span class="badge badge-auction">Auction</span>
-                {% elif item.status == 'Pre-foreclosure' %}
+                {% elif st == 'notice of default' %}
+                    <span class="badge badge-nod">Notice of Default</span>
+                {% elif st == 'pre-foreclosure' %}
                     <span class="badge badge-pre-foreclosure">Pre-Foreclosure</span>
-                {% elif item.status == 'Tax Sale' %}
+                {% elif st == 'tax sale' %}
                     <span class="badge badge-tax-sale">Tax Sale</span>
-                {% elif item.status == 'Probate' %}
+                {% elif st == 'probate' %}
                     <span class="badge badge-probate">Probate</span>
-                {% elif item.status == 'Divorce' %}
+                {% elif st == 'divorce' %}
                     <span class="badge badge-divorce">Divorce</span>
                 {% else %}
                     <span class="badge badge-tax-lien">Tax Delinquent</span>
@@ -748,7 +755,7 @@
             const matchQ = !q || ['address','owner','parcel_id','city','county','case_number','zip']
                 .some(k => (r.dataset[k] || '').includes(q));
             const matchC  = !fc  || r.dataset.county === fc;
-            const matchS  = !fs  || r.dataset.status === fs;
+            const matchS  = !fs  || (r.dataset.status || '').toLowerCase() === fs.toLowerCase();
             const matchSt = !fst || r.dataset.state  === fst;
             return matchQ && matchC && matchS && matchSt;
         });

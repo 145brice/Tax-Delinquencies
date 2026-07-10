@@ -134,6 +134,10 @@ def property_records_to_listings(records: list[dict]) -> list[dict]:
             status = "Tax Sale"
         elif "delinquent" in record_type or "tax" in record_type:
             status = "Tax Lien"
+        elif "notice of default" in record_type or "default" in record_type:
+            # Earliest foreclosure stage (mostly CA/AZ/NV non-judicial). Check
+            # before the generic "foreclos" branch so NODs get their own bucket.
+            status = "Notice of Default"
         elif "foreclos" in record_type:
             status = "Pre-foreclosure"
         else:
