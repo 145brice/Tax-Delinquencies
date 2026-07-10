@@ -43,6 +43,7 @@ from scrapers.fl_publicnotices import (
 )
 from scrapers.harris_taxsale import HarrisTaxSaleScraper
 from scrapers.maricopa_azcapitoltimes import MaricopaAzCapitolTimesScraper
+from scrapers.maricopa_probate import MaricopaProbateScraper
 from scrapers.maricopa_recordreporter import MaricopaRecordReporterScraper
 from scrapers.maricopa_trusteesale import MaricopaTrusteeSaleScraper
 from scrapers.contracosta_legalnotices import ContraCostaLegalNoticesScraper
@@ -199,6 +200,10 @@ SOURCES = {
     "maricopa_recordreporter": SourceDefinition(
         "maricopa_recordreporter", "Maricopa County AZ trustee notices (Record Reporter)", "maricopa_az", "Legal notices",
         MaricopaRecordReporterScraper, "https://recordreporter.com/LegalNotices/"
+    ),
+    "maricopa_probate": SourceDefinition(
+        "maricopa_probate", "Maricopa County AZ probate notices (Record Reporter)", "maricopa_az", "Probate",
+        MaricopaProbateScraper, "https://recordreporter.com/LegalNotices/"
     ),
     "duval_jaxdailyrecord": SourceDefinition(
         "duval_jaxdailyrecord",
@@ -536,10 +541,10 @@ UI_COUNTY_SOURCES = {
     "palmbeach-fl": ["palmbeach_publicnotices"],
     "orange-fl": ["orangefl_publicnotices"],
     "hillsborough-fl": ["hillsborough_publicnotices"],
-    "maricopa-az": ["maricopa_trusteesale", "maricopa_azcapitoltimes"],
+    "maricopa-az": ["maricopa_trusteesale", "maricopa_azcapitoltimes", "maricopa_probate"],
     # Backward-compatible UI keys from the original broad county list.
     "harris": ["harris_taxsale"],
-    "maricopa": ["maricopa_trusteesale", "maricopa_azcapitoltimes"],
+    "maricopa": ["maricopa_trusteesale", "maricopa_azcapitoltimes", "maricopa_probate"],
     "miami-dade": ["miamidade_publicnotices"],
     "barry-mi": ["barry_taxforeclosure", "barry_legalnotices"],
     "wayne-mi": ["wayne_legalnotices"],
