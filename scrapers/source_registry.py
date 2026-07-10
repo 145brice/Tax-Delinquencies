@@ -59,6 +59,13 @@ from scrapers.fl_probate_divorce import (
     PalmBeachDivorceScraper,
     PalmBeachProbateScraper,
 )
+from scrapers.fl_taxdeed import (
+    BrowardTaxDeedScraper,
+    HillsboroughTaxDeedScraper,
+    MiamiDadeTaxDeedScraper,
+    OrangeFLTaxDeedScraper,
+    PalmBeachTaxDeedScraper,
+)
 from scrapers.fresno_legalnotices import FresnoLegalNoticesScraper
 from scrapers.jaxdailyrecord_legalnotices import (
     ClayJaxDailyRecordScraper,
@@ -407,6 +414,32 @@ SOURCES = {
         "tampa_bay", "Probate", HillsboroughProbateScraper,
         "https://floridapublicnotices.com/",
     ),
+    # ── Florida tax deed applications (FS 197.512) — floridapublicnotices.com
+    "broward_taxdeed": SourceDefinition(
+        "broward_taxdeed", "Broward County FL tax deed notices",
+        "south_fl", "Tax Sale", BrowardTaxDeedScraper,
+        "https://floridapublicnotices.com/",
+    ),
+    "miamidade_taxdeed": SourceDefinition(
+        "miamidade_taxdeed", "Miami-Dade County FL tax deed notices",
+        "south_fl", "Tax Sale", MiamiDadeTaxDeedScraper,
+        "https://floridapublicnotices.com/",
+    ),
+    "palmbeach_taxdeed": SourceDefinition(
+        "palmbeach_taxdeed", "Palm Beach County FL tax deed notices",
+        "south_fl", "Tax Sale", PalmBeachTaxDeedScraper,
+        "https://floridapublicnotices.com/",
+    ),
+    "orangefl_taxdeed": SourceDefinition(
+        "orangefl_taxdeed", "Orange County FL tax deed notices",
+        "central_fl", "Tax Sale", OrangeFLTaxDeedScraper,
+        "https://floridapublicnotices.com/",
+    ),
+    "hillsborough_taxdeed": SourceDefinition(
+        "hillsborough_taxdeed", "Hillsborough County FL tax deed notices",
+        "tampa_bay", "Tax Sale", HillsboroughTaxDeedScraper,
+        "https://floridapublicnotices.com/",
+    ),
     # ── Florida divorce (Dissolution of Marriage notices of action) ────────
     "broward_divorce": SourceDefinition(
         "broward_divorce", "Broward County FL divorce notices",
@@ -542,13 +575,13 @@ UI_COUNTY_SOURCES = {
     "ontario-ca": ["ontario_taxsale"],
 }
 
-# Attach FL probate + divorce sources to their county UI keys.
+# Attach FL probate + divorce + tax deed sources to their county UI keys.
 for _ui_key, _extra in {
-    "broward-fl": ["broward_probate", "broward_divorce"],
-    "miamidade-fl": ["miamidade_probate", "miamidade_divorce"],
-    "palmbeach-fl": ["palmbeach_probate", "palmbeach_divorce"],
-    "orange-fl": ["orangefl_probate", "orangefl_divorce"],
-    "hillsborough-fl": ["hillsborough_probate", "hillsborough_divorce"],
+    "broward-fl": ["broward_probate", "broward_divorce", "broward_taxdeed"],
+    "miamidade-fl": ["miamidade_probate", "miamidade_divorce", "miamidade_taxdeed"],
+    "palmbeach-fl": ["palmbeach_probate", "palmbeach_divorce", "palmbeach_taxdeed"],
+    "orange-fl": ["orangefl_probate", "orangefl_divorce", "orangefl_taxdeed"],
+    "hillsborough-fl": ["hillsborough_probate", "hillsborough_divorce", "hillsborough_taxdeed"],
 }.items():
     UI_COUNTY_SOURCES[_ui_key] = UI_COUNTY_SOURCES[_ui_key] + _extra
 
