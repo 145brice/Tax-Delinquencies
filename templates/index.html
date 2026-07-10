@@ -852,11 +852,21 @@
         } catch (e) { alert('Could not reach checkout. Please try again.'); }
     }
 
+    // Derive the county(ies) of the currently-selected leads from their rows.
+    // Returns an array of distinct, non-empty county names (lowercased).
+    function selectedCounties(checked) {
+        return [...new Set(checked.map(cb => {
+            const row = document.getElementById('row-' + cb.dataset.id);
+            return ((row && row.dataset.county) || '').trim().toLowerCase();
+        }).filter(Boolean))];
+    }
+
     async function unlockWithCredits() {
         const checked = [...document.querySelectorAll('.lead-cb:checked')];
         if (!checked.length) return alert('Select at least one lead first.');
-        const selected_county = document.getElementById('county-filter').value;
-        if (!selected_county) return alert('Choose a county before unlocking.');
+        const counties = selectedCounties(checked);
+        if (counties.length > 1) return alert('Please unlock leads from one county at a time.');
+        const selected_county = counties[0] || '';
         const lead_ids = checked.map(cb => cb.dataset.id);
         try {
             const resp = await fetch('/api/unlock', {
@@ -887,8 +897,9 @@
     async function checkout() {
         const checked = [...document.querySelectorAll('.lead-cb:checked')];
         if (!checked.length) return alert('Select at least one lead first.');
-        const selected_county = document.getElementById('county-filter').value;
-        if (!selected_county) return alert('Choose a county before checkout.');
+        const counties = selectedCounties(checked);
+        if (counties.length > 1) return alert('Please select leads from one county at a time.');
+        const selected_county = counties[0] || '';
 
         const lead_ids = checked.map(cb => cb.dataset.id);
         try {

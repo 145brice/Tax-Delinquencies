@@ -2123,22 +2123,23 @@ def create_checkout_session():
 
     payload = request.get_json(silent=True) or {}
     selected_ids = {str(lead_id) for lead_id in payload.get("lead_ids", [])}
-    selected_county = str(payload.get("selected_county") or "").strip().lower()
     if not selected_ids:
         return jsonify({"error": "Select at least one lead first."}), 400
-    if not selected_county:
-        return jsonify({"error": "Choose a county before checkout."}), 400
 
     listings = current_listings()
     selected = [item for item in listings if str(item.get("id")) in selected_ids]
     if not selected:
         return jsonify({"error": "Selected leads were not found."}), 400
-    mismatched = [
-        item for item in selected
-        if str(item.get("county") or "").strip().lower() != selected_county
-    ]
-    if mismatched:
-        return jsonify({"error": "Checkout is limited to one selected county at a time. Clear your selection and choose leads from that county only."}), 400
+
+    # County is derived from the selected leads themselves — no need to pick one
+    # up front. All leads in a single order must share a county.
+    counties = {str(item.get("county") or "").strip().lower() for item in selected}
+    counties.discard("")
+    if len(counties) > 1:
+        return jsonify({"error": "Checkout is limited to one county at a time. Please select leads from a single county."}), 400
+    if not counties:
+        return jsonify({"error": "Selected leads are missing county information."}), 400
+    selected_county = next(iter(counties))
 
     # County exclusivity: when subscriptions are live, a county claimed by an active
     # subscriber is reserved and not available for per-lead purchase by others.
@@ -2229,7 +2230,6 @@ def unlock_with_credits():
 
     payload = request.get_json(silent=True) or {}
     selected_ids = {str(x) for x in payload.get("lead_ids", [])}
-    selected_county = str(payload.get("selected_county") or "").strip().lower()
     if not selected_ids:
         return jsonify({"error": "Select at least one lead first."}), 400
 
@@ -2237,8 +2237,13 @@ def unlock_with_credits():
     selected = [it for it in listings if str(it.get("id")) in selected_ids]
     if not selected:
         return jsonify({"error": "Selected leads were not found."}), 400
-    if len({str(it.get("county") or "").strip().lower() for it in selected}) > 1:
+    counties = {str(it.get("county") or "").strip().lower() for it in selected}
+    counties.discard("")
+    if len(counties) > 1:
         return jsonify({"error": "Unlock one county at a time."}), 400
+    if not counties:
+        return jsonify({"error": "Selected leads are missing county information."}), 400
+    selected_county = next(iter(counties))
 
     covered = selected_county in _user_active_sub_counties(user["id"])
     cost = 0 if covered else sum(_listing_price_cents(it) for it in selected)
