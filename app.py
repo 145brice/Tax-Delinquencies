@@ -2298,6 +2298,14 @@ def buy_credits():
     if not pack:
         return jsonify({"error": "Unknown credit pack."}), 400
 
+    # Spell out the bonus on the Stripe checkout line item, so the buyer sees
+    # exactly how much credit (and free credit) they get before paying.
+    credit_dollars = int(pack["credit_cents"]) // 100
+    bonus_cents = int(pack.get("bonus") or 0)
+    pack_name = f"Lead credits — ${credit_dollars} wallet credit"
+    if bonus_cents:
+        pack_name += f" (includes ${bonus_cents // 100} bonus free)"
+
     origin = request.host_url.rstrip("/")
     try:
         cs = stripe.checkout.Session.create(
@@ -2307,7 +2315,7 @@ def buy_credits():
             line_items=[{
                 "price_data": {
                     "currency": "usd",
-                    "product_data": {"name": f"Lead credits ({pack['label']})"},
+                    "product_data": {"name": pack_name},
                     "unit_amount": int(pack["price_cents"]),
                 },
                 "quantity": 1,

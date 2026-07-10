@@ -86,7 +86,10 @@
             background: #111827; border: 1px solid #374151; border-radius: 10px;
             padding: 8px; min-width: 210px; box-shadow: 0 8px 24px rgba(0,0,0,0.5);
         }
-        .pack-menu h5 { margin: 4px 6px 8px; font-size: 0.78rem; color: #9ca3af; font-weight: 600; }
+        .pack-menu h5 { margin: 4px 6px 4px; font-size: 0.78rem; color: #9ca3af; font-weight: 600; }
+        .pack-menu .pack-explain { margin: 0 6px 8px; font-size: 0.72rem; color: #6b7280; line-height: 1.4; max-width: 220px; }
+        .pack-menu .pack-explain b { color: #86efac; }
+        .pack-menu .pack-foot { margin: 2px 6px 2px; font-size: 0.68rem; color: #4b5563; }
         .pack-opt {
             display: flex; justify-content: space-between; align-items: center;
             width: 100%; background: #1f2937; color: #e5e7eb; border: 1px solid #374151;
@@ -823,7 +826,8 @@
             try {
                 const r = await fetch('/api/credit-packs');
                 const d = await r.json();
-                let html = '<h5>Add credits</h5>';
+                let html = '<h5>Add credits</h5>'
+                    + '<p class="pack-explain">Bigger packs include <b>bonus credit free</b> — you get more than you pay.</p>';
                 (d.packs || []).forEach(p => {
                     const pay = (p.price_cents / 100).toFixed(0);
                     const credit = (p.credit_cents / 100).toFixed(0);
@@ -831,6 +835,7 @@
                     html += `<button class="pack-opt" onclick="buyCredits('${p.id}')">`
                           + `<span>Pay $${pay} → <strong>$${credit}</strong> credit</span>${bonus}</button>`;
                 });
+                html += '<p class="pack-foot">Credit never expires · works on any lead in any county.</p>';
                 menu.innerHTML = html;
                 PACK_MENU_BUILT = true;
             } catch (e) { menu.innerHTML = '<h5>Could not load packs</h5>'; }
