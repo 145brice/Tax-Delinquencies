@@ -2940,7 +2940,8 @@ def pricing():
                 "capacity": cap,
             })
     return render_template('pricing.html', county_count=county_count,
-                           sub_counties=sub_counties, is_first_county=is_first_county)
+                           sub_counties=sub_counties, is_first_county=is_first_county,
+                           credit_packs=_load_credit_packs())
 
 
 # ── County schedule ──────────────────────────────────────────────────────────

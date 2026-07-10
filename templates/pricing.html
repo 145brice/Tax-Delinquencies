@@ -93,6 +93,31 @@
         .tier-btn.primary:hover { background: #1d4ed8; }
         .tier-btn:disabled { opacity: 0.4; cursor: not-allowed; }
 
+        /* Credit pack cards */
+        .pack-grid {
+            display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 18px; margin-bottom: 20px;
+        }
+        .pack-card {
+            background: #16181f; border: 1px solid #22253a; border-radius: 14px;
+            padding: 26px 22px; text-align: center; position: relative;
+            display: flex; flex-direction: column; align-items: center;
+        }
+        .pack-card.best { border-color: #16a34a; background: linear-gradient(160deg, #16181f 55%, #14321f55); }
+        .pack-best-badge {
+            position: absolute; top: -12px; left: 50%; transform: translateX(-50%);
+            background: #16a34a; color: #fff; font-size: 0.7rem; font-weight: 700;
+            padding: 4px 14px; border-radius: 999px; white-space: nowrap;
+        }
+        .pack-pay { font-size: 0.82rem; color: #6b7280; }
+        .pack-pay strong { color: #e5e7eb; font-weight: 700; }
+        .pack-get { font-size: 2.4rem; font-weight: 800; color: #fff; line-height: 1.1; margin: 4px 0 2px; }
+        .pack-get sub { font-size: 0.9rem; color: #6b7280; font-weight: 400; }
+        .pack-free { color: #86efac; font-size: 0.9rem; font-weight: 700; margin-top: 6px; min-height: 1.2em; }
+        .pack-free.none { color: #4b5563; font-weight: 400; }
+        .pack-note { text-align: center; color: #6b7280; font-size: 0.85rem; margin-top: 4px; }
+        .pack-note strong { color: #86efac; }
+
         /* County selector row */
         .county-row {
             background: #13151c; border: 1px solid #1e2130; border-radius: 12px;
@@ -224,10 +249,10 @@
             <ul class="tier-features">
                 <li><span class="ck">&#10003;</span> $3 per non-contact lead (address + owner)</li>
                 <li><span class="ck">&#10003;</span> $10 per contact lead (phone &amp; email)</li>
-                <li><span class="ck">&#10003;</span> Credit packs: $60 → $70, $120 → $150</li>
+                <li><span class="ck">&#10003;</span> Buy credit in packs and get bonus credit free</li>
                 <li><span class="ck">&#10003;</span> Credit never expires · no monthly fee</li>
             </ul>
-            <a href="/" class="tier-btn primary" style="text-align:center;text-decoration:none;">Browse &amp; unlock</a>
+            <a href="#packs" class="tier-btn primary" style="text-align:center;text-decoration:none;">See credit packs</a>
         </div>
 
         <div class="tier-card">
@@ -244,6 +269,33 @@
         </div>
     </div>
 </div>
+
+<!-- CREDIT PACKS -->
+{% if credit_packs %}
+{% set max_bonus = credit_packs | map(attribute='bonus') | max %}
+<div class="section" id="packs">
+    <h2 class="section-title">Credit packs — buy more, get more free</h2>
+    <p class="section-sub">Top up your wallet with prepaid credit. The bigger packs add <strong>bonus credit on top</strong> — you pay less than the credit you get. Credit never expires and works on any lead in any county.</p>
+    <div class="pack-grid">
+        {% for p in credit_packs %}
+        <div class="pack-card {% if p.bonus and p.bonus == max_bonus %}best{% endif %}">
+            {% if p.bonus and p.bonus == max_bonus %}<div class="pack-best-badge">Best value</div>{% endif %}
+            <div class="pack-pay">Pay <strong>${{ (p.price_cents / 100) | int }}</strong></div>
+            <div class="pack-get">${{ (p.credit_cents / 100) | int }}<sub> credit</sub></div>
+            {% if p.bonus %}
+            <div class="pack-free">+${{ (p.bonus / 100) | int }} free</div>
+            {% else %}
+            <div class="pack-free none">no bonus</div>
+            {% endif %}
+        </div>
+        {% endfor %}
+    </div>
+    <p class="pack-note">
+        Example: pay <strong style="color:#e5e7eb;">$60</strong>, get <strong>$70</strong> of credit —
+        that's <strong>$10 free</strong>. Buy packs from the storefront or your account page after signing in.
+    </p>
+</div>
+{% endif %}
 
 <!-- PLANS -->
 <div class="section" id="subscribe">
