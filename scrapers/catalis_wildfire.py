@@ -102,6 +102,10 @@ def fetch_wildfire_delinquents(scraper, client_guid: str, origin: str,
             parcel = ((rec.get("MapNumber") or {}).get("Unformatted") or "").strip()
             if not (owner or parcel or address):
                 continue
+            # Date the lead by when the county posted the bill, not when we
+            # scraped it. (Recency filtering for standing statuses like
+            # delinquency uses scraped_date — see _within_lookback.)
+            bill_date = (rec.get("BillDate") or "")[:10]
             records.append(PropertyRecord(
                 county=county,
                 record_type="Tax Delinquent",
@@ -113,6 +117,7 @@ def fetch_wildfire_delinquents(scraper, client_guid: str, origin: str,
                 parcel_id=parcel,
                 tax_year=str(rec.get("Year") or ""),
                 amount_owed=f"${amount:,.2f}" if isinstance(amount, (int, float)) and amount else "",
+                sale_date=bill_date,
                 source_url=source_url,
                 scraped_date=today,
                 notes=f"Appraised value: ${values.get('TotalValue'):,}" if values.get("TotalValue") else "",

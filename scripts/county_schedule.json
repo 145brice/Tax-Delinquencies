@@ -1,21 +1,370 @@
 {
-  "daily": [
-    "duval-fl", "clay-fl", "nassau-fl", "stjohns-fl",
-    "broward-fl", "miamidade-fl", "palmbeach-fl", "orange-fl", "hillsborough-fl",
-    "collin-tx"
-  ],
-  "weekly": [
-    "wayne-mi", "macomb-mi", "oakland-mi", "genesee-mi", "ingham-mi", "kent-mi",
-    "jackson-mi", "muskegon-mi", "kalamazoo-mi", "calhoun-mi", "berrien-mi",
-    "washtenaw-mi", "livingston-mi", "ottawa-mi", "saginaw-mi", "monroe-mi",
-    "lenawee-mi", "hillsdale-mi", "lapeer-mi", "eaton-mi", "bay-mi",
-    "montcalm-mi", "tuscola-mi", "allegan-mi", "cass-mi", "barry-mi",
-    "sandiego", "losangeles", "orange", "riverside", "sanbernardino",
-    "ventura", "sacramento", "alameda", "santaclara", "kern", "fresno",
-    "contracosta", "sanmateo", "maricopa-az", "clark-nv"
-  ],
-  "monthly": [
-    "harris-tx", "bexar-tx",
-    "davidson", "williamson", "rutherford", "wilson-tn", "sumner", "robertson", "cheatham"
-  ]
+ "counties": {
+  "duval-fl": {
+   "frequency": "daily",
+   "sources": [
+    "duval_jaxdailyrecord",
+    "duval_jaxdailyrecord_retax"
+   ]
+  },
+  "clay-fl": {
+   "frequency": "daily",
+   "sources": [
+    "clay_jaxdailyrecord"
+   ]
+  },
+  "nassau-fl": {
+   "frequency": "daily",
+   "sources": [
+    "nassau_jaxdailyrecord"
+   ]
+  },
+  "stjohns-fl": {
+   "frequency": "daily",
+   "sources": [
+    "stjohns_jaxdailyrecord"
+   ]
+  },
+  "broward-fl": {
+   "frequency": "daily",
+   "sources": [
+    "broward_publicnotices"
+   ]
+  },
+  "miamidade-fl": {
+   "frequency": "daily",
+   "sources": [
+    "miamidade_publicnotices"
+   ]
+  },
+  "palmbeach-fl": {
+   "frequency": "daily",
+   "sources": [
+    "palmbeach_publicnotices"
+   ]
+  },
+  "orange-fl": {
+   "frequency": "daily",
+   "sources": [
+    "orangefl_publicnotices"
+   ]
+  },
+  "hillsborough-fl": {
+   "frequency": "daily",
+   "sources": [
+    "hillsborough_publicnotices"
+   ]
+  },
+  "wayne-mi": {
+   "frequency": "weekly",
+   "sources": [
+    "wayne_legalnotices"
+   ]
+  },
+  "macomb-mi": {
+   "frequency": "weekly",
+   "sources": [
+    "macomb_legalnotices"
+   ]
+  },
+  "oakland-mi": {
+   "frequency": "weekly",
+   "sources": [
+    "oakland_legalnotices"
+   ]
+  },
+  "genesee-mi": {
+   "frequency": "weekly",
+   "sources": [
+    "genesee_legalnotices"
+   ]
+  },
+  "ingham-mi": {
+   "frequency": "weekly",
+   "sources": [
+    "ingham_legalnotices"
+   ]
+  },
+  "kent-mi": {
+   "frequency": "weekly",
+   "sources": [
+    "kent_legalnotices"
+   ]
+  },
+  "jackson-mi": {
+   "frequency": "weekly",
+   "sources": [
+    "jackson_legalnotices"
+   ]
+  },
+  "muskegon-mi": {
+   "frequency": "weekly",
+   "sources": [
+    "muskegon_legalnotices"
+   ]
+  },
+  "kalamazoo-mi": {
+   "frequency": "weekly",
+   "sources": [
+    "kalamazoo_legalnotices"
+   ]
+  },
+  "calhoun-mi": {
+   "frequency": "weekly",
+   "sources": [
+    "calhoun_legalnotices"
+   ]
+  },
+  "berrien-mi": {
+   "frequency": "weekly",
+   "sources": [
+    "berrien_legalnotices"
+   ]
+  },
+  "washtenaw-mi": {
+   "frequency": "weekly",
+   "sources": [
+    "washtenaw_legalnotices"
+   ]
+  },
+  "livingston-mi": {
+   "frequency": "weekly",
+   "sources": [
+    "livingston_legalnotices"
+   ]
+  },
+  "ottawa-mi": {
+   "frequency": "weekly",
+   "sources": [
+    "ottawa_legalnotices"
+   ]
+  },
+  "saginaw-mi": {
+   "frequency": "weekly",
+   "sources": [
+    "saginaw_legalnotices"
+   ]
+  },
+  "monroe-mi": {
+   "frequency": "weekly",
+   "sources": [
+    "monroe_legalnotices"
+   ]
+  },
+  "lenawee-mi": {
+   "frequency": "weekly",
+   "sources": [
+    "lenawee_legalnotices"
+   ]
+  },
+  "hillsdale-mi": {
+   "frequency": "weekly",
+   "sources": [
+    "hillsdale_legalnotices"
+   ]
+  },
+  "lapeer-mi": {
+   "frequency": "weekly",
+   "sources": [
+    "lapeer_legalnotices"
+   ]
+  },
+  "eaton-mi": {
+   "frequency": "weekly",
+   "sources": [
+    "eaton_legalnotices"
+   ]
+  },
+  "bay-mi": {
+   "frequency": "weekly",
+   "sources": [
+    "bay_legalnotices"
+   ]
+  },
+  "montcalm-mi": {
+   "frequency": "weekly",
+   "sources": [
+    "montcalm_legalnotices"
+   ]
+  },
+  "tuscola-mi": {
+   "frequency": "weekly",
+   "sources": [
+    "tuscola_legalnotices"
+   ]
+  },
+  "allegan-mi": {
+   "frequency": "weekly",
+   "sources": [
+    "allegan_legalnotices"
+   ]
+  },
+  "cass-mi": {
+   "frequency": "weekly",
+   "sources": [
+    "cass_legalnotices"
+   ]
+  },
+  "barry-mi": {
+   "frequency": "weekly",
+   "sources": [
+    "barry_legalnotices",
+    "barry_taxforeclosure"
+   ]
+  },
+  "sandiego": {
+   "frequency": "weekly",
+   "sources": [
+    "sandiego_legalnotices",
+    "sandiego_taxsale"
+   ]
+  },
+  "losangeles": {
+   "frequency": "weekly",
+   "sources": [
+    "losangeles_legalnotices"
+   ]
+  },
+  "orange": {
+   "frequency": "weekly",
+   "sources": [
+    "orange_legalnotices",
+    "orange_taxsale"
+   ]
+  },
+  "riverside": {
+   "frequency": "weekly",
+   "sources": [
+    "riverside_legalnotices"
+   ]
+  },
+  "sanbernardino": {
+   "frequency": "weekly",
+   "sources": [
+    "sanbernardino_legalnotices"
+   ]
+  },
+  "ventura": {
+   "frequency": "weekly",
+   "sources": [
+    "ventura_legalnotices"
+   ]
+  },
+  "sacramento": {
+   "frequency": "weekly",
+   "sources": [
+    "sacramento_legalnotices"
+   ]
+  },
+  "alameda": {
+   "frequency": "weekly",
+   "sources": [
+    "alameda_legalnotices"
+   ]
+  },
+  "santaclara": {
+   "frequency": "weekly",
+   "sources": [
+    "santaclara_legalnotices"
+   ]
+  },
+  "kern": {
+   "frequency": "weekly",
+   "sources": [
+    "kern_legalnotices"
+   ]
+  },
+  "fresno": {
+   "frequency": "weekly",
+   "sources": [
+    "fresno_legalnotices"
+   ]
+  },
+  "contracosta": {
+   "frequency": "weekly",
+   "sources": [
+    "contracosta_legalnotices"
+   ]
+  },
+  "sanmateo": {
+   "frequency": "weekly",
+   "sources": [
+    "sanmateo_legalnotices"
+   ]
+  },
+  "maricopa-az": {
+   "frequency": "weekly",
+   "sources": [
+    "maricopa_trusteesale",
+    "maricopa_azcapitoltimes",
+    "maricopa_recordreporter"
+   ]
+  },
+  "harris-tx": {
+   "frequency": "monthly",
+   "sources": [
+    "harris_taxsale"
+   ]
+  },
+  "collin-tx": {
+   "frequency": "daily",
+   "sources": [
+    "collin_foreclosures"
+   ]
+  },
+  "bexar-tx": {
+   "frequency": "monthly",
+   "sources": [
+    "bexar_foreclosures"
+   ]
+  },
+  "clark-nv": {
+   "frequency": "weekly",
+   "sources": [
+    "clark_sheriff_sales"
+   ]
+  },
+  "davidson": {
+   "frequency": "monthly",
+   "sources": [
+    "davidson"
+   ]
+  },
+  "williamson": {
+   "frequency": "monthly",
+   "sources": [
+    "williamson"
+   ]
+  },
+  "rutherford": {
+   "frequency": "monthly",
+   "sources": [
+    "rutherford"
+   ]
+  },
+  "wilson-tn": {
+   "frequency": "monthly",
+   "sources": [
+    "wilson"
+   ]
+  },
+  "sumner": {
+   "frequency": "monthly",
+   "sources": [
+    "sumner"
+   ]
+  },
+  "robertson": {
+   "frequency": "monthly",
+   "sources": [
+    "robertson"
+   ]
+  },
+  "cheatham": {
+   "frequency": "monthly",
+   "sources": [
+    "cheatham"
+   ]
+  }
+ }
 }

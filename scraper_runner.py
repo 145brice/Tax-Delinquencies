@@ -45,6 +45,17 @@ def _within_lookback(record: dict, lookback_days: int | None, today: date | None
         return True
     today = today or date.today()
     cutoff = today - timedelta(days=lookback_days)
+
+    # Standing statuses (a parcel currently on the county's delinquent roll)
+    # are current by virtue of appearing in today's scrape, even though the
+    # underlying bill was posted months or years ago. Judge those by
+    # scraped_date; sale_date on them is the original posting/bill date and
+    # would wrongly age them out.
+    record_type = (record.get("record_type") or "").lower()
+    if "delinquent" in record_type or "tax lien" in record_type:
+        dt = _record_date(record.get("scraped_date", ""), today)
+        return dt >= cutoff if dt else True
+
     for field in ("sale_date", "scraped_date"):
         dt = _record_date(record.get(field, ""), today)
         if dt:
