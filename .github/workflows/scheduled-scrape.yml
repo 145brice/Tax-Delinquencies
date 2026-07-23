@@ -42,11 +42,17 @@ jobs:
         # Appwrite's free tier pauses the project after inactivity, which
         # breaks login/register on the site. /api/accounts-status makes a
         # real Appwrite API call, so a daily hit keeps the project active.
-        # Non-fatal: don't block scraping if accounts are down.
+        # Non-fatal: don't block scraping if accounts are down — but DO fail
+        # loudly if the secrets themselves are missing (an empty URL curl
+        # "succeeding" under `|| true` was masking exactly that once).
         env:
           SCRAPE_TARGET_URL: ${{ secrets.SCRAPE_TARGET_URL }}
           ADMIN_TOKEN: ${{ secrets.ADMIN_TOKEN }}
         run: |
+          if [ -z "$SCRAPE_TARGET_URL" ] || [ -z "$ADMIN_TOKEN" ]; then
+            echo "::error::SCRAPE_TARGET_URL or ADMIN_TOKEN secret is not set on this repo."
+            exit 1
+          fi
           curl -s --max-time 20 "$SCRAPE_TARGET_URL/api/accounts-status?token=$ADMIN_TOKEN" || true
       - name: Run scrape
         env:
