@@ -1264,20 +1264,43 @@ def index():
     if user:
         sub_counties = {str(s.get("county") or "").strip().lower()
                         for s in _user_subs(user["id"])}
-    display_listings = []
+    # Rows are rendered client-side from this compact JSON, not as 15k+ server
+    # rendered <tr> (which ballooned the storefront HTML to ~30 MB and stalled
+    # the browser). Only the fields the row template needs are serialized.
+    leads_json = []
     for item in listings:
         masked_item = _storefront_display_row(item)
-        masked_item['display_address'] = masked_item.get("address") or obfuscate_address(item.get('address', ''))
-        masked_item['subscriber_county'] = (
-            str(item.get("county") or "").strip().lower() in sub_counties
-        )
-        display_listings.append(masked_item)
+        display_address = masked_item.get("address") or obfuscate_address(item.get('address', ''))
+        subscriber_county = str(item.get("county") or "").strip().lower() in sub_counties
+        leads_json.append({
+            "id": masked_item.get("id"),
+            "status": masked_item.get("status") or "",
+            "amount_owed": masked_item.get("amount_owed") or "",
+            "bid": masked_item.get("bid") or 0,
+            "price": masked_item.get("price") or 0,
+            "price_display": masked_item.get("price_display") or "",
+            "sale_date": masked_item.get("sale_date") or "",
+            "scraped_date": masked_item.get("scraped_date") or "",
+            "county": masked_item.get("county") or "",
+            "state": masked_item.get("state") or "",
+            "city": masked_item.get("city") or "",
+            "zip": masked_item.get("zip") or "",
+            "address": display_address,
+            "owner": masked_item.get("owner") or "",
+            "phone_display": masked_item.get("phone_display") or "",
+            "email_display": masked_item.get("email_display") or "",
+            "parcel_id": masked_item.get("parcel_id") or "",
+            "case_number": masked_item.get("case_number") or "",
+            "link": masked_item.get("link") or "",
+            "sub": subscriber_county,
+        })
     column_order = None
     if user:
         saved = _get_user_pref(user["id"], "column_order", None)
         if isinstance(saved, list):
             column_order = [c for c in saved if c in STOREFRONT_COLUMN_KEYS]
-    return render_template('index.html', listings=display_listings,
+    return render_template('index.html', leads_json=leads_json,
+                           has_listings=bool(leads_json),
                            storefront_only=STOREFRONT_ONLY,
                            sub_counties=list(sub_counties),
                            column_order=column_order,

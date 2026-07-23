@@ -392,7 +392,7 @@
 </div>
 
 <div class="table-wrap">
-{% if listings %}
+{% if has_listings %}
 <table class="leads" id="leads-table" style="visibility:hidden">
     <thead>
         <tr>
@@ -415,83 +415,7 @@
             <th data-col="src">Src</th>
         </tr>
     </thead>
-    <tbody id="leads-body">
-        {% for item in listings %}
-        <tr id="row-{{ item.id }}"
-            data-id="{{ item.id }}"
-            data-status="{{ item.status }}"
-            data-county="{{ item.county }}"
-            data-state="{{ item.state }}"
-            data-city="{{ item.city }}"
-            data-zip="{{ item.zip }}"
-            data-address="{{ item.display_address|lower }}"
-            data-owner="{{ item.owner|lower }}"
-            data-parcel_id="{{ item.parcel_id|lower }}"
-            data-case_number="{{ item.case_number|lower }}"
-            data-bid="{{ item.bid }}"
-            data-amount="{{ item.amount_owed or item.bid }}"
-            data-price="{{ item.price }}"
-            data-sale_date="{{ item.sale_date }}"
-            data-scraped_date="{{ item.scraped_date }}">
-            <td class="col-cb">
-                <input type="checkbox" class="lead-cb" data-id="{{ item.id }}" data-price="{{ item.price }}" onchange="toggleRow(this)">
-            </td>
-            <td>
-                {# Match case-insensitively so state-specific casing (e.g. MI 'Pre-Foreclosure'
-                   vs CA 'Pre-foreclosure') shows correctly without rewriting the stored value. #}
-                {% set st = (item.status or '')|lower %}
-                {% if st == 'auction' %}
-                    <span class="badge badge-auction">Auction</span>
-                {% elif st == 'notice of default' %}
-                    <span class="badge badge-nod">Notice of Default</span>
-                {% elif st == 'pre-foreclosure' %}
-                    <span class="badge badge-pre-foreclosure">Pre-Foreclosure</span>
-                {% elif st == 'tax sale' %}
-                    <span class="badge badge-tax-sale">Tax Sale</span>
-                {% elif st == 'probate' %}
-                    <span class="badge badge-probate">Probate</span>
-                {% elif st == 'divorce' %}
-                    <span class="badge badge-divorce">Divorce</span>
-                {% else %}
-                    <span class="badge badge-tax-lien">Tax Delinquent</span>
-                {% endif %}
-            </td>
-            <td>{{ item.amount_owed or ('$' ~ "{:,}".format(item.bid|int) if item.bid else '-') }}</td>
-            <td><span class="price-tag">${{ item.price_display or item.price }}</span></td>
-            <td>{{ item.sale_date or '' }}</td>
-            <td>{{ item.scraped_date or '' }}</td>
-            <td><span class="badge-county">{{ item.county or '-' }}</span></td>
-            <td>{{ item.state or '' }}</td>
-            <td>{{ item.city or '' }}</td>
-            <td>{{ item.zip or '' }}</td>
-            <td title="Full address revealed after purchase">{{ item.display_address }}</td>
-            <td>{{ item.owner or '-' }}</td>
-            <td title="Full number revealed after purchase">
-                {% if item.subscriber_county %}
-                    <span class="reveal-contact" data-lead-id="{{ item.id }}" data-field="phone">
-                        <button class="btn-reveal" onclick="revealContact(this, '{{ item.id }}')">Reveal</button>
-                    </span>
-                {% else %}
-                    {{ item.phone_display or '-' }}
-                {% endif %}
-            </td>
-            <td title="Full address revealed after purchase">
-                {% if item.subscriber_county %}
-                    <span class="reveal-email" data-lead-id="{{ item.id }}">{{ item.email_display or '-' }}</span>
-                {% else %}
-                    {{ item.email_display or '-' }}
-                {% endif %}
-            </td>
-            <td>{{ item.parcel_id or '-' }}</td>
-            <td>{{ item.case_number or '-' }}</td>
-            <td>
-                {% if item.link %}
-                  <a class="src-link" href="{{ item.link }}" target="_blank" rel="noopener">&nearr;</a>
-                {% endif %}
-            </td>
-        </tr>
-        {% endfor %}
-    </tbody>
+    <tbody id="leads-body"><!-- rows rendered client-side from LEADS --></tbody>
 </table>
 {% else %}
 <div class="empty">
@@ -505,7 +429,7 @@
 {% endif %}
 </div>
 
-{% if listings %}
+{% if has_listings %}
 <div class="pager pager-bottom" style="display:flex; gap:12px; align-items:center; justify-content:center; padding:16px;">
     <button class="btn-clear pager-prev" onclick="gotoPage(currentPage - 1)">&lsaquo; Prev</button>
     <span class="pager-indicator" style="font-size:13px; white-space:nowrap;">Page
@@ -520,25 +444,101 @@
     const CSRF_TOKEN = document.querySelector('meta[name="csrf-token"]').content;
     const SAVED_COL_ORDER = {{ column_order|tojson }};
     const USER_AUTHED = {{ 'true' if user_authed else 'false' }};
-    const allRows = [...document.querySelectorAll('#leads-body tr')];
-    const totalCount = allRows.length;
+
+    // All leads as data, rendered to DOM only one page at a time. Sending 15k+
+    // pre-rendered <tr> ballooned the page to ~30 MB and stalled the browser;
+    // now the browser only ever holds ~100 rows.
+    const LEADS = {{ leads_json|tojson }};
+    const byId = {};
+    LEADS.forEach(l => {
+        l._s = [l.address, l.owner, l.parcel_id, l.city, l.county, l.case_number, l.zip]
+            .join(' ').toLowerCase();
+        byId[String(l.id)] = l;
+    });
+    const totalCount = LEADS.length;
+
+    // Selection persists across pages/filters (rows are re-rendered on nav).
+    const selectedIds = new Set();
+    let WALLET_CENTS = null;   // null until we learn the user is logged in
 
     // Pagination state — operates on the current filtered + sorted set
     let pageSize = 100;
     let currentPage = 1;
-    let filteredRows = allRows.slice();
+    let filtered = LEADS.slice();
+
+    // ── Row rendering ────────────────────────────────────────────────────────
+    function esc(s) {
+        return String(s == null ? '' : s).replace(/[&<>"']/g,
+            c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+    }
+    function badgeCell(status) {
+        const st = (status || '').toLowerCase();
+        let cls = 'badge-tax-lien', label = 'Tax Delinquent';
+        if (st === 'auction') { cls = 'badge-auction'; label = 'Auction'; }
+        else if (st === 'notice of default') { cls = 'badge-nod'; label = 'Notice of Default'; }
+        else if (st === 'pre-foreclosure') { cls = 'badge-pre-foreclosure'; label = 'Pre-Foreclosure'; }
+        else if (st === 'tax sale') { cls = 'badge-tax-sale'; label = 'Tax Sale'; }
+        else if (st === 'probate') { cls = 'badge-probate'; label = 'Probate'; }
+        else if (st === 'divorce') { cls = 'badge-divorce'; label = 'Divorce'; }
+        return `<span class="badge ${cls}">${label}</span>`;
+    }
+    function amountText(l) {
+        if (l.amount_owed) return esc(l.amount_owed);
+        if (l.bid) return '$' + Number(l.bid).toLocaleString();
+        return '-';
+    }
+    const CELL = {
+        select: l => `<td class="col-cb" data-col="select"><input type="checkbox" class="lead-cb" data-id="${esc(l.id)}" onchange="toggleRow(this)"${selectedIds.has(String(l.id)) ? ' checked' : ''}></td>`,
+        type:    l => `<td data-col="type">${badgeCell(l.status)}</td>`,
+        amount:  l => `<td data-col="amount">${amountText(l)}</td>`,
+        price:   l => `<td data-col="price"><span class="price-tag">$${esc(l.price_display || l.price)}</span></td>`,
+        sale_date: l => `<td data-col="sale_date">${esc(l.sale_date)}</td>`,
+        scraped: l => `<td data-col="scraped">${esc(l.scraped_date)}</td>`,
+        county:  l => `<td data-col="county"><span class="badge-county">${esc(l.county || '-')}</span></td>`,
+        state:   l => `<td data-col="state">${esc(l.state)}</td>`,
+        city:    l => `<td data-col="city">${esc(l.city)}</td>`,
+        zip:     l => `<td data-col="zip">${esc(l.zip)}</td>`,
+        address: l => `<td data-col="address" title="Full address revealed after purchase">${esc(l.address)}</td>`,
+        owner:   l => `<td data-col="owner">${esc(l.owner || '-')}</td>`,
+        phone:   l => `<td data-col="phone" title="Full number revealed after purchase">${l.sub
+            ? `<span class="reveal-contact" data-lead-id="${esc(l.id)}" data-field="phone"><button class="btn-reveal" onclick="revealContact(this,'${esc(l.id)}')">Reveal</button></span>`
+            : esc(l.phone_display || '-')}</td>`,
+        email:   l => `<td data-col="email" title="Full address revealed after purchase">${l.sub
+            ? `<span class="reveal-email" data-lead-id="${esc(l.id)}">${esc(l.email_display || '-')}</span>`
+            : esc(l.email_display || '-')}</td>`,
+        parcel:  l => `<td data-col="parcel">${esc(l.parcel_id || '-')}</td>`,
+        case:    l => `<td data-col="case">${esc(l.case_number || '-')}</td>`,
+        src:     l => `<td data-col="src">${l.link ? `<a class="src-link" href="${esc(l.link)}" target="_blank" rel="noopener">&nearr;</a>` : ''}</td>`,
+    };
+
+    // Column order (drag-reorderable). Set up from the static header below.
+    const headRow = document.querySelector('#leads-table thead tr');
+    const defaultColOrder = headRow ? [...headRow.cells].map(th => th.dataset.col) : [];
+    const PINNED = 'select';
+    function normalizeOrder(order) {
+        let ord = (order || []).filter(c => defaultColOrder.includes(c) && c !== PINNED);
+        ord = [PINNED, ...ord];
+        defaultColOrder.forEach(c => { if (!ord.includes(c)) ord.push(c); });
+        return ord;
+    }
+    let colOrder = normalizeOrder(
+        Array.isArray(SAVED_COL_ORDER) && SAVED_COL_ORDER.length ? SAVED_COL_ORDER : defaultColOrder);
+
+    function rowHtml(l) {
+        const id = esc(l.id);
+        const sel = selectedIds.has(String(l.id)) ? ' class="selected"' : '';
+        return `<tr id="row-${id}"${sel}>` + colOrder.map(c => CELL[c](l)).join('') + `</tr>`;
+    }
 
     function renderPage() {
         const body = document.getElementById('leads-body');
         if (!body) return;
-        allRows.forEach(r => r.style.display = 'none');
-        const total = filteredRows.length;
+        const total = filtered.length;
         const pages = Math.max(1, Math.ceil(total / pageSize));
         currentPage = Math.min(Math.max(currentPage, 1), pages);
         const start = (currentPage - 1) * pageSize;
-        const pageRows = filteredRows.slice(start, start + pageSize);
-        // appendChild reorders the DOM so the page renders in sorted order
-        pageRows.forEach(r => { r.style.display = ''; body.appendChild(r); });
+        const pageRows = filtered.slice(start, start + pageSize);
+        body.innerHTML = pageRows.map(rowHtml).join('');
 
         document.getElementById('visible-count').innerText =
             total ? `${start + 1}–${start + pageRows.length}` : '0';
@@ -564,8 +564,8 @@
     }
 
     // Populate county + state dropdowns dynamically
-    const counties = new Set(allRows.map(r => r.dataset.county).filter(Boolean));
-    const states   = new Set(allRows.map(r => r.dataset.state).filter(Boolean));
+    const counties = new Set(LEADS.map(l => l.county).filter(Boolean));
+    const states   = new Set(LEADS.map(l => l.state).filter(Boolean));
     document.getElementById('county-count').innerText = counties.size;
     document.getElementById('total-leads-metric').innerText = totalCount.toLocaleString();
     document.getElementById('county-metric').innerText = counties.size.toLocaleString();
@@ -622,11 +622,16 @@
         return Number.isFinite(parsed) ? parsed : 0;
     }
 
-    function sortValue(row, col, type) {
-        const raw = row.dataset[col] || '';
+    // Map a header's data-sort key to the lead field it reads.
+    const SORT_FIELD = { address: 'address', phone: 'phone_display', scraped_date: 'scraped_date' };
+    function sortValue(lead, col, type) {
+        let raw;
+        if (col === 'amount') raw = lead.amount_owed || lead.bid;
+        else raw = lead[SORT_FIELD[col] || col];
+        raw = raw == null ? '' : raw;
         if (type === 'money' || type === 'number') return moneyValue(raw);
         if (type === 'date') return dateValue(raw);
-        return raw.toLocaleLowerCase();
+        return String(raw).toLocaleLowerCase();
     }
 
     let sortCol = null, sortDir = 'asc';
@@ -642,7 +647,7 @@
             document.querySelectorAll('th[data-sort]').forEach(t => t.classList.remove('sorted-asc','sorted-desc'));
             th.classList.add(sortDir === 'asc' ? 'sorted-asc' : 'sorted-desc');
 
-            filteredRows.sort((a, b) => {
+            filtered.sort((a, b) => {
                 const av = sortValue(a, col, type);
                 const bv = sortValue(b, col, type);
                 if (av < bv) return sortDir === 'asc' ? -1 : 1;
@@ -653,42 +658,20 @@
         });
     });
 
-    // Column reordering (drag headers; saved per account for logged-in users)
+    // Column reordering (drag headers; saved per account for logged-in users).
+    // Header cells reorder in the DOM; body rows are built per colOrder.
     (function columnReorder() {
         const table = document.getElementById('leads-table');
         if (!table || !table.tHead) return;
-        const headRow = table.tHead.rows[0];
-        const PINNED = 'select'; // checkbox column stays at the far left
-        const defaultOrder = [...headRow.cells].map(th => th.dataset.col);
 
-        // Tag every body cell with its column key by position (before any reorder).
-        [...table.tBodies[0].rows].forEach(row => {
-            [...row.cells].forEach((cell, i) => {
-                if (!cell.dataset.col) cell.dataset.col = defaultOrder[i];
+        function applyHeaderOrder() {
+            colOrder.forEach(c => {
+                const th = headRow.querySelector(':scope > [data-col="' + c + '"]');
+                if (th) headRow.appendChild(th);
             });
-        });
-
-        function currentOrder() {
-            return [...headRow.cells].map(th => th.dataset.col);
-        }
-
-        function reorder(rowEl, order) {
-            order.forEach(col => {
-                const cell = rowEl.querySelector(':scope > [data-col="' + col + '"]');
-                if (cell) rowEl.appendChild(cell);
-            });
-        }
-
-        function applyOrder(order) {
-            // Normalize: pinned first, keep only known cols, append any missing.
-            let ord = order.filter(c => defaultOrder.includes(c) && c !== PINNED);
-            ord = [PINNED, ...ord];
-            defaultOrder.forEach(c => { if (!ord.includes(c)) ord.push(c); });
-            reorder(headRow, ord);
-            [...table.tBodies[0].rows].forEach(r => reorder(r, ord));
             const btn = document.getElementById('reset-cols-btn');
             if (btn) btn.style.display =
-                (ord.join(',') === defaultOrder.join(',')) ? 'none' : '';
+                (colOrder.join(',') === defaultColOrder.join(',')) ? 'none' : '';
         }
 
         async function saveOrder(order) {
@@ -726,37 +709,38 @@
                 th.classList.remove('col-drag-over');
                 const target = th.dataset.col;
                 if (!draggedCol || draggedCol === target || target === PINNED) return;
-                let order = currentOrder().filter(c => c !== draggedCol);
+                let order = colOrder.filter(c => c !== draggedCol);
                 order.splice(order.indexOf(target), 0, draggedCol);
-                applyOrder(order);
-                saveOrder(order);
+                colOrder = normalizeOrder(order);
+                applyHeaderOrder();
+                renderPage();
+                saveOrder(colOrder);
                 draggedCol = null;
             });
         });
 
         window.resetColumns = function () {
-            applyOrder(defaultOrder.slice());
-            saveOrder(defaultOrder.slice());
+            colOrder = defaultColOrder.slice();
+            applyHeaderOrder();
+            renderPage();
+            saveOrder(colOrder);
         };
 
-        if (Array.isArray(SAVED_COL_ORDER) && SAVED_COL_ORDER.length) {
-            applyOrder(SAVED_COL_ORDER);
-        }
-        document.getElementById('leads-table').style.visibility = '';
+        applyHeaderOrder();
+        table.style.visibility = '';
     })();
 
     // Filtering
     function applyFilters() {
         const q = document.getElementById('search-input').value.toLowerCase().trim();
         const fc = document.getElementById('county-filter').value;
-        const fs = document.getElementById('status-filter').value;
+        const fs = (document.getElementById('status-filter').value || '').toLowerCase();
         const fst = document.getElementById('state-filter').value;
-        filteredRows = allRows.filter(r => {
-            const matchQ = !q || ['address','owner','parcel_id','city','county','case_number','zip']
-                .some(k => (r.dataset[k] || '').includes(q));
-            const matchC  = !fc  || r.dataset.county === fc;
-            const matchS  = !fs  || (r.dataset.status || '').toLowerCase() === fs.toLowerCase();
-            const matchSt = !fst || r.dataset.state  === fst;
+        filtered = LEADS.filter(l => {
+            const matchQ  = !q  || l._s.includes(q);
+            const matchC  = !fc  || l.county === fc;
+            const matchS  = !fs  || (l.status || '').toLowerCase() === fs;
+            const matchSt = !fst || l.state  === fst;
             return matchQ && matchC && matchS && matchSt;
         });
         currentPage = 1;
@@ -770,38 +754,41 @@
         applyFilters();
     }
 
-    // Cart
+    // Cart — selection tracked in selectedIds so it survives page/filter changes.
     function toggleRow(cb) {
+        const id = String(cb.dataset.id);
+        if (cb.checked) selectedIds.add(id); else selectedIds.delete(id);
         const tr = document.getElementById('row-' + cb.dataset.id);
-        tr.classList.toggle('selected', cb.checked);
+        if (tr) tr.classList.toggle('selected', cb.checked);
         updateCart();
     }
     function toggleAll(master) {
-        document.querySelectorAll('.lead-cb').forEach(cb => {
-            const tr = cb.closest('tr');
-            if (tr.style.display === 'none') return;
-            cb.checked = master.checked;
-            tr.classList.toggle('selected', cb.checked);
+        // Applies to the rows on the current page (matches the visible checkbox).
+        const start = (currentPage - 1) * pageSize;
+        filtered.slice(start, start + pageSize).forEach(l => {
+            const id = String(l.id);
+            if (master.checked) selectedIds.add(id); else selectedIds.delete(id);
         });
+        renderPage();
         updateCart();
     }
-    let WALLET_CENTS = null;   // null until we learn the user is logged in
 
     function updateCart() {
-        const checked = [...document.querySelectorAll('.lead-cb:checked')];
-        const total = checked.reduce((s, cb) => s + parseFloat(cb.dataset.price), 0);
-        document.getElementById('cart-count').innerText = checked.length;
+        let total = 0;
+        selectedIds.forEach(id => { const l = byId[id]; if (l) total += parseFloat(l.price) || 0; });
+        const count = selectedIds.size;
+        document.getElementById('cart-count').innerText = count;
         document.getElementById('cart-total').innerText = total;
-        document.getElementById('selected-metric').innerText = checked.length.toLocaleString();
+        document.getElementById('selected-metric').innerText = count.toLocaleString();
         document.getElementById('selected-total-metric').innerText = total.toLocaleString();
 
         // Credit-unlock button reflects the current selection vs. the balance.
         const btn = document.getElementById('unlock-btn');
-        if (WALLET_CENTS !== null && checked.length) {
+        if (WALLET_CENTS !== null && count) {
             const costCents = Math.round(total * 100);
             btn.style.display = 'inline-block';
             if (costCents <= WALLET_CENTS) {
-                btn.textContent = `Unlock ${checked.length} (−$${total})`;
+                btn.textContent = `Unlock ${count} (−$${total})`;
                 btn.disabled = false;
             } else {
                 const short = ((costCents - WALLET_CENTS) / 100).toFixed(2);
@@ -865,22 +852,20 @@
         } catch (e) { alert('Could not reach checkout. Please try again.'); }
     }
 
-    // Derive the county(ies) of the currently-selected leads from their rows.
+    // Derive the county(ies) of the currently-selected leads.
     // Returns an array of distinct, non-empty county names (lowercased).
-    function selectedCounties(checked) {
-        return [...new Set(checked.map(cb => {
-            const row = document.getElementById('row-' + cb.dataset.id);
-            return ((row && row.dataset.county) || '').trim().toLowerCase();
-        }).filter(Boolean))];
+    function selectedCounties() {
+        return [...new Set([...selectedIds]
+            .map(id => ((byId[id] && byId[id].county) || '').trim().toLowerCase())
+            .filter(Boolean))];
     }
 
     async function unlockWithCredits() {
-        const checked = [...document.querySelectorAll('.lead-cb:checked')];
-        if (!checked.length) return alert('Select at least one lead first.');
-        const counties = selectedCounties(checked);
+        if (!selectedIds.size) return alert('Select at least one lead first.');
+        const counties = selectedCounties();
         if (counties.length > 1) return alert('Please unlock leads from one county at a time.');
         const selected_county = counties[0] || '';
-        const lead_ids = checked.map(cb => cb.dataset.id);
+        const lead_ids = [...selectedIds];
         try {
             const resp = await fetch('/api/unlock', {
                 method: 'POST',
@@ -908,13 +893,12 @@
         }
     }
     async function checkout() {
-        const checked = [...document.querySelectorAll('.lead-cb:checked')];
-        if (!checked.length) return alert('Select at least one lead first.');
-        const counties = selectedCounties(checked);
+        if (!selectedIds.size) return alert('Select at least one lead first.');
+        const counties = selectedCounties();
         if (counties.length > 1) return alert('Please select leads from one county at a time.');
         const selected_county = counties[0] || '';
 
-        const lead_ids = checked.map(cb => cb.dataset.id);
+        const lead_ids = [...selectedIds];
         try {
             const resp = await fetch('/api/create-checkout-session', {
                 method: 'POST',
