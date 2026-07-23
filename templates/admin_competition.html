@@ -86,9 +86,9 @@
     <div class="tile"><div class="lab">Owner Named</div>
       <div class="val {{ 'good' if s.owner_pct >= 80 else 'warn' }}">{{ s.owner_pct }}%</div>
       <div class="note">skip-traceable base</div></div>
-    <div class="tile"><div class="lab">Skip-Traced</div>
-      <div class="val {{ 'bad' if s.traced_pct < 10 else ('warn' if s.traced_pct < 40 else 'good') }}">{{ s.traced_pct }}%</div>
-      <div class="note">{{ "{:,}".format(s.traced_n) }} leads sell at ${{ '%.0f'|format(s.price_traced) }} vs ${{ '%.0f'|format(s.price_raw) }}</div></div>
+    <div class="tile"><div class="lab">Traceable Inventory</div>
+      <div class="val {{ 'good' if s.owner_pct >= 80 else 'warn' }}">{{ s.owner_pct }}%</div>
+      <div class="note">${{ '%.0f'|format(s.price_traced) }} on demand vs ${{ '%.0f'|format(s.price_raw) }} raw · {{ "{:,}".format(s.traced_n) }} pre-traced</div></div>
     <div class="tile"><div class="lab">Fresh ≤ 30d</div>
       <div class="val {{ 'good' if s.fresh30_pct >= 70 else ('warn' if s.fresh30_pct >= 40 else 'bad') }}">{{ s.fresh30_pct }}%</div>
       <div class="note">{{ s.fresh7_pct }}% ≤ 7 days ({{ "{:,}".format(s.dated_n) }} dated)</div></div>
@@ -104,17 +104,17 @@
     <tr><th>Dimension</th><th>Where you are (live)</th><th>Where you should be</th><th>Status</th><th>Move</th></tr>
     <tr>
       <td><b>Contact data</b></td>
-      <td>{{ s.traced_pct }}% of leads traced ({{ "{:,}".format(s.traced_n) }}) — nearly all inventory sells at the ${{ '%.0f'|format(s.price_raw) }} floor</td>
-      <td>40–60% traced. Every traced lead is a ${{ '%.0f'|format(s.price_traced) }} product at pennies of Serper cost — this is the single highest-leverage number on this page</td>
-      <td><span class="pill pill-bad">Biggest gap</span></td>
-      <td>Batch skip-trace the {{ s.owner_pct }}% owner-named backlog; trace new leads automatically on arrival</td>
+      <td>{{ s.owner_pct }}% owner-named ({{ "{:,}".format((s.total * s.owner_pct / 100)|int) }} leads) are traceable on demand; {{ "{:,}".format(s.traced_n) }} pre-traced by choice (Serper costs real money pre-revenue)</td>
+      <td>Trace at purchase, not upfront — spend follows revenue, every ${{ '%.0f'|format(s.price_raw) }} raw lead becomes a ${{ '%.0f'|format(s.price_traced) }} product only once a buyer pays</td>
+      <td><span class="pill pill-warn">Build next</span></td>
+      <td>Wire the tracer into the purchase flow (+ empty-trace refund/credit fallback); skip bulk backlog tracing</td>
     </tr>
     <tr>
       <td><b>Freshness</b></td>
-      <td>{{ s.fresh30_pct }}% ≤30d, {{ s.fresh7_pct }}% ≤7d — cron built &amp; verified but not yet self-running</td>
-      <td>&gt;80% ≤7d for daily sources — freshness is the #1 conversion factor in leads</td>
-      <td><span class="pill pill-warn">One step left</span></td>
-      <td>Add the two GitHub secrets; the schedule takes over from there</td>
+      <td>{{ s.fresh30_pct }}% ≤30d, {{ s.fresh7_pct }}% ≤7d — self-healing cron now live (secrets set, runs daily/weekly/monthly)</td>
+      <td>&gt;80% ≤7d for daily sources — freshness is the #1 conversion factor in leads; will climb as the schedule runs</td>
+      <td><span class="pill pill-good">Automated</span></td>
+      <td>Watch the number trend up over the next few cron cycles; no manual action needed</td>
     </tr>
     <tr>
       <td><b>Coverage</b></td>
@@ -252,7 +252,7 @@
       <li>Self-healing automated pipeline (verified end-to-end in production)</li>
     </ul></div>
     <div class="box box-w"><h3>Weaknesses</h3><ul>
-      <li><b>{{ s.traced_pct }}% skip-traced</b> — the ${{ '%.0f'|format(s.price_traced) }} product barely exists yet</li>
+      <li><b>Trace-on-purchase not built yet</b> — until it is, the ${{ '%.0f'|format(s.price_traced) }} product only exists on the {{ "{:,}".format(s.traced_n) }} pre-traced leads</li>
       <li>{{ s.counties }} counties vs incumbents' "nationwide" — thin outside FL/MI/CA/TN</li>
       <li>Zero brand, reviews, or SEO; unbranded infrastructure URL</li>
       <li>No retention hooks (alerts, saved searches) — nothing pulls buyers back</li>
