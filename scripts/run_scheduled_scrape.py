@@ -108,6 +108,16 @@ def main():
     parser.add_argument("--lookback-days", type=int, default=None)
     args = parser.parse_args()
 
+    missing = [v for v in ("SCRAPE_TARGET_URL", "ADMIN_TOKEN") if not os.environ.get(v)]
+    if missing:
+        print("CONFIGURATION ERROR - cannot reach the app.")
+        print(f"Missing environment variable(s): {', '.join(missing)}")
+        print("Fix: GitHub repo -> Settings -> Secrets and variables -> Actions ->")
+        print("     New repository secret. Add SCRAPE_TARGET_URL (the deployed app's")
+        print("     base URL) and ADMIN_TOKEN (the app's admin token).")
+        print("Until then, scheduled scrapes cannot run.")
+        return 1
+
     schedule = load_schedule()
     counties = counties_for_frequency(schedule, args.frequency)
     src_to_county = source_to_county(schedule)
