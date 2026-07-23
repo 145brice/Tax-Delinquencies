@@ -252,6 +252,14 @@ def csrf_protect():
         # Sessions (and therefore tokens) are unavailable; nothing session-
         # backed can be hijacked either, so let the request through.
         return None
+    # Bearer-style admin token auth isn't ambient like a session cookie, so a
+    # malicious page can't forge it cross-site — CSRF doesn't apply. This lets
+    # server-to-server callers (e.g. the scheduled scraper) authenticate
+    # without a browser session.
+    admin_token = _admin_token()
+    supplied_admin_token = request.args.get("token") or request.form.get("token")
+    if admin_token and supplied_admin_token and secrets.compare_digest(supplied_admin_token, admin_token):
+        return None
     expected = session.get("_csrf_token") or ""
     supplied = (request.headers.get("X-CSRF-Token")
                 or request.form.get("csrf_token") or "")

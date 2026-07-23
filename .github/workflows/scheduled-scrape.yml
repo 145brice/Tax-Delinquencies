@@ -1,0 +1,45 @@
+name: Scheduled county scrape
+
+on:
+  schedule:
+    # Daily counties — every weekday morning
+    - cron: "0 11 * * 1-5"
+    # Weekly counties — Monday morning
+    - cron: "0 12 * * 1"
+    # Monthly counties — 1st of the month
+    - cron: "0 13 1 * *"
+  workflow_dispatch:
+    inputs:
+      frequency:
+        description: "Frequency bucket to run"
+        required: true
+        default: "daily"
+        type: choice
+        options: [daily, weekly, monthly]
+
+jobs:
+  scrape:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install requests
+      - name: Determine frequency bucket
+        id: freq
+        run: |
+          if [ -n "${{ github.event.inputs.frequency }}" ]; then
+            echo "value=${{ github.event.inputs.frequency }}" >> "$GITHUB_OUTPUT"
+          else
+            case "${{ github.event.schedule }}" in
+              "0 11 * * 1-5") echo "value=daily" >> "$GITHUB_OUTPUT" ;;
+              "0 12 * * 1")   echo "value=weekly" >> "$GITHUB_OUTPUT" ;;
+              "0 13 1 * *")   echo "value=monthly" >> "$GITHUB_OUTPUT" ;;
+            esac
+          fi
+      - name: Run scrape
+        env:
+          SCRAPE_TARGET_URL: ${{ secrets.SCRAPE_TARGET_URL }}
+          ADMIN_TOKEN: ${{ secrets.ADMIN_TOKEN }}
+        run: python scripts/run_scheduled_scrape.py --frequency "${{ steps.freq.outputs.value }}"

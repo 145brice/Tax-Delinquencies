@@ -1,0 +1,21 @@
+{
+  "daily": [
+    "duval-fl", "clay-fl", "nassau-fl", "stjohns-fl",
+    "broward-fl", "miamidade-fl", "palmbeach-fl", "orange-fl", "hillsborough-fl",
+    "collin-tx"
+  ],
+  "weekly": [
+    "wayne-mi", "macomb-mi", "oakland-mi", "genesee-mi", "ingham-mi", "kent-mi",
+    "jackson-mi", "muskegon-mi", "kalamazoo-mi", "calhoun-mi", "berrien-mi",
+    "washtenaw-mi", "livingston-mi", "ottawa-mi", "saginaw-mi", "monroe-mi",
+    "lenawee-mi", "hillsdale-mi", "lapeer-mi", "eaton-mi", "bay-mi",
+    "montcalm-mi", "tuscola-mi", "allegan-mi", "cass-mi", "barry-mi",
+    "sandiego", "losangeles", "orange", "riverside", "sanbernardino",
+    "ventura", "sacramento", "alameda", "santaclara", "kern", "fresno",
+    "contracosta", "sanmateo", "maricopa-az", "clark-nv"
+  ],
+  "monthly": [
+    "harris-tx", "bexar-tx",
+    "davidson", "williamson", "rutherford", "wilson-tn", "sumner", "robertson", "cheatham"
+  ]
+}
