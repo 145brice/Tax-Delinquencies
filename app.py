@@ -3212,6 +3212,61 @@ def admin_data():
         settings=settings,
     )
 
+@app.route('/admin/competition')
+@admin_required
+def admin_competition():
+    """Competitive-position dashboard: live inventory stats vs researched
+    competitor intel, scored per strategic dimension."""
+    if STOREFRONT_ONLY:
+        return redirect(url_for('index'), code=302)
+    from collections import Counter
+    from datetime import date as _date, timedelta as _td
+
+    with listing_lock:
+        listings = load_json(DATA_FILE, [])
+    pub = publishable_storefront_listings(listings)
+    total = len(pub)
+    sold = sum(1 for x in listings if x.get("sold_at"))
+    counties = {str(x.get("county") or "").strip().lower() for x in pub if x.get("county")}
+    states = {str(x.get("state") or "").strip().upper() for x in pub if x.get("state")}
+    owner_n = sum(1 for x in pub if str(x.get("owner") or "").strip())
+    traced_n = sum(1 for x in pub if _lead_is_traced(x))
+    today = _date.today()
+
+    def _days_old(x):
+        raw = str(x.get("scraped_date") or "")[:10]
+        try:
+            return (today - _date.fromisoformat(raw)).days
+        except ValueError:
+            return None
+    ages = [d for d in (_days_old(x) for x in pub) if d is not None]
+    fresh7 = sum(1 for d in ages if d <= 7)
+    fresh30 = sum(1 for d in ages if d <= 30)
+    types = Counter(str(x.get("status") or "Unknown") for x in pub)
+
+    def pct(n, d):
+        return round(n * 100 / d) if d else 0
+
+    stats = {
+        "total": total,
+        "sold": sold,
+        "counties": len(counties),
+        "registry_counties": 61,   # distinct counties in scrapers/source_registry.py
+        "states": len(states),
+        "owner_pct": pct(owner_n, total),
+        "traced_n": traced_n,
+        "traced_pct": pct(traced_n, total),
+        "fresh7_pct": pct(fresh7, len(ages)),
+        "fresh30_pct": pct(fresh30, len(ages)),
+        "dated_n": len(ages),
+        "types": types.most_common(),
+        "price_raw": LEAD_PRICE_RAW,
+        "price_traced": LEAD_PRICE_TRACED,
+        "as_of": str(today),
+    }
+    return render_template('admin_competition.html', s=stats)
+
+
 # One-shot cleanup for stray county values in the listings store:
 #  - Ontario municipal tax-sale rows scraped before the scraper labeled them
 #    county="Ontario" (each municipality showed as its own "county", and the

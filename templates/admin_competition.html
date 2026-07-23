@@ -1,0 +1,283 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Competitive Position — Admin</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { font-family:'Segoe UI',sans-serif; background:#0f1117; color:#e0e0e0; font-size:14px; }
+  .navbar { background:#16181f; border-bottom:1px solid #2a2d3a; padding:0 24px; display:flex;
+            align-items:center; justify-content:space-between; height:56px; position:sticky; top:0; z-index:100; }
+  .logo { font-size:1.3rem; font-weight:700; color:#fff; }
+  .logo span { color:#3b82f6; }
+  .nav-tab { color:#9ca3af; text-decoration:none; font-size:0.9rem; padding:6px 10px; border-radius:999px; }
+  .nav-tab:hover { color:#fff; }
+  .wrap { max-width:1280px; margin:0 auto; padding:24px; }
+  h1 { color:#fff; font-size:1.5rem; margin-bottom:4px; }
+  h2 { color:#fff; font-size:1.15rem; margin:34px 0 6px; }
+  .sub { color:#6b7280; font-size:0.85rem; margin-bottom:18px; }
+  .sub2 { color:#9ca3af; font-size:0.85rem; margin-bottom:14px; max-width:900px; line-height:1.5; }
+
+  .tiles { display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:12px; margin:18px 0; }
+  .tile { background:#16181f; border:1px solid #2a2d3a; border-radius:10px; padding:14px 16px; }
+  .tile .lab { color:#6b7280; font-size:0.68rem; text-transform:uppercase; letter-spacing:0.08em; font-weight:800; }
+  .tile .val { color:#fff; font-size:1.45rem; font-weight:800; margin-top:4px; }
+  .tile .note { font-size:0.72rem; margin-top:2px; color:#9ca3af; }
+  .good { color:#4ade80 !important; }
+  .warn { color:#facc15 !important; }
+  .bad  { color:#f87171 !important; }
+
+  table { width:100%; border-collapse:collapse; font-size:0.85rem; background:#13151c;
+          border:1px solid #2a2d3a; border-radius:10px; overflow:hidden; }
+  th { background:#1a1f2e; color:#cbd5e1; text-transform:uppercase; font-size:0.68rem;
+       letter-spacing:0.06em; padding:10px 12px; text-align:left; border-bottom:2px solid #2563eb; }
+  td { padding:10px 12px; border-bottom:1px solid #1a1f2e; vertical-align:top; line-height:1.45; }
+  tr:hover td { background:#161b2b; }
+  .pill { display:inline-block; padding:2px 9px; border-radius:10px; font-size:0.68rem; font-weight:700;
+          text-transform:uppercase; letter-spacing:0.04em; white-space:nowrap; }
+  .pill-good { background:#14321f; color:#86efac; }
+  .pill-warn { background:#3a2f0a; color:#fde047; }
+  .pill-bad  { background:#450a0a; color:#fca5a5; }
+  .pill-info { background:#1e3a5f; color:#93c5fd; }
+  .me td { background:#101c30; }
+  .me td:first-child { border-left:3px solid #3b82f6; }
+  .table-wrap { overflow-x:auto; }
+
+  .swot { display:grid; grid-template-columns:1fr 1fr; gap:14px; }
+  .swot .box { background:#16181f; border:1px solid #2a2d3a; border-radius:10px; padding:16px 18px; }
+  .swot h3 { font-size:0.9rem; margin-bottom:10px; text-transform:uppercase; letter-spacing:0.05em; }
+  .swot ul { list-style:none; }
+  .swot li { padding:5px 0; font-size:0.86rem; color:#d1d5db; line-height:1.45; }
+  .swot li::before { content:"▸ "; }
+  .box-s h3 { color:#4ade80; } .box-s li::before { color:#4ade80; }
+  .box-w h3 { color:#f87171; } .box-w li::before { color:#f87171; }
+  .box-o h3 { color:#93c5fd; } .box-o li::before { color:#93c5fd; }
+  .box-t h3 { color:#facc15; } .box-t li::before { color:#facc15; }
+  b { color:#fff; }
+  .foot { color:#4b5563; font-size:0.75rem; margin:30px 0 10px; line-height:1.5; }
+  @media (max-width:820px){ .swot { grid-template-columns:1fr; } }
+</style>
+</head>
+<body>
+
+<nav class="navbar">
+  <div class="logo">Foreclosure<span>Leads</span> Pro</div>
+  <div>
+    <a href="/" class="nav-tab">Storefront</a>
+    <a href="/admin" class="nav-tab">Admin</a>
+    <a href="/admin/data" class="nav-tab">Data Explorer</a>
+    <a href="/admin/counties" class="nav-tab">Counties</a>
+  </div>
+</nav>
+
+<div class="wrap">
+  <h1>Competitive Position</h1>
+  <div class="sub">Live inventory stats computed {{ s.as_of }} · competitor intel researched July 2026 (re-verify quarterly)</div>
+
+  <!-- ── Where you stand: live numbers ─────────────────────────────── -->
+  <div class="tiles">
+    <div class="tile"><div class="lab">Sellable Leads</div><div class="val">{{ "{:,}".format(s.total) }}</div>
+      <div class="note">{{ s.sold }} sold (exclusive, off-shelf)</div></div>
+    <div class="tile"><div class="lab">Counties Live</div>
+      <div class="val {{ 'good' if s.counties >= 55 else 'warn' }}">{{ s.counties }}/{{ s.registry_counties }}</div>
+      <div class="note">{{ s.states }} states + ON capable</div></div>
+    <div class="tile"><div class="lab">Owner Named</div>
+      <div class="val {{ 'good' if s.owner_pct >= 80 else 'warn' }}">{{ s.owner_pct }}%</div>
+      <div class="note">skip-traceable base</div></div>
+    <div class="tile"><div class="lab">Skip-Traced</div>
+      <div class="val {{ 'bad' if s.traced_pct < 10 else ('warn' if s.traced_pct < 40 else 'good') }}">{{ s.traced_pct }}%</div>
+      <div class="note">{{ "{:,}".format(s.traced_n) }} leads sell at ${{ '%.0f'|format(s.price_traced) }} vs ${{ '%.0f'|format(s.price_raw) }}</div></div>
+    <div class="tile"><div class="lab">Fresh ≤ 30d</div>
+      <div class="val {{ 'good' if s.fresh30_pct >= 70 else ('warn' if s.fresh30_pct >= 40 else 'bad') }}">{{ s.fresh30_pct }}%</div>
+      <div class="note">{{ s.fresh7_pct }}% ≤ 7 days ({{ "{:,}".format(s.dated_n) }} dated)</div></div>
+    <div class="tile"><div class="lab">Exclusivity</div><div class="val good">1 buyer</div>
+      <div class="note">sold = removed; best in market</div></div>
+  </div>
+
+  <!-- ── Dimension scorecard ────────────────────────────────────────── -->
+  <h2>Where you are → where you should be</h2>
+  <div class="sub2">Each dimension scored against what the market leaders offer and what your model needs. Priorities assume the launch plan: free account + pay-per-lead, Edge Landings brand.</div>
+  <div class="table-wrap">
+  <table>
+    <tr><th>Dimension</th><th>Where you are (live)</th><th>Where you should be</th><th>Status</th><th>Move</th></tr>
+    <tr>
+      <td><b>Contact data</b></td>
+      <td>{{ s.traced_pct }}% of leads traced ({{ "{:,}".format(s.traced_n) }}) — nearly all inventory sells at the ${{ '%.0f'|format(s.price_raw) }} floor</td>
+      <td>40–60% traced. Every traced lead is a ${{ '%.0f'|format(s.price_traced) }} product at pennies of Serper cost — this is the single highest-leverage number on this page</td>
+      <td><span class="pill pill-bad">Biggest gap</span></td>
+      <td>Batch skip-trace the {{ s.owner_pct }}% owner-named backlog; trace new leads automatically on arrival</td>
+    </tr>
+    <tr>
+      <td><b>Freshness</b></td>
+      <td>{{ s.fresh30_pct }}% ≤30d, {{ s.fresh7_pct }}% ≤7d — cron built &amp; verified but not yet self-running</td>
+      <td>&gt;80% ≤7d for daily sources — freshness is the #1 conversion factor in leads</td>
+      <td><span class="pill pill-warn">One step left</span></td>
+      <td>Add the two GitHub secrets; the schedule takes over from there</td>
+    </tr>
+    <tr>
+      <td><b>Coverage</b></td>
+      <td>{{ s.counties }}/{{ s.registry_counties }} registry counties live, {{ s.states }} states</td>
+      <td>All registry counties + the top-100 metros over 12 months; nationwide claims are the incumbents' moat</td>
+      <td><span class="pill pill-warn">Growing</span></td>
+      <td>Add counties where scraper patterns already exist (FL/MI/TN publishers cover more counties than you tap)</td>
+    </tr>
+    <tr>
+      <td><b>Pricing</b></td>
+      <td>${{ '%.0f'|format(s.price_raw) }} raw / ${{ '%.0f'|format(s.price_traced) }} traced, no subscription, free browse</td>
+      <td>Same model, but traced leads are underpriced vs iSpeedToLead ($30 raw – $325 exclusive). Room to 2-3x traced price once exclusivity is marketed</td>
+      <td><span class="pill pill-good">Land-grab OK</span></td>
+      <td>Keep low for first 50 customers; A/B a $19-29 traced tier after</td>
+    </tr>
+    <tr>
+      <td><b>Exclusivity</b></td>
+      <td>Sold = gone, 1 buyer per lead, enforced in code (incl. re-scrape protection)</td>
+      <td>Exactly here — nobody else does this: PropStream/Batch sell the same data to everyone, USLeadList caps at 3 buyers</td>
+      <td><span class="pill pill-good">Ahead</span></td>
+      <td>Make "you're the only one who gets this lead" the headline claim on the storefront</td>
+    </tr>
+    <tr>
+      <td><b>Product depth</b></td>
+      <td>Browse, filter, buy, CSV of purchases. No comps/ARV, no alerts, no saved searches, no CRM/dialer</td>
+      <td>Don't chase PropStream's suite — but alerts ("new leads in your county") and saved searches are retention basics</td>
+      <td><span class="pill pill-bad">Thin</span></td>
+      <td>Email alerts on new county inventory = your re-purchase engine; skip comps/CRM entirely</td>
+    </tr>
+    <tr>
+      <td><b>Distribution</b></td>
+      <td>No brand, no SEO, no reviews; Railway subdomain URL</td>
+      <td>Edge Landings domain live, storefront linked, first 10 paying customers via investor communities (BiggerPockets, FB wholesaling groups, county REIA)</td>
+      <td><span class="pill pill-bad">Pre-launch</span></td>
+      <td>Ship the Edge Landings homepage + domain; DM 20 wholesalers in covered counties with 3 free traced leads each</td>
+    </tr>
+    <tr>
+      <td><b>Automation &amp; reliability</b></td>
+      <td>Self-healing scheduler (auto-retry, auto-resume, failure emails) verified in production</td>
+      <td>Here — plus a weekly volume backup of the leads DB</td>
+      <td><span class="pill pill-good">Solid</span></td>
+      <td>Add a weekly listings backup step to the workflow</td>
+    </tr>
+  </table>
+  </div>
+
+  <!-- ── Competitor matrix ──────────────────────────────────────────── -->
+  <h2>Closest competition</h2>
+  <div class="sub2">Ordered by business-model proximity, not size. Prices as advertised July 2026.</div>
+  <div class="table-wrap">
+  <table>
+    <tr><th>Who</th><th>Model &amp; price</th><th>Lead types</th><th>Exclusivity</th><th>Their edge on you</th><th>Your edge on them</th></tr>
+    <tr class="me">
+      <td><b>You (Edge Landings)</b></td>
+      <td>Free browse · ${{ '%.0f'|format(s.price_raw) }}/raw · ${{ '%.0f'|format(s.price_traced) }}/traced · no sub</td>
+      <td>Tax delinq, pre-foreclosure, auction, tax sale, probate, divorce, NOD</td>
+      <td><span class="pill pill-good">1 buyer</span></td>
+      <td>—</td><td>—</td>
+    </tr>
+    <tr>
+      <td><b>iSpeedToLead</b><br><span class="pill pill-info">closest model</span></td>
+      <td>Pay-per-lead marketplace · $30 raw → $325 exclusive · optional Coupon Club membership</td>
+      <td>Inbound motivated sellers (form-fills, not records)</td>
+      <td>Tiered; exclusive costs $100-399</td>
+      <td>Higher-intent leads (seller asked to sell); volume; brand</td>
+      <td>10-40x cheaper; public-records depth (probate/tax) they don't have; true exclusivity at base price</td>
+    </tr>
+    <tr>
+      <td><b>Foreclosure.com</b><br><span class="pill pill-info">closest data</span></td>
+      <td>$39.80/mo subscription, 7-day trial</td>
+      <td>Foreclosure, pre-foreclosure, tax lien, sheriff sale, bankruptcy</td>
+      <td><span class="pill pill-bad">None</span> — every subscriber sees everything</td>
+      <td>1.8M+ listings, nationwide, 20-yr-old domain/SEO</td>
+      <td>No sub needed; per-lead entry at ${{ '%.0f'|format(s.price_raw) }}; skip-traced contacts (they sell addresses, not phones); probate+divorce</td>
+    </tr>
+    <tr>
+      <td><b>PropStream</b></td>
+      <td>$99/mo ($79 annual) + $0.12/trace (free on higher tiers)</td>
+      <td>155M-property database, all distress types, comps, list building</td>
+      <td><span class="pill pill-bad">None</span></td>
+      <td>Category king: data breadth, comps/ARV, marketing suite, brand</td>
+      <td>$99/mo vs $0 to start; they sell software, you sell outcomes; exclusivity</td>
+    </tr>
+    <tr>
+      <td><b>BatchLeads</b></td>
+      <td>$71-449/mo, traces included then $0.10-0.15</td>
+      <td>List building + dialer/SMS outreach suite</td>
+      <td><span class="pill pill-bad">None</span></td>
+      <td>Built-in outreach tools; team features</td>
+      <td>No monthly commitment; curated fresh drops vs DIY list-pulling</td>
+    </tr>
+    <tr>
+      <td><b>PropertyRadar</b></td>
+      <td>$119/mo</td>
+      <td>150M properties, strong foreclosure/equity data, CA-centric roots</td>
+      <td><span class="pill pill-bad">None</span></td>
+      <td>Data intelligence (equity, ownership patterns); monitoring</td>
+      <td>Price; simplicity; your CA trustee-sale counties overlap their home turf at 1/40th the cost</td>
+    </tr>
+    <tr>
+      <td><b>USLeadList</b></td>
+      <td>County quotes, monthly lists</td>
+      <td>Probate / inheritance only</td>
+      <td><span class="pill pill-warn">Max 3 buyers</span></td>
+      <td>Probate specialization + verification depth</td>
+      <td>Stricter exclusivity (1 vs 3); broader lead types; instant browse vs quote process</td>
+    </tr>
+    <tr>
+      <td><b>ForeclosuresDaily</b></td>
+      <td>Territory-exclusive packages, quote-based</td>
+      <td>Pre-probate, probate, divorce, foreclosure</td>
+      <td>Territory exclusivity</td>
+      <td>3,100+ county claim; established sales motion</td>
+      <td>Transparent instant pricing vs sales calls; self-serve</td>
+    </tr>
+    <tr>
+      <td><b>DealMachine</b></td>
+      <td>Subscription + usage</td>
+      <td>Driving-for-dollars, owner lookup</td>
+      <td><span class="pill pill-bad">None</span></td>
+      <td>Mobile-first workflow; community</td>
+      <td>Different motion entirely — they find leads by driving; you deliver them ready</td>
+    </tr>
+  </table>
+  </div>
+
+  <!-- ── SWOT ───────────────────────────────────────────────────────── -->
+  <h2>SWOT</h2>
+  <div class="swot">
+    <div class="box box-s"><h3>Strengths</h3><ul>
+      <li><b>True 1-buyer exclusivity</b>, enforced in code — unique in this market</li>
+      <li><b>Zero-commitment entry</b>: free browse, ${{ '%.0f'|format(s.price_raw) }} first dollar vs $40-119/mo paywalls</li>
+      <li><b>Near-zero marginal cost</b>: own scrapers + ~$0.001 Serper traces vs competitors' data-licensing costs</li>
+      <li>{{ s.owner_pct }}% owner-named records across 7 distress types incl. probate/divorce most tools skip</li>
+      <li>Self-healing automated pipeline (verified end-to-end in production)</li>
+    </ul></div>
+    <div class="box box-w"><h3>Weaknesses</h3><ul>
+      <li><b>{{ s.traced_pct }}% skip-traced</b> — the ${{ '%.0f'|format(s.price_traced) }} product barely exists yet</li>
+      <li>{{ s.counties }} counties vs incumbents' "nationwide" — thin outside FL/MI/CA/TN</li>
+      <li>Zero brand, reviews, or SEO; unbranded infrastructure URL</li>
+      <li>No retention hooks (alerts, saved searches) — nothing pulls buyers back</li>
+      <li>Solo-operator key-person risk on scraper maintenance</li>
+    </ul></div>
+    <div class="box box-o"><h3>Opportunities</h3><ul>
+      <li><b>Trace the backlog</b> → turns ~{{ "{:,}".format((s.total * s.owner_pct / 100)|int) }} raw leads into ${{ '%.0f'|format(s.price_traced) }} inventory almost free</li>
+      <li>Exclusivity as the wedge: "the lead you buy disappears for everyone else" — no incumbent can copy without killing their model</li>
+      <li>Probate + divorce cross-sell (specialists charge quote-based premiums for less)</li>
+      <li>Price ladder: traced leads clear $30+ elsewhere; you charge ${{ '%.0f'|format(s.price_traced) }}</li>
+      <li>Edge Landings website services as second revenue stream on the same audience</li>
+    </ul></div>
+    <div class="box box-t"><h3>Threats</h3><ul>
+      <li><b>Source fragility</b>: county sites redesign/block without notice (Williamson already migrated once) — mitigated, not eliminated, by auto-detection</li>
+      <li>PropStream/Batch could add a pay-per-lead tier and crush on brand — speed to niche loyalty is the defense</li>
+      <li>Legal-notice aggregators (mipublicnotices, floridapublicnotices) could add ToS/paywalls — diversify source types per county</li>
+      <li>TCPA/DNC compliance on traced phones — publish a compliance note; buyers bear outreach duty</li>
+      <li>Foreclosure volume is cyclical — probate/divorce/tax hedge the cycle</li>
+    </ul></div>
+  </div>
+
+  <div class="foot">
+    Sources: propstream.com pricing pages, foreclosure.com, dealrun.ai &amp; realestateskills.com pricing breakdowns,
+    ispeedtolead.com, usleadlist.com, foreclosures-daily.com, propertyradar.com — researched 2026-07. Competitor
+    prices change; re-verify before basing pricing decisions on this page. Live stats recompute on every page load.
+  </div>
+</div>
+</body>
+</html>

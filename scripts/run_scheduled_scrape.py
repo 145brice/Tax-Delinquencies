@@ -31,7 +31,8 @@ import requests
 
 SCHEDULE_PATH = Path(__file__).parent / "county_schedule.json"
 POLL_INTERVAL = 20          # seconds between status checks
-POLL_LIMIT = 180            # max polls (180 * 20s = 60 min per run)
+POLL_LIMIT = 360            # max polls (360 * 20s = 2 h per run — full weekly
+                            # bucket is 70+ sources, some minutes each)
 
 
 def load_schedule() -> dict:
@@ -57,6 +58,14 @@ class ScrapeClient:
             payload["lookback_days"] = lookback_days
         r = requests.post(f"{self.base}/api/scrape", params={"token": self.token},
                           json=payload, timeout=30)
+        r.raise_for_status()
+        return r.json()
+
+    def resume(self) -> dict:
+        """Continue an interrupted run: the server re-runs only sources the
+        prior run didn't finish (errors included; completed ones are skipped)."""
+        r = requests.post(f"{self.base}/api/scrape", params={"token": self.token},
+                          json={"resume": True}, timeout=30)
         r.raise_for_status()
         return r.json()
 
@@ -123,14 +132,43 @@ def main():
     src_to_county = source_to_county(schedule)
     client = ScrapeClient()
 
-    print(f"Triggering {args.frequency} scrape for {len(counties)} counties: {', '.join(counties)}")
-    resp = client.trigger(counties, args.lookback_days)
-    print(resp)
-    if resp.get("status") == "already_running":
-        print("A scrape was already in progress; nothing new started.")
-        return 0
+    # Finish any interrupted prior run before starting a fresh bucket —
+    # its progress file knows which sources are already done.
+    pre = client.status()
+    if not pre.get("running") and pre.get("resumable"):
+        info = pre.get("resume_info") or {}
+        print(f"Found interrupted run ({info.get('completed', '?')}/{info.get('planned', '?')} "
+              f"sources done) — resuming it instead of starting fresh.")
+        resp = client.resume()
+        print(resp)
+    else:
+        print(f"Triggering {args.frequency} scrape for {len(counties)} counties: {', '.join(counties)}")
+        resp = client.trigger(counties, args.lookback_days)
+        print(resp)
+        if resp.get("status") == "already_running":
+            print("A scrape was already in progress; nothing new started.")
+            return 0
 
     final = client.wait()
+
+    # ── Auto-heal: resume runs interrupted mid-flight ────────────────────────
+    # A deploy/restart of the app kills an in-flight scrape; the server then
+    # reports running=False with a resumable progress file. Resume (server
+    # skips already-completed sources) until it finishes, with a retry cap.
+    resumes = 0
+    while final.get("resumable") and resumes < 5:
+        info = final.get("resume_info") or {}
+        print(f"\nRun was interrupted ({info.get('completed', '?')}/{info.get('planned', '?')} "
+              f"sources done) — resuming ({resumes + 1}/5)...")
+        resp = client.resume()
+        if resp.get("status") == "already_running":
+            print("Another scrape is running; waiting for it instead.")
+        final = client.wait()
+        resumes += 1
+    if final.get("resumable"):
+        print("\nFAILED - run still incomplete after 5 resume attempts.")
+        return 1
+
     results = final.get("scraper_results") or {}
     ok, empty, errored = split_results(results)
     print(f"\nRun complete: {len(ok)} ok, {len(empty)} empty, {len(errored)} errored")
