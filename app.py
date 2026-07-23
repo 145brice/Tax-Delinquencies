@@ -2637,6 +2637,11 @@ def subscriber_reveal():
             "no_contact": True,
         })
 
+    # A reveal delivers the product (contact info), so it's a sale like any
+    # other — pull the lead off the storefront. Skipped for no-contact leads
+    # above: the subscriber got nothing, so the lead stays sellable.
+    _mark_leads_sold([lead_id])
+
     return jsonify({
         "phone": phone,
         "email": email,
