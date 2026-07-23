@@ -38,6 +38,16 @@ jobs:
               "0 13 1 * *")   echo "value=monthly" >> "$GITHUB_OUTPUT" ;;
             esac
           fi
+      - name: Keep Appwrite awake
+        # Appwrite's free tier pauses the project after inactivity, which
+        # breaks login/register on the site. /api/accounts-status makes a
+        # real Appwrite API call, so a daily hit keeps the project active.
+        # Non-fatal: don't block scraping if accounts are down.
+        env:
+          SCRAPE_TARGET_URL: ${{ secrets.SCRAPE_TARGET_URL }}
+          ADMIN_TOKEN: ${{ secrets.ADMIN_TOKEN }}
+        run: |
+          curl -s --max-time 20 "$SCRAPE_TARGET_URL/api/accounts-status?token=$ADMIN_TOKEN" || true
       - name: Run scrape
         env:
           SCRAPE_TARGET_URL: ${{ secrets.SCRAPE_TARGET_URL }}
