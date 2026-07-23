@@ -3212,6 +3212,40 @@ def admin_data():
         settings=settings,
     )
 
+# One-shot cleanup for stray county values in the listings store:
+#  - Ontario municipal tax-sale rows scraped before the scraper labeled them
+#    county="Ontario" (each municipality showed as its own "county", and the
+#    June 2026 batch's tender dates have all passed).
+#  - Legacy HUD/HomePath rows for counties with no active source (GA/IL,
+#    from early manual runs; REO inventory that stale is long gone).
+_STRAY_COUNTIES = {
+    "bradford west gwillimbury", "clearview", "coleman", "ear falls",
+    "east garafraxa", "fort erie", "gananoque", "innisfil", "kirkland lake",
+    "leeds and the thousand islands", "pelham", "richmond hill",
+    "south glengarry",
+    "chatham", "glynn", "camden", "fulton", "cook", "lowndes",
+}
+
+@app.route('/api/admin/purge-stray-counties', methods=['POST'])
+@admin_required
+def purge_stray_counties():
+    if STOREFRONT_ONLY:
+        return jsonify({"status": "disabled", "reason": "storefront_only"}), 403
+    from collections import Counter
+    with listing_lock:
+        listings = load_json(DATA_FILE, [])
+        removed = Counter(
+            str(item.get("county") or "").strip().lower()
+            for item in listings
+            if str(item.get("county") or "").strip().lower() in _STRAY_COUNTIES
+        )
+        if removed:
+            kept = [item for item in listings
+                    if str(item.get("county") or "").strip().lower() not in _STRAY_COUNTIES]
+            save_json(DATA_FILE, kept)
+    return jsonify({"removed_total": sum(removed.values()),
+                    "removed_by_county": dict(removed)})
+
 @app.route('/admin/data/download')
 @admin_required
 def admin_data_download():

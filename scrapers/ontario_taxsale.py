@@ -32,8 +32,9 @@ _MONEY_RE = re.compile(r"^\$[\d,]+(?:\.\d{2})?")
 _COORD_RE = re.compile(r"^-?\d{2}\.\d+,\s*-?\d{2,3}\.\d+")
 
 
-# Force gzip/deflate: the shared base headers advertise brotli, but the
-# `brotli` package isn't installed, so a br-encoded body decodes to garbage.
+# Historical: this forced gzip/deflate back when the `brotli` package wasn't
+# installed and br-encoded bodies decoded to garbage. brotli ships in
+# requirements now, so this is just a harmless explicit preference.
 _NO_BROTLI = {"Accept-Encoding": "gzip, deflate"}
 
 
@@ -144,7 +145,10 @@ class OntarioTaxSaleScraper(BaseScraper):
                 note_parts.append(f"Map: {coords}")
 
             records.append(PropertyRecord(
-                county=municipality,
+                # One market, not one "county" per municipality — the
+                # municipality lives in city (set above), so the storefront
+                # county filter/metric shows a single Ontario entry.
+                county="Ontario",
                 record_type="Tax Sale",
                 owner_name="",
                 property_address=street,
