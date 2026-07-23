@@ -21,7 +21,7 @@ from .base_scraper import BaseScraper, PropertyRecord, log
 LISTING_URL = "https://www.hctax.net/Property/listings/taxsalelisting"
 DETAIL_URL  = "https://www.hctax.net/property/listings/saledetail"
 
-MAX_DETAIL_FETCHES = int(os.getenv("HARRIS_MAX_DETAILS", "120"))
+MAX_DETAIL_FETCHES = int(os.getenv("HARRIS_MAX_DETAILS", "200"))
 
 _ACCT_RE   = re.compile(r"(?:account[#:\s=]+|account\s*[=])\s*<[^>]*>?\s*(\d{10,})", re.I)
 _ACCT_TEXT = re.compile(r"Account#[:\s]+(\d{10,})", re.I)

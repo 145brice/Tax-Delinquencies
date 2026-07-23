@@ -18,16 +18,18 @@ SCHEDULE_URL = "https://chanceryclerkandmaster.nashville.gov/fees/property-tax-s
 SALE_INFO_URL = "https://chanceryclerkandmaster.nashville.gov/fees/delinquent-tax-sales/"
 WP_BASE = "https://chanceryclerkandmaster.nashville.gov/wp-content/uploads/"
 
-# Known sale list PDFs (naming pattern: MonDayth_TaxSale<year>_<seq>.pdf)
-# We check the schedule page + these known recent ones
-KNOWN_PDFS = [
-    f"{WP_BASE}July16th_TaxSale2022_3.pdf",    # July 16 2025 sale
-    f"{WP_BASE}Jun18th_TaxSale2022_2.pdf",     # June 18 2025 sale
-    f"{WP_BASE}Jan24th_TaxSale2022_3.pdf",     # Jan 24 2025 sale
-    f"{WP_BASE}January16th_Tax-Sale2023_1.pdf", # Jan 21 2026 sale
-    f"{WP_BASE}July16th_TaxSale2022_2.pdf",
-    f"{WP_BASE}July16th_TaxSale2022_1.pdf",
-]
+# Sale list PDFs are uploaded per sale date with predictable names but are not
+# reliably linked from any page. Pattern observed across years:
+#   <Month><D>th_Tax-Sale<taxyear>_<seq>.pdf   (also TaxSale, and abbreviated month)
+# where <taxyear> lags the sale year by 2-3 (e.g. June 17 2026 sale = tax year
+# 2023) and <seq> counts sequential list revisions. We discover them by parsing
+# sale dates off the schedule page and probing candidate URLs.
+
+_ORDINAL = {1: "st", 2: "nd", 3: "rd", 21: "st", 22: "nd", 23: "rd", 31: "st"}
+
+
+def _day_suffix(day: int) -> str:
+    return _ORDINAL.get(day, "th")
 
 # Continuation line: no parcel-like digits at start, no dollar amount
 _CONT_RE = re.compile(r'^\s{0,5}[A-Z][A-Z\s,&\.]+$')
@@ -50,14 +52,72 @@ class DavidsonScraper(BaseScraper):
         records += self._scrape_preforeclosures()
         return records
 
+    def _discover_sale_pdfs(self, schedule_html: str) -> list[str]:
+        """Find current sale-list PDFs by probing candidate URLs derived from
+        the sale dates posted on the schedule page."""
+        import time as _time
+        from datetime import datetime, timedelta
+
+        sale_dates = []
+        for m in re.finditer(r'([A-Z][a-z]+)\s+(\d{1,2}),\s+(\d{4})', schedule_html):
+            try:
+                d = datetime.strptime(f"{m.group(1)} {m.group(2)}, {m.group(3)}", "%B %d, %Y").date()
+            except ValueError:
+                continue
+            if d not in sale_dates:
+                sale_dates.append(d)
+
+        today = date.today()
+        # Lists post ~1 month before a sale and stay up after; older sales'
+        # records get dropped by the lookback filter anyway.
+        window = [d for d in sale_dates
+                  if today - timedelta(days=60) <= d <= today + timedelta(days=60)]
+
+        found: list[str] = []
+        for d in window:
+            month_full = d.strftime("%B")
+            month_abbr = d.strftime("%b")
+            day = f"{d.day}{_day_suffix(d.day)}"
+            name_stems = []
+            for mon in (month_full, month_abbr):
+                for sep in ("Tax-Sale", "TaxSale"):
+                    for tax_year in (d.year - 3, d.year - 2):
+                        name_stems.append(f"{mon}{day}_{sep}{tax_year}")
+            for stem in name_stems:
+                probe = f"{WP_BASE}{stem}_1.pdf"
+                try:
+                    r = self.session.head(probe, timeout=10)
+                except Exception:
+                    continue
+                _time.sleep(0.3)
+                if r.status_code != 200:
+                    continue
+                # Pattern hit: walk sequence numbers until a miss.
+                found.append(probe)
+                seq = 2
+                while seq <= 8:
+                    nxt = f"{WP_BASE}{stem}_{seq}.pdf"
+                    try:
+                        r = self.session.head(nxt, timeout=10)
+                    except Exception:
+                        break
+                    _time.sleep(0.3)
+                    if r.status_code != 200:
+                        break
+                    found.append(nxt)
+                    seq += 1
+                break   # naming is consistent per sale; stop trying other stems
+        return found
+
     def _scrape_tax_delinquent(self) -> list[PropertyRecord]:
         records = []
         today = str(date.today())
         log.info(f"[{self.county_name}] Collecting PDF links...")
 
-        pdf_urls = list(KNOWN_PDFS)
+        pdf_urls: list[str] = []
 
-        # Also scrape both pages for any additional PDFs linked
+        # Scrape both pages for linked PDFs, and probe for unlinked sale lists
+        # using the sale-date schedule.
         for page_url in [SCHEDULE_URL, SALE_INFO_URL]:
             resp = self.get(page_url)
             if resp:
@@ -68,6 +128,10 @@ class DavidsonScraper(BaseScraper):
                         full_url = href if href.startswith("http") else f"https://chanceryclerkandmaster.nashville.gov{href}"
                         if full_url not in pdf_urls:
                             pdf_urls.append(full_url)
+                if page_url == SCHEDULE_URL:
+                    for url in self._discover_sale_pdfs(resp.text):
+                        if url not in pdf_urls:
+                            pdf_urls.append(url)
 
         log.info(f"[{self.county_name}] Parsing {len(pdf_urls)} PDFs...")
         seen_urls = set()

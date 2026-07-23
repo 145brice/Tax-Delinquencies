@@ -110,14 +110,23 @@ def property_records_to_listings(records: list[dict]) -> list[dict]:
 
         date_str = (r.get("sale_date") or r.get("scraped_date") or
                     datetime.now().strftime('%Y-%m-%d'))
+        # Parcel/APN is the most reliable unique identifier a county issues —
+        # prefer it over the human-parsed address text, which can collide
+        # when detail-page scraping mis-extracts the same (or blank) address
+        # for two different properties. This mirrors _parcel_date_key(), used
+        # later for cross-run merge dedup, so both stages agree on identity.
+        #
         # Probate/divorce (and some notice) records carry no street address or
         # parcel, so the address is just "City, ST" — without the case number
         # every record for that city+date would collapse into one listing, and
         # keying on scraped date would mint a new id for the same case each
         # run. Key those on county+case instead.
         case_no = str(r.get("case_number") or "").strip().lower()
-        if not street and not parcel and case_no:
-            key_basis = f"{r.get('county', '').lower().strip()}-case-{case_no}"
+        county_key = str(r.get("county") or "").lower().strip()
+        if parcel and county_key:
+            key_basis = f"{county_key}-parcel-{parcel.lower()}"
+        elif not street and not parcel and case_no:
+            key_basis = f"{county_key}-case-{case_no}"
         else:
             key_basis = f"{address.lower().strip()}-{date_str}"
         key = hashlib.md5(key_basis.encode()).hexdigest()[:8]

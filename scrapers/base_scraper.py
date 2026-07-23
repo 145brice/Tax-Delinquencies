@@ -242,5 +242,33 @@ class BaseScraper:
             log.warning(f"[{self.county_name}] PDF table extract failed for {url}: {e}")
             return []
 
+    def get_rendered_html(self, url: str, wait_selector: str = "", timeout_ms: int = 20000) -> str:
+        """Fetch a page with a headless browser and return the post-JS HTML.
+        For sites that render their content client-side, where a plain
+        requests.get() only returns an empty shell. Ephemeral per call —
+        unlike the skiptrace browser sessions, this doesn't need a persistent
+        profile or human-solvable challenges."""
+        _check_kill()
+        _polite_wait(url)
+        try:
+            from playwright.sync_api import sync_playwright
+        except ImportError:
+            log.warning(f"[{self.county_name}] playwright not installed; cannot render {url}")
+            return ""
+        try:
+            with sync_playwright() as pw:
+                browser = pw.chromium.launch(headless=True)
+                try:
+                    page = browser.new_page(user_agent=random.choice(_USER_AGENTS))
+                    page.goto(url, timeout=timeout_ms, wait_until="networkidle")
+                    if wait_selector:
+                        page.wait_for_selector(wait_selector, timeout=timeout_ms)
+                    return page.content()
+                finally:
+                    browser.close()
+        except Exception as e:
+            log.warning(f"[{self.county_name}] Rendered fetch failed for {url}: {e}")
+            return ""
+
     def scrape(self) -> list[PropertyRecord]:
         raise NotImplementedError
