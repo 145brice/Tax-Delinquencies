@@ -489,6 +489,26 @@ def mark_order_paid(stripe_session_id):
         return cur.rowcount > 0
 
 
+def get_order_leads(stripe_session_id):
+    """Leads stored on one order, looked up by its Stripe session id.
+    Used at fulfillment time to mark the purchased leads sold."""
+    if _use_appwrite():
+        doc_id = _safe_doc_id(stripe_session_id)
+        try:
+            doc = _appwrite_request("GET", f"/databases/{_appwrite_database_id()}/collections/{_appwrite_orders_collection_id()}/documents/{doc_id}")
+        except AppwriteError:
+            return []
+        row = _order_doc_to_row(doc)
+        return list(row["leads_json"] or []) if row else []
+    with get_conn() as conn, conn.cursor() as cur:
+        cur.execute(
+            "SELECT leads_json FROM orders WHERE stripe_session_id = %s",
+            (stripe_session_id,),
+        )
+        row = cur.fetchone()
+        return list(row["leads_json"] or []) if row else []
+
+
 def get_paid_orders_for_user(user_id):
     if _use_appwrite():
         data = _list_order_docs()

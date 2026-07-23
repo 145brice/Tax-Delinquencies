@@ -9,7 +9,7 @@ import csv
 import io
 import shutil
 import sqlite3
-from datetime import datetime
+from datetime import datetime, timezone
 from functools import wraps
 from flask import Flask, render_template, request, jsonify, Response, redirect, url_for, session
 from werkzeug.security import generate_password_hash, check_password_hash
@@ -536,6 +536,10 @@ def _csv_sort_value(row, column):
 
 def _is_publishable_listing(item):
     if not isinstance(item, dict):
+        return False
+    # Sold leads are exclusive: hidden from the storefront but kept in the
+    # stored list so re-scrapes merge into them instead of re-listing them.
+    if str(item.get("sold_at") or "").strip():
         return False
     # Keep real scraped/source rows even when a county source does not expose
     # owner, amount, or sale-date details. Only exclude known demos and blanks.
@@ -1096,6 +1100,30 @@ def _upgrade_listing(existing, incoming):
             # Replace stale "Mortgage Foreclosure Sale-..." owners with the real name.
             existing[key] = value
     return existing
+
+def _mark_leads_sold(lead_ids):
+    """Stamp sold_at on the given listings so the storefront hides them.
+
+    The rows stay in the stored list (only filtered from display) so future
+    re-scrapes of the same parcel merge into the hidden row via
+    merge_listings/_upgrade_listing instead of re-adding a fresh public copy.
+    Scraped data never carries sold_at, so upgrades can't clear it.
+    """
+    ids = {str(x) for x in lead_ids if x}
+    if not ids:
+        return 0
+    now = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    with listing_lock:
+        listings = load_json(DATA_FILE, [])
+        changed = 0
+        for item in listings:
+            if str(item.get("id")) in ids and not item.get("sold_at"):
+                item["sold_at"] = now
+                changed += 1
+        if changed:
+            save_json(DATA_FILE, listings)
+    return changed
+
 
 def source_result(source_key, raw_count, kept_count, new_count, status, note="", seconds=None):
     meta = source_metadata().get(source_key, {})
@@ -2289,6 +2317,8 @@ def unlock_with_credits():
     except Exception as exc:
         return jsonify({"error": f"Could not record unlock: {type(exc).__name__}"}), 503
 
+    _mark_leads_sold(selected_ids)   # exclusive sale: pull them off the storefront
+
     if cost:
         balance = _wallet_adjust(user["id"], -cost,
                                  f"unlock:{selected_county}:{len(selected)}")
@@ -2367,9 +2397,19 @@ def _fulfill_session(session_id):
         return False
     try:
         db.init_db()
-        return db.mark_order_paid(session_id)
+        paid = db.mark_order_paid(session_id)
     except Exception:
         return False
+    if paid:
+        try:
+            # Exclusive sale: hide the purchased leads from the storefront.
+            _mark_leads_sold([l.get("id") for l in db.get_order_leads(session_id)])
+        except Exception as exc:
+            # Non-fatal: the buyer's order is already fulfilled. Both webhook
+            # and /checkout/success call this idempotently, so a transient
+            # failure here gets another chance on the other path.
+            app.logger.warning(f"could not mark leads sold for {session_id}: {exc}")
+    return paid
 
 
 @app.route('/checkout/success')
