@@ -3328,68 +3328,61 @@ _STRAY_COUNTIES = {
     "chatham", "glynn", "camden", "fulton", "cook", "lowndes",
 }
 
-@app.route('/api/admin/enrich-duval-addresses', methods=['POST'])
+def _duval_needs_street(item):
+    if str(item.get("source") or "") != "Duval Co.":
+        return False
+    if not str(item.get("parcel_id") or "").strip():
+        return False
+    addr = str(item.get("address") or "")
+    return not re.match(r"^\s*\d", addr) and not str(item.get("street") or "").strip()
+
+
+@app.route('/api/admin/duval-parcels-needing-address')
 @admin_required
-def enrich_duval_addresses():
-    """Resolve Duval tax-list parcels to street addresses via the Jacksonville
-    Property Appraiser. Processes one batch per call (bounded so the request
-    stays fast); call repeatedly until 'remaining' is 0. Idempotent — records
-    that already have a street are skipped, so re-runs are cheap."""
+def duval_parcels_needing_address():
+    """List Duval records still missing a street address, as {id: parcel_id}.
+    The address lookup itself must run from a residential IP (the Jacksonville
+    Property Appraiser tar-pits datacenter IPs), so resolution happens off-box
+    and the results come back via apply-duval-addresses."""
     if STOREFRONT_ONLY:
         return jsonify({"status": "disabled", "reason": "storefront_only"}), 403
-    from scrapers.duval_pao import lookup_street
-    import requests as _requests
-
-    limit = int(request.args.get("limit", "150"))
-    limit = max(1, min(500, limit))
-
-    def _needs_street(item):
-        if str(item.get("source") or "") != "Duval Co.":
-            return False
-        if not str(item.get("parcel_id") or "").strip():
-            return False
-        addr = str(item.get("address") or "")
-        return not re.match(r"^\s*\d", addr) and not str(item.get("street") or "").strip()
-
     with listing_lock:
         listings = load_json(DATA_FILE, [])
-        targets = [it for it in listings if _needs_street(it)]
-        remaining_before = len(targets)
-        batch = targets[:limit]
+    parcels = {str(it.get("id")): str(it.get("parcel_id"))
+               for it in listings if _duval_needs_street(it)}
+    return jsonify({"count": len(parcels), "parcels": parcels})
 
-    # Look up outside the lock (network-bound); update under the lock after.
-    sess = _requests.Session()
-    resolved = {}
-    for it in batch:
-        pid = str(it.get("parcel_id"))
-        street = lookup_street(pid, session=sess)
-        if street:
-            resolved[str(it.get("id"))] = street
-        import time as _t; _t.sleep(0.6)
+
+@app.route('/api/admin/apply-duval-addresses', methods=['POST'])
+@admin_required
+def apply_duval_addresses():
+    """Apply resolved street addresses (looked up off-box) to Duval records.
+    Body: {"resolved": {"<lead id>": "<street address>", ...}}. Idempotent."""
+    if STOREFRONT_ONLY:
+        return jsonify({"status": "disabled", "reason": "storefront_only"}), 403
+    payload = request.get_json(silent=True) or {}
+    resolved = payload.get("resolved") or {}
+    if not isinstance(resolved, dict):
+        return jsonify({"error": "resolved must be an object of id->street"}), 400
 
     updated = 0
     with listing_lock:
         listings = load_json(DATA_FILE, [])
         for item in listings:
             street = resolved.get(str(item.get("id")))
-            if not street:
+            if not street or not str(street).strip():
                 continue
+            if str(item.get("street") or "").strip():
+                continue   # already has a street
             city = str(item.get("city") or "Jacksonville").strip() or "Jacksonville"
-            item["street"] = street
-            item["address"] = f"{street}, {city}, FL"
+            item["street"] = str(street).strip()
+            item["address"] = f"{str(street).strip()}, {city}, FL"
             updated += 1
         if updated:
             save_json(DATA_FILE, listings)
-        # Recount remaining after this batch.
-        remaining = sum(1 for it in listings if _needs_street(it))
+        remaining = sum(1 for it in listings if _duval_needs_street(it))
 
-    return jsonify({
-        "processed": len(batch),
-        "updated": updated,
-        "misses": len(batch) - updated,
-        "remaining": remaining,
-        "done": remaining == 0,
-    })
+    return jsonify({"updated": updated, "remaining": remaining, "done": remaining == 0})
 
 
 @app.route('/api/admin/purge-stray-counties', methods=['POST'])
