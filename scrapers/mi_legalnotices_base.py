@@ -40,7 +40,12 @@ _AMOUNT_PATTERNS = [
     re.compile(r"(?:sum|amount|total)[^$]{0,40}\$([\d,]+\.\d{2})", re.I),
 ]
 _KNOWN_RE = re.compile(
-    r"commonly known as[:\s]+(.+?),\s*([A-Za-z .]+?),\s*MI\.?\s*(\d{5})", re.I)
+    # "Commonly known as <street>, <city>, MI <zip>". Tolerate the variants
+    # seen in the wild: MI vs Michigan, an optional period/comma before the
+    # ZIP, and any "as:" / "as " spacing. Only ever matches the explicit
+    # property-address marker, so it never grabs the law firm's address that
+    # also appears in these notices.
+    r"commonly known as[:\s]+(.+?),\s*([A-Za-z .]+?),\s*(?:MI|Michigan)\.?,?\s*(\d{5})", re.I)
 _LOCALITY_PATTERNS = [
     re.compile(r"(?:Township|City|Village) of\s+([A-Z][A-Za-z ]+)", re.I),
     re.compile(r"\b([A-Z][a-z]+)\s+Township\b"),

@@ -413,7 +413,7 @@
             <th data-col="state" data-sort="state">State</th>
             <th data-col="city" data-sort="city">City</th>
             <th data-col="zip" data-sort="zip">ZIP</th>
-            <th data-col="address" data-sort="address">Address (masked)</th>
+            <th data-col="address" data-sort="address">Address{% if not admin_reveal %} (masked){% endif %}</th>
             <th data-col="owner" data-sort="owner">Owner</th>
             <th data-col="phone" data-sort="phone" title="Area code shown; full number revealed after purchase">Phone</th>
             <th data-col="email" title="Domain shown; full address revealed after purchase">Email</th>
