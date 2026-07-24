@@ -628,7 +628,10 @@ def _source_listing_id(item):
     tail = link.rsplit("/", 1)[-1]
     return tail if tail and tail not in {"hudhomestore.gov", "homepath.fanniemae.com"} else ""
 
-def _storefront_display_row(item):
+def _storefront_display_row(item, reveal=False):
+    # reveal=True (admin viewing the storefront) shows full address/owner/
+    # contact instead of the public masked teasers. Never set for public
+    # visitors — masking is the paywall.
     public_item = _backfill_fields(dict(item))
     status = str(public_item.get("status") or public_item.get("record_type") or "").lower()
     source = str(public_item.get("source") or "").lower()
@@ -637,7 +640,8 @@ def _storefront_display_row(item):
     source_id = _source_listing_id(public_item)
     parcel_display_address = False
 
-    public_item["owner"] = _mask_public_owner(_storefront_owner(public_item))
+    public_item["owner"] = (_storefront_owner(public_item) if reveal
+                            else _mask_public_owner(_storefront_owner(public_item)))
     public_item["scraped_date"] = public_item.get("scraped_date") or public_item.get("date")
 
     if not public_item.get("amount_owed"):
@@ -662,14 +666,17 @@ def _storefront_display_row(item):
     elif "foreclosure" in status:
         public_item["sale_date"] = public_item.get("sale_date") or public_item.get("date") or public_item.get("scraped_date")
 
-    if public_item.get("address") and not parcel_display_address:
+    if public_item.get("address") and not parcel_display_address and not reveal:
         public_item["address"] = obfuscate_address(str(public_item["address"]))
     public_item["street"] = ""
 
     # Privacy: show only coarse contact teasers. Full contact data never reaches
-    # the page source.
+    # the page source — unless reveal (admin), which shows the real values.
     digits = re.sub(r"\D", "", str(public_item.get("primary_phone") or ""))
-    if len(digits) >= 10:
+    if reveal:
+        public_item["phone_prefix"] = digits[-10:][:3] if len(digits) >= 10 else ""
+        public_item["phone_display"] = str(public_item.get("primary_phone") or "")
+    elif len(digits) >= 10:
         area = digits[-10:][:3]
         public_item["phone_prefix"] = area
         public_item["phone_display"] = f"({area})"
@@ -677,7 +684,9 @@ def _storefront_display_row(item):
         public_item["phone_prefix"] = ""
         public_item["phone_display"] = ""
     email = str(public_item.get("email_1") or "").strip()
-    if email and "@" in email:
+    if reveal:
+        public_item["email_display"] = email
+    elif email and "@" in email:
         local_part, domain = email.split("@", 1)
         domain_name, dot, suffix = domain.partition(".")
         local_initial = local_part[:1].lower()
@@ -1264,13 +1273,21 @@ def index():
     if user:
         sub_counties = {str(s.get("county") or "").strip().lower()
                         for s in _user_subs(user["id"])}
+    # Admins viewing the storefront see full address/owner/contact; the public
+    # sees masked teasers (the paywall). Everything else about the page is
+    # identical.
+    reveal = admin_allowed()
+
     # Rows are rendered client-side from this compact JSON, not as 15k+ server
     # rendered <tr> (which ballooned the storefront HTML to ~30 MB and stalled
     # the browser). Only the fields the row template needs are serialized.
     leads_json = []
     for item in listings:
-        masked_item = _storefront_display_row(item)
-        display_address = masked_item.get("address") or obfuscate_address(item.get('address', ''))
+        masked_item = _storefront_display_row(item, reveal=reveal)
+        if reveal:
+            display_address = masked_item.get("address") or item.get('address', '')
+        else:
+            display_address = masked_item.get("address") or obfuscate_address(item.get('address', ''))
         subscriber_county = str(item.get("county") or "").strip().lower() in sub_counties
         leads_json.append({
             "id": masked_item.get("id"),
@@ -1304,7 +1321,8 @@ def index():
                            storefront_only=STOREFRONT_ONLY,
                            sub_counties=list(sub_counties),
                            column_order=column_order,
-                           user_authed=bool(user))
+                           user_authed=bool(user),
+                           admin_reveal=reveal)
 
 @app.route('/admin')
 def admin():
