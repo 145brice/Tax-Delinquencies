@@ -658,7 +658,13 @@ def _storefront_display_row(item, reveal=False):
         public_item["sale_date"] = public_item.get("sale_date") or public_item.get("date") or public_item.get("scraped_date")
     elif "tax" in status:
         public_item["sale_date"] = public_item.get("sale_date") or public_item.get("date") or public_item.get("scraped_date")
-        if county == "duval" and ("duval" in source or "re_tax" in link) and public_item.get("parcel_id"):
+        # Only fall back to "Parcel X, Jacksonville" when the record has no real
+        # street address. Enriched records (via the Property Appraiser lookup)
+        # carry a street and should keep it.
+        _has_street = bool(re.match(r"^\s*\d", str(public_item.get("address") or ""))
+                           or str(public_item.get("street") or "").strip())
+        if (county == "duval" and ("duval" in source or "re_tax" in link)
+                and public_item.get("parcel_id") and not _has_street):
             public_item["address"] = f"Parcel {public_item['parcel_id']}, Jacksonville, FL"
             public_item["date"] = DUVAL_TAX_CERTIFICATE_SALE_DATE
             public_item["sale_date"] = DUVAL_TAX_CERTIFICATE_SALE_DATE
@@ -3321,6 +3327,70 @@ _STRAY_COUNTIES = {
     "south glengarry",
     "chatham", "glynn", "camden", "fulton", "cook", "lowndes",
 }
+
+@app.route('/api/admin/enrich-duval-addresses', methods=['POST'])
+@admin_required
+def enrich_duval_addresses():
+    """Resolve Duval tax-list parcels to street addresses via the Jacksonville
+    Property Appraiser. Processes one batch per call (bounded so the request
+    stays fast); call repeatedly until 'remaining' is 0. Idempotent — records
+    that already have a street are skipped, so re-runs are cheap."""
+    if STOREFRONT_ONLY:
+        return jsonify({"status": "disabled", "reason": "storefront_only"}), 403
+    from scrapers.duval_pao import lookup_street
+    import requests as _requests
+
+    limit = int(request.args.get("limit", "150"))
+    limit = max(1, min(500, limit))
+
+    def _needs_street(item):
+        if str(item.get("source") or "") != "Duval Co.":
+            return False
+        if not str(item.get("parcel_id") or "").strip():
+            return False
+        addr = str(item.get("address") or "")
+        return not re.match(r"^\s*\d", addr) and not str(item.get("street") or "").strip()
+
+    with listing_lock:
+        listings = load_json(DATA_FILE, [])
+        targets = [it for it in listings if _needs_street(it)]
+        remaining_before = len(targets)
+        batch = targets[:limit]
+
+    # Look up outside the lock (network-bound); update under the lock after.
+    sess = _requests.Session()
+    resolved = {}
+    for it in batch:
+        pid = str(it.get("parcel_id"))
+        street = lookup_street(pid, session=sess)
+        if street:
+            resolved[str(it.get("id"))] = street
+        import time as _t; _t.sleep(0.6)
+
+    updated = 0
+    with listing_lock:
+        listings = load_json(DATA_FILE, [])
+        for item in listings:
+            street = resolved.get(str(item.get("id")))
+            if not street:
+                continue
+            city = str(item.get("city") or "Jacksonville").strip() or "Jacksonville"
+            item["street"] = street
+            item["address"] = f"{street}, {city}, FL"
+            updated += 1
+        if updated:
+            save_json(DATA_FILE, listings)
+        # Recount remaining after this batch.
+        remaining = sum(1 for it in listings if _needs_street(it))
+
+    return jsonify({
+        "processed": len(batch),
+        "updated": updated,
+        "misses": len(batch) - updated,
+        "remaining": remaining,
+        "done": remaining == 0,
+    })
+
 
 @app.route('/api/admin/purge-stray-counties', methods=['POST'])
 @admin_required
