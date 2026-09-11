@@ -541,7 +541,8 @@ UI_COUNTY_SOURCES = {
     "palmbeach-fl": ["palmbeach_publicnotices"],
     "orange-fl": ["orangefl_publicnotices"],
     "hillsborough-fl": ["hillsborough_publicnotices"],
-    "maricopa-az": ["maricopa_trusteesale", "maricopa_azcapitoltimes", "maricopa_probate"],
+    "maricopa-az": ["maricopa_trusteesale", "maricopa_azcapitoltimes",
+                    "maricopa_recordreporter", "maricopa_probate"],
     # Backward-compatible UI keys from the original broad county list.
     "harris": ["harris_taxsale"],
     "maricopa": ["maricopa_trusteesale", "maricopa_azcapitoltimes", "maricopa_probate"],

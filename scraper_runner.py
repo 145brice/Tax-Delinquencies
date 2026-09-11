@@ -72,7 +72,12 @@ def _fmt_secs(seconds: float) -> str:
     return f"{int(seconds // 60)}m {int(seconds % 60):02d}s"
 
 
-def run_scrapers(county_names: list[str], lookback_days: int | None = None) -> list[dict]:
+def run_scrapers(
+    county_names: list[str],
+    lookback_days: int | None = None,
+    *,
+    raise_errors: bool = False,
+) -> list[dict]:
     all_records = []
     timings: list[tuple[str, float, int]] = []
     for name in county_names:
@@ -100,6 +105,8 @@ def run_scrapers(county_names: list[str], lookback_days: int | None = None) -> l
             elapsed = time.monotonic() - t0
             timings.append((label, elapsed, 0))
             print(f"[{label}] ERROR after {_fmt_secs(elapsed)}: {e}")
+            if raise_errors:
+                raise
 
     # Timing summary, slowest first — spot sources worth cutting.
     if len(timings) > 1:

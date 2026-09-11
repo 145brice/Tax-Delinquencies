@@ -2,60 +2,61 @@ name: Scheduled county scrape
 
 on:
   schedule:
-    # Daily counties — every weekday morning
-    - cron: "0 11 * * 1-5"
-    # Weekly counties — Monday morning
-    - cron: "0 12 * * 1"
-    # Monthly counties — 1st of the month
-    - cron: "0 13 1 * *"
+    # The planner converts this hourly UTC tick into each county's local
+    # posting window, including daylight-saving time.
+    - cron: "17 * * * *"
   workflow_dispatch:
     inputs:
-      frequency:
-        description: "Frequency bucket to run"
+      county:
+        description: "County key to run, or all"
         required: true
-        default: "daily"
-        type: choice
-        options: [daily, weekly, monthly]
+        default: "all"
+
+concurrency:
+  group: county-scrape-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
-  scrape:
+  plan:
     runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.plan.outputs.matrix }}
+      count: ${{ steps.plan.outputs.count }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - run: pip install requests
-      - name: Determine frequency bucket
-        id: freq
+      - id: plan
+        env:
+          REQUESTED_COUNTY: ${{ github.event.inputs.county }}
         run: |
-          if [ -n "${{ github.event.inputs.frequency }}" ]; then
-            echo "value=${{ github.event.inputs.frequency }}" >> "$GITHUB_OUTPUT"
-          else
-            case "${{ github.event.schedule }}" in
-              "0 11 * * 1-5") echo "value=daily" >> "$GITHUB_OUTPUT" ;;
-              "0 12 * * 1")   echo "value=weekly" >> "$GITHUB_OUTPUT" ;;
-              "0 13 1 * *")   echo "value=monthly" >> "$GITHUB_OUTPUT" ;;
-            esac
-          fi
-      - name: Keep Appwrite awake
-        # Appwrite's free tier pauses the project after inactivity, which
-        # breaks login/register on the site. /api/accounts-status makes a
-        # real Appwrite API call, so a daily hit keeps the project active.
-        # Non-fatal: don't block scraping if accounts are down — but DO fail
-        # loudly if the secrets themselves are missing (an empty URL curl
-        # "succeeding" under `|| true` was masking exactly that once).
+          args=()
+          if [ -n "$REQUESTED_COUNTY" ]; then args=(--county "$REQUESTED_COUNTY"); fi
+          matrix="$(python scripts/plan_county_jobs.py "${args[@]}")"
+          count="$(python -c 'import json,sys; print(len(json.load(sys.stdin)["include"]))' <<< "$matrix")"
+          echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
+          echo "count=$count" >> "$GITHUB_OUTPUT"
+
+  scrape:
+    needs: plan
+    if: needs.plan.outputs.count != '0'
+    strategy:
+      fail-fast: false
+      max-parallel: 4
+      matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install -r requirements.txt
+      - run: python -m playwright install --with-deps chromium
+      - name: Scrape, deliver, and exit
         env:
           SCRAPE_TARGET_URL: ${{ secrets.SCRAPE_TARGET_URL }}
           ADMIN_TOKEN: ${{ secrets.ADMIN_TOKEN }}
-        run: |
-          if [ -z "$SCRAPE_TARGET_URL" ] || [ -z "$ADMIN_TOKEN" ]; then
-            echo "::error::SCRAPE_TARGET_URL or ADMIN_TOKEN secret is not set on this repo."
-            exit 1
-          fi
-          curl -s --max-time 20 "$SCRAPE_TARGET_URL/api/accounts-status?token=$ADMIN_TOKEN" || true
-      - name: Run scrape
-        env:
-          SCRAPE_TARGET_URL: ${{ secrets.SCRAPE_TARGET_URL }}
-          ADMIN_TOKEN: ${{ secrets.ADMIN_TOKEN }}
-        run: python scripts/run_scheduled_scrape.py --frequency "${{ steps.freq.outputs.value }}"
+        run: python scripts/run_county_job.py --county "${{ matrix.county }}" --attempts 2

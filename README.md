@@ -157,6 +157,20 @@ Local scraper/admin state is stored in SQLite at `foreclosure_local.sqlite3`
 by default. Set `SQLITE_DB=path/to/file.sqlite3` if you want a different local
 database path.
 
+### Scheduled scraper jobs
+
+Scheduled scrapes run as one short-lived GitHub Actions job per county. The
+hourly planner in `.github/workflows/scheduled-scrape.yml` selects only counties
+whose local posting window has just closed, starts isolated county jobs, and
+limits concurrency to four. Each job retries a failed source once, sends the
+completed records to `/api/scrape/ingest`, and exits. Posting windows and source
+assignments live in `scripts/county_schedule.json`.
+
+Set `EXTERNAL_SCRAPER_JOBS=true` on the hosted API to disable its old in-process
+scrape endpoint. Enable Railway App Sleep for that API service; ingestion and
+normal browser requests wake it automatically. The repository Actions secrets
+`SCRAPE_TARGET_URL` and `ADMIN_TOKEN` must match the hosted API configuration.
+
 The local app also writes one deploy artifact after each scraper save:
 
 ```text

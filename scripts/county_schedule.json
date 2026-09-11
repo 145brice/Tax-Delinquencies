@@ -1,4 +1,42 @@
 {
+ "posting_windows": {
+  "florida_weekday": {
+   "timezone": "America/New_York",
+   "local_hour": 7,
+   "weekdays": [0, 1, 2, 3, 4],
+   "counties": ["duval-fl", "clay-fl", "nassau-fl", "stjohns-fl", "broward-fl", "miamidade-fl", "palmbeach-fl", "orange-fl", "hillsborough-fl"]
+  },
+  "texas_weekday": {
+   "timezone": "America/Chicago",
+   "local_hour": 7,
+   "weekdays": [0, 1, 2, 3, 4],
+   "counties": ["collin-tx"]
+  },
+  "michigan_weekly": {
+   "timezone": "America/Detroit",
+   "local_hour": 7,
+   "weekdays": [5],
+   "counties": ["wayne-mi", "macomb-mi", "oakland-mi", "genesee-mi", "ingham-mi", "kent-mi", "jackson-mi", "muskegon-mi", "kalamazoo-mi", "calhoun-mi", "berrien-mi", "washtenaw-mi", "livingston-mi", "ottawa-mi", "saginaw-mi", "monroe-mi", "lenawee-mi", "hillsdale-mi", "lapeer-mi", "eaton-mi", "bay-mi", "montcalm-mi", "tuscola-mi", "allegan-mi", "cass-mi", "barry-mi"]
+  },
+  "pacific_weekly": {
+   "timezone": "America/Los_Angeles",
+   "local_hour": 7,
+   "weekdays": [5],
+   "counties": ["sandiego", "losangeles", "orange", "riverside", "sanbernardino", "ventura", "sacramento", "alameda", "santaclara", "kern", "fresno", "contracosta", "sanmateo", "clark-nv"]
+  },
+  "arizona_weekly": {
+   "timezone": "America/Phoenix",
+   "local_hour": 7,
+   "weekdays": [5],
+   "counties": ["maricopa-az"]
+  },
+  "central_monthly": {
+   "timezone": "America/Chicago",
+   "local_hour": 7,
+   "month_days": [2],
+   "counties": ["harris-tx", "bexar-tx", "davidson", "williamson", "rutherford", "wilson-tn", "sumner", "robertson", "cheatham"]
+  }
+ },
  "counties": {
   "duval-fl": {
    "frequency": "daily",

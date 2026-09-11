@@ -3458,6 +3458,8 @@ def sources_json():
 def run_scraper():
     if STOREFRONT_ONLY:
         return jsonify({"status": "disabled", "reason": "storefront_only"}), 403
+    if os.getenv("EXTERNAL_SCRAPER_JOBS", "").strip().lower() in {"1", "true", "yes", "on"}:
+        return jsonify({"status": "disabled", "reason": "external_scraper_jobs"}), 409
     scrape_sync, run_scrapers, _request_kill, clear_kill, ScraperKilled = scraper_runtime()
     scraper_map = county_scraper_map()
 
@@ -3638,6 +3640,46 @@ def run_scraper():
     scrape_control["thread"] = t
     t.start()
     return jsonify({"status": "started", "counties": counties, "lookback_days": lookback})
+
+@app.route('/api/scrape/ingest', methods=['POST'])
+@admin_required
+def ingest_scrape_results():
+    """Merge one completed source batch from an external, short-lived job."""
+    if STOREFRONT_ONLY:
+        return jsonify({"status": "disabled", "reason": "storefront_only"}), 403
+
+    payload = request.get_json(silent=True) or {}
+    county_key = str(payload.get("county") or "").strip().lower()
+    source_key = str(payload.get("source") or "").strip().lower()
+    records = payload.get("records")
+    allowed_sources = set(county_scraper_map().get(county_key) or [])
+
+    if not county_key or source_key not in allowed_sources:
+        return jsonify({"error": "invalid county/source pair"}), 400
+    if not isinstance(records, list):
+        return jsonify({"error": "records must be a list"}), 400
+    if len(records) > 500:
+        return jsonify({"error": "batch exceeds 500 records"}), 413
+    if any(not isinstance(record, dict) for record in records):
+        return jsonify({"error": "every record must be an object"}), 400
+
+    incoming = property_records_to_listings(records)
+    with listing_lock:
+        current = load_json(DATA_FILE, [])
+        merged, added = merge_listings(current, incoming)
+        if incoming:
+            save_json(DATA_FILE, merged)
+
+    return jsonify({
+        "status": "success",
+        "county": county_key,
+        "source": source_key,
+        "raw": len(records),
+        "kept": len(incoming),
+        "added": added,
+        "total": len(merged),
+    })
+
 
 @app.route('/api/scrape/stop', methods=['POST'])
 @admin_required
