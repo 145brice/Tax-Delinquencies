@@ -54,7 +54,6 @@ jobs:
           python-version: "3.12"
           cache: pip
       - run: pip install -r requirements.txt
-      - run: python -m playwright install --with-deps chromium
       - name: Scrape, deliver, and exit
         env:
           SCRAPE_TARGET_URL: ${{ secrets.SCRAPE_TARGET_URL }}
