@@ -199,10 +199,10 @@
     <div class="price-chips">
         <div class="price-chip featured">
             <div class="amount">Free</div>
-            <div class="label">3 leads to start</div>
+            <div class="label">Up to 3 aged leads, when available</div>
         </div>
         <div class="price-chip">
-            <div class="amount"><sup>$</sup>3<sub>+</sub></div>
+            <div class="amount"><sup>$</sup>{{ lead_floor_raw | int }}<sub>+</sub></div>
             <div class="label">Per lead, no commitment</div>
         </div>
         <div class="price-chip">
@@ -220,6 +220,17 @@
     </div>
 </div>
 
+<div class="section">
+    <h2 class="section-title">Prices decrease as leads age</h2>
+    <p class="section-sub">Current phase: {{ 'Beta' if pricing_phase == 'beta' else 'Post-beta' }}. Age is measured from the earliest recorded discovery or scrape date.</p>
+    <table style="width:100%;text-align:left;line-height:2">
+        <thead><tr><th>Age</th><th>Base price multiplier</th></tr></thead>
+        <tbody><tr><td>0&ndash;3 days</td><td>100%</td></tr><tr><td>4&ndash;7 days</td><td>85%</td></tr><tr><td>8&ndash;14 days</td><td>65%</td></tr><tr><td>15&ndash;30 days</td><td>45%</td></tr><tr><td>31&ndash;60 days</td><td>25%</td></tr><tr><td>Over 60 days</td><td>10%, subject to floors</td></tr></tbody>
+    </table>
+    <p>Beta base prices: $6 raw / $15 skip-traced. Post-beta: $18 raw / $30 skip-traced.</p>
+    <p>Minimum prices: $2 raw / $3.50 skip-traced in beta; $3 raw / $5 skip-traced after beta. Floors also apply to earlier tiers so an older lead never costs more. Leads without a valid discovery date use the fresh price.</p>
+    <p>Get up to 3 free aged leads when you join, when available. This separate signup offer uses inventory older than 60 days, with raw leads selected first.</p>
+</div>
 <!-- WAYS TO BUY -->
 <div class="section">
     <h2 class="section-title">Three ways to buy</h2>
@@ -228,11 +239,11 @@
         <div class="tier-card">
             <div class="tier-name">Free start</div>
             <div class="tier-price">$0</div>
-            <div class="tier-leads">3 leads free</div>
-            <div class="tier-desc">Create an account and unlock your first 3 leads on us — see the data quality before you spend a dime.</div>
+            <div class="tier-leads">Up to 3 aged leads free</div>
+            <div class="tier-desc">Get up to 3 free aged leads when you join, when available.</div>
             <ul class="tier-features">
                 <li><span class="ck">&#10003;</span> Browse every county, masked, free</li>
-                <li><span class="ck">&#10003;</span> 3 free unlocks on signup</li>
+                <li><span class="ck">&#10003;</span> Selected from inventory older than 60 days, when available</li>
                 <li><span class="ck">&#10003;</span> No card required</li>
             </ul>
             {% if accounts_ready %}
@@ -243,12 +254,12 @@
         <div class="tier-card featured">
             <div class="featured-badge">Pay as you go</div>
             <div class="tier-name">Per lead &amp; credit packs</div>
-            <div class="tier-price"><sup>$</sup>3<sub>–$10</sub></div>
+            <div class="tier-price"><sup>$</sup>{{ lead_floor_raw | int }}<sub>&ndash;${{ lead_price_traced | int }}</sub></div>
             <div class="tier-leads">per lead, no subscription</div>
             <div class="tier-desc">Unlock leads with prepaid credit. Address-only leads are cheap; skip-traced contact leads cost more. Buy credit in packs and save.</div>
             <ul class="tier-features">
-                <li><span class="ck">&#10003;</span> $3 per non-contact lead (address + owner)</li>
-                <li><span class="ck">&#10003;</span> $10 per contact lead (phone &amp; email)</li>
+                <li><span class="ck">&#10003;</span> Fresh raw leads: ${{ lead_price_raw | int }} (address + owner)</li>
+                <li><span class="ck">&#10003;</span> Fresh skip-traced leads: ${{ lead_price_traced | int }} (phone or email)</li>
                 <li><span class="ck">&#10003;</span> Buy credit in packs and get bonus credit free</li>
                 <li><span class="ck">&#10003;</span> Credit never expires · no monthly fee</li>
             </ul>

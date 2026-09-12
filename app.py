@@ -11,11 +11,13 @@ import shutil
 import sqlite3
 from datetime import datetime, timezone
 from functools import wraps
+from contextlib import closing
 from flask import Flask, render_template, request, jsonify, Response, redirect, url_for, session
 from werkzeug.security import generate_password_hash, check_password_hash
 from dotenv import load_dotenv
 import stripe
 import db
+from lead_pricing import BASE_CENTS, FLOOR_CENTS, age_days, discovery_date, price_cents
 
 load_dotenv()
 
@@ -171,6 +173,7 @@ def property_records_to_listings(records: list[dict]) -> list[dict]:
             "date":         date_str,
             "sale_date":    r.get("sale_date", ""),
             "scraped_date": r.get("scraped_date", ""),
+            "first_seen":   discovery_date(r).isoformat() if discovery_date(r) else "",
             "county":       county_raw.lower(),
             "link":         r.get("source_url", ""),
             "source":    county_raw.title() + " Co.",
@@ -204,21 +207,27 @@ TIER_AMOUNTS  = {"starter": 99, "professional": 199, "power": 399}
 # ~40 ensures a subscriber will get at least ~25 successful traces given a ~65% hit rate.
 SUB_MIN_UNTAPPED = 40
 
-# Per-lead storefront pricing (one-time purchase, non-subscriber). A lead with
-# skip-traced contact data (phone or email) is worth $7; a raw lead with only an
-# owner name is $2.50. Mirrors the subscription overage ($7) and raw-lead ($2.50)
-# prices so the standalone store stays consistent with the subscription model.
-LEAD_PRICE_TRACED = float(os.getenv("LEAD_PRICE_TRACED", "10.0"))   # has phone/email (contact)
-LEAD_PRICE_RAW    = float(os.getenv("LEAD_PRICE_RAW", "3.0"))       # address/owner only (non-contact)
+# Central age-based storefront prices. Promotions never alter these prices.
+PRICING_PHASE = os.getenv("LEAD_PRICING_PHASE", "beta").strip().lower()
+if PRICING_PHASE not in BASE_CENTS:
+    raise ValueError("LEAD_PRICING_PHASE must be beta or post_beta")
+LEAD_PRICE_RAW, LEAD_PRICE_TRACED = [v / 100 for v in BASE_CENTS[PRICING_PHASE]]
+
+
+@app.context_processor
+def inject_lead_pricing():
+    return {"lead_price_raw": LEAD_PRICE_RAW, "lead_price_traced": LEAD_PRICE_TRACED,
+            "lead_floor_raw": FLOOR_CENTS[PRICING_PHASE][0] / 100,
+            "pricing_phase": PRICING_PHASE}
 
 
 def _lead_is_traced(item):
-    return bool(str(item.get("primary_phone") or "").strip()
-                or str(item.get("email_1") or "").strip())
+    return any(str(item.get(field) or "").strip()
+               for field in ("primary_phone", "phone_2", "email_1", "email_2"))
 
 
 def _lead_price(item):
-    return LEAD_PRICE_TRACED if _lead_is_traced(item) else LEAD_PRICE_RAW
+    return price_cents(item, _lead_is_traced(item), PRICING_PHASE) / 100
 
 
 def _price_str(amount):
@@ -344,7 +353,7 @@ STOREFRONT_CSV = os.getenv("STOREFRONT_CSV", os.path.join(DATA_DIR, "storefront_
 STOREFRONT_FIELDS = [
     "id", "status", "county", "state", "city", "zip", "address", "street",
     "owner", "parcel_id", "case_number", "record_type", "price", "bid",
-    "amount_owed", "date", "sale_date", "scraped_date", "link", "source",
+    "amount_owed", "date", "sale_date", "scraped_date", "first_seen", "link", "source",
 ]
 
 def _sqlite_enabled():
@@ -575,7 +584,9 @@ def _is_publishable_listing(item):
     return True
 
 def publishable_storefront_listings(listings):
-    return sort_storefront_listings([item for item in listings if _is_publishable_listing(item)])
+    reserved = _promo_reserved_ids()
+    return sort_storefront_listings([item for item in listings if _is_publishable_listing(item)
+                                    and str(item.get("id")) not in reserved])
 
 def _storefront_owner(item):
     owner = str(item.get("owner") or "").strip()
@@ -701,12 +712,12 @@ def _storefront_display_row(item, reveal=False):
         public_item["email_display"] = f"{local_initial}****@{domain_initial}****{suffix_display}"
     else:
         public_item["email_display"] = ""
-    # Price the lead by what it is: traced ($7) vs raw ($2.50). Compute from the
-    # original item before contact fields are stripped below.
+    # Calculate before private contact fields are stripped.
     price_value = _lead_price(item)
     public_item["price"] = price_value
     public_item["price_display"] = _price_str(price_value)
     public_item["is_traced"] = _lead_is_traced(item)
+    public_item["age_days"] = age_days(item)
     for private_field in ("primary_phone", "phone_2", "email_1", "email_2",
                           "mailing_address", "skiptrace_notes", "skiptrace_source",
                           "skiptraced_at"):
@@ -801,16 +812,10 @@ def _save_subs(subs):
 
 
 # --- Credit wallet (prepaid balance for per-lead unlocks) --------------------
-# A dollar-denominated wallet (stored in cents) that everything plugs into:
-#   * one-time signup grant  -> break the barrier once, not a monthly giveaway
-#   * credit packs (Stripe)  -> top up the balance  [phase 2]
-#   * unlock a lead          -> spend balance at the lead's price ($3 non-contact
-#                               / $10 contact via _listing_price_cents)
-# Persisted in the app_json/SQLite store so it survives on the Railway volume.
+# Paid wallet credits remain separate from signup promo entitlements.
 WALLET_FILE = _runtime_data_file('credit_wallets.json')
-# One-time signup taste: $9 == three $3 non-contact leads (not enough for a
-# $10 contact lead, so the free grant stays a non-contact sampler).
-SIGNUP_GRANT_CENTS = int(os.getenv("SIGNUP_GRANT_CENTS", "900"))
+# Signup allowances are stored separately in signup_promos.
+PROMO_LOCK = threading.Lock()
 
 
 def _load_wallets():
@@ -905,26 +910,77 @@ def _fulfill_credit_pack(session_id):
     return True
 
 
-def _grant_signup_credits(user_id):
-    """Give the one-time signup credit exactly once per account."""
-    if SIGNUP_GRANT_CENTS <= 0:
-        return
-    uid = str(user_id)
-    wallets = _load_wallets()
-    entry = wallets.get(uid) or {}
-    if entry.get("signup_granted"):
-        return
-    entry.setdefault("balance_cents", 0)
-    entry["balance_cents"] = int(entry["balance_cents"]) + SIGNUP_GRANT_CENTS
-    entry["signup_granted"] = True
-    entry.setdefault("ledger", []).append({
-        "delta_cents": SIGNUP_GRANT_CENTS,
-        "reason": "signup_bonus",
-        "at": datetime.now().isoformat(timespec="seconds"),
-        "balance_after": entry["balance_cents"],
-    })
-    wallets[uid] = entry
-    _save_wallets(wallets)
+def _grant_signup_promo(user_id):
+    """Register a new account's allowance without adding wallet money."""
+    with closing(_sqlite_conn()) as conn, conn:
+        conn.execute("CREATE TABLE IF NOT EXISTS signup_promos (user_id TEXT PRIMARY KEY, payload TEXT NOT NULL)")
+        conn.execute("INSERT OR IGNORE INTO signup_promos VALUES (?, ?)",
+                     (str(user_id), json.dumps({"remaining": 3})))
+
+
+def _promo_status(user_id):
+    with closing(_sqlite_conn()) as conn, conn:
+        conn.execute("CREATE TABLE IF NOT EXISTS signup_promos (user_id TEXT PRIMARY KEY, payload TEXT NOT NULL)")
+        row = conn.execute("SELECT payload FROM signup_promos WHERE user_id=?", (str(user_id),)).fetchone()
+    return json.loads(row[0]) if row else {"remaining": 0}
+
+
+def _promo_reserved_ids():
+    with closing(_sqlite_conn()) as conn, conn:
+        if not conn.execute("SELECT 1 FROM sqlite_master WHERE name='signup_promos'").fetchone():
+            return set()
+        return {lead_id for row in conn.execute("SELECT payload FROM signup_promos")
+                for lead_id in json.loads(row[0]).get("reserved_ids", [])}
+
+
+@app.route('/api/claim-aged-leads', methods=['POST'])
+def claim_aged_leads():
+    if not _accounts_ready():
+        return jsonify({"error": "Accounts are not configured yet."}), 503
+    user = current_user()
+    if not user:
+        return jsonify({"login_required": True}), 401
+    claimed = _claimed_counties(exclude_user=user["id"]) if _subscriptions_ready() else {}
+    with PROMO_LOCK:
+        with closing(_sqlite_conn()) as conn, conn:
+            conn.execute("CREATE TABLE IF NOT EXISTS signup_promos (user_id TEXT PRIMARY KEY, payload TEXT NOT NULL)")
+            conn.execute("BEGIN IMMEDIATE")
+            row = conn.execute("SELECT payload FROM signup_promos WHERE user_id=?", (str(user["id"]),)).fetchone()
+            state = json.loads(row[0]) if row else {"remaining": 0}
+            pending = state.get("pending")
+            if not pending:
+                reserved = set()
+                for other in conn.execute("SELECT payload FROM signup_promos"):
+                    reserved.update(json.loads(other[0]).get("reserved_ids", []))
+                available = [it for it in publishable_storefront_listings(current_listings())
+                             if (age_days(it) or 0) > 60 and str(it.get("id")) not in reserved
+                             and str(it.get("county") or "").strip().lower() not in claimed]
+                available.sort(key=lambda it: (_lead_is_traced(it), -age_days(it), str(it.get("id"))))
+                selected = available[:max(0, min(3, state["remaining"]))]
+                if not selected:
+                    return jsonify({"ok": True, "unlocked": 0, "remaining": state["remaining"],
+                                    "message": "No free aged leads available right now."})
+                pending = {"session_id": "aged_" + secrets.token_hex(12), "leads": selected}
+                state["remaining"] -= len(selected)
+                state["pending"] = pending
+                state.setdefault("reserved_ids", []).extend(str(it["id"]) for it in selected)
+                conn.execute("UPDATE signup_promos SET payload=? WHERE user_id=?", (json.dumps(state), str(user["id"])))
+        # Durable reservations and a stable order ID make failed claims retryable.
+        try:
+            db.init_db()
+            db.create_pending_order(user_id=user["id"], email=user["email"],
+                                    stripe_session_id=pending["session_id"], amount_cents=0,
+                                    leads=_prepare_purchased_leads(pending["leads"]))
+            if not db.mark_order_paid(pending["session_id"]):
+                raise RuntimeError("Could not fulfill promo order")
+            _mark_leads_sold({str(it["id"]) for it in pending["leads"]})
+            state.pop("pending", None)
+            with closing(_sqlite_conn()) as conn, conn:
+                conn.execute("UPDATE signup_promos SET payload=? WHERE user_id=?", (json.dumps(state), str(user["id"])))
+        except Exception:
+            app.logger.exception("Could not fulfill aged-lead promo")
+            return jsonify({"error": "Could not complete your claim. Please retry; your leads are reserved."}), 503
+    return jsonify({"ok": True, "unlocked": len(pending["leads"]), "remaining": state["remaining"]})
 
 
 # --- Per-user preferences (storefront column order, etc.) --------------------
@@ -1097,6 +1153,9 @@ def _parcel_date_key(item):
 
 def _upgrade_listing(existing, incoming):
     """Keep existing lead identity, but fill in better data from newer scrapes."""
+    dates = [d for d in (discovery_date(existing), discovery_date(incoming)) if d]
+    if dates:
+        existing["first_seen"] = min(dates).isoformat()
     for key, value in incoming.items():
         if value in (None, ""):
             continue
@@ -1267,8 +1326,7 @@ def _backfill_fields(item):
     return item
 
 def _listing_price_cents(item):
-    # Price by what the lead actually is: traced ($7) vs raw ($2.50). Computed
-    # from contact data, not the stored "price" field (which legacy rows set to 5).
+    # Use the same price engine as storefront display and credit unlocks.
     return int(round(_lead_price(item) * 100))
 
 @app.route('/')
@@ -1507,9 +1565,9 @@ def register():
         if not user:
             return render_template('auth.html', mode='register', error="That email is already registered. Try logging in.", email=email)
         try:
-            _grant_signup_credits(user['id'])   # one-time free-lead taste
+            _grant_signup_promo(user['id'])   # separate aged-lead allowance
         except Exception:
-            app.logger.exception("Could not grant signup credits")
+            app.logger.exception("Could not register signup promo")
         session['user_id'] = user['id']
         return redirect(url_for('account'))
     return render_template('auth.html', mode='register')
@@ -2223,7 +2281,9 @@ def create_checkout_session():
         return jsonify({"error": "Select at least one lead first."}), 400
 
     listings = current_listings()
-    selected = [item for item in listings if str(item.get("id")) in selected_ids]
+    selected = [item for item in publishable_storefront_listings(listings) if str(item.get("id")) in selected_ids]
+    if len(selected) != len(selected_ids):
+        return jsonify({"error": "Some selected leads are no longer available. Refresh and try again."}), 409
     if not selected:
         return jsonify({"error": "Selected leads were not found."}), 400
 
@@ -2309,6 +2369,8 @@ def wallet_status():
         return jsonify({"login_required": True}), 401
     return jsonify({
         "balance_cents": _wallet_balance_cents(user["id"]),
+        "aged_promo_remaining": _promo_status(user["id"])["remaining"],
+        "aged_promo_pending": bool(_promo_status(user["id"]).get("pending")),
         "price_traced_cents": int(round(LEAD_PRICE_TRACED * 100)),
         "price_raw_cents": int(round(LEAD_PRICE_RAW * 100)),
     })
@@ -2330,7 +2392,9 @@ def unlock_with_credits():
         return jsonify({"error": "Select at least one lead first."}), 400
 
     listings = current_listings()
-    selected = [it for it in listings if str(it.get("id")) in selected_ids]
+    selected = [it for it in publishable_storefront_listings(listings) if str(it.get("id")) in selected_ids]
+    if len(selected) != len(selected_ids):
+        return jsonify({"error": "Some selected leads are no longer available. Refresh and try again."}), 409
     if not selected:
         return jsonify({"error": "Selected leads were not found."}), 400
     counties = {str(it.get("county") or "").strip().lower() for it in selected}
@@ -3822,6 +3886,7 @@ def _completeness(item):
 def _pick_better(a, b):
     """Keep the more complete row (tie: more recent scrape), filling any blanks
     on the winner from the loser so no field is lost."""
+    dates = [d for d in (discovery_date(a), discovery_date(b)) if d]
     winner, loser = (a, b)
     if _completeness(b) > _completeness(a):
         winner, loser = b, a
@@ -3831,6 +3896,8 @@ def _pick_better(a, b):
     for k, v in loser.items():
         if str(winner.get(k) or "").strip() in ("", "5") and str(v or "").strip() not in ("", "5"):
             winner[k] = v
+    if dates:
+        winner["first_seen"] = min(dates).isoformat()
     return winner
 
 

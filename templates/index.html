@@ -341,6 +341,7 @@
     <div class="cart-info">
         &#128722; <strong id="cart-count">0</strong> leads selected
         &nbsp;|&nbsp; Total: <strong>$<span id="cart-total">0</span></strong>
+        <button class="btn-checkout btn-unlock" id="aged-promo-btn" onclick="claimAgedLeads()" style="display:none;">Claim free aged leads</button>
         <span class="wallet-chip" id="wallet-chip" style="display:none;">&#128179; Credits: <strong>$<span id="wallet-balance">0</span></strong></span>
     </div>
     <div class="cart-actions">
@@ -785,9 +786,9 @@
         selectedIds.forEach(id => { const l = byId[id]; if (l) total += parseFloat(l.price) || 0; });
         const count = selectedIds.size;
         document.getElementById('cart-count').innerText = count;
-        document.getElementById('cart-total').innerText = total;
+        document.getElementById('cart-total').innerText = total.toFixed(2);
         document.getElementById('selected-metric').innerText = count.toLocaleString();
-        document.getElementById('selected-total-metric').innerText = total.toLocaleString();
+        document.getElementById('selected-total-metric').innerText = total.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2});
 
         // Credit-unlock button reflects the current selection vs. the balance.
         const btn = document.getElementById('unlock-btn');
@@ -795,7 +796,7 @@
             const costCents = Math.round(total * 100);
             btn.style.display = 'inline-block';
             if (costCents <= WALLET_CENTS) {
-                btn.textContent = `Unlock ${count} (−$${total})`;
+                btn.textContent = `Unlock ${count} (−$${total.toFixed(2)})`;
                 btn.disabled = false;
             } else {
                 const short = ((costCents - WALLET_CENTS) / 100).toFixed(2);
@@ -813,6 +814,9 @@
             if (!r.ok) return;                 // not logged in -> no chip
             const d = await r.json();
             WALLET_CENTS = d.balance_cents || 0;
+            const promo = document.getElementById('aged-promo-btn');
+            promo.style.display = d.aged_promo_remaining || d.aged_promo_pending ? 'inline-block' : 'none';
+            promo.textContent = d.aged_promo_pending ? 'Resume free aged-lead claim' : 'Claim up to ' + d.aged_promo_remaining + ' free aged leads';
             document.getElementById('wallet-balance').innerText = (WALLET_CENTS / 100).toFixed(2);
             document.getElementById('wallet-chip').style.display = 'inline-flex';
             document.getElementById('pack-wrap').style.display = 'inline-block';
@@ -865,6 +869,22 @@
         return [...new Set([...selectedIds]
             .map(id => ((byId[id] && byId[id].county) || '').trim().toLowerCase())
             .filter(Boolean))];
+    }
+
+    async function claimAgedLeads() {
+        const btn = document.getElementById('aged-promo-btn');
+        btn.disabled = true;
+        try {
+            const response = await fetch('/api/claim-aged-leads', {
+                method: 'POST', headers: {'X-CSRF-Token': CSRF_TOKEN}
+            });
+            const data = await response.json();
+            if (response.status === 401) { window.location.href = '/login'; return; }
+            if (!response.ok) { alert(data.error || 'Could not claim leads.'); return; }
+            if (data.unlocked) { window.location.href = '/account'; return; }
+            alert(data.message || 'No free aged leads available right now.');
+        } catch (error) { alert('Could not reach the server. Please retry.'); }
+        finally { btn.disabled = false; loadWallet(); }
     }
 
     async function unlockWithCredits() {
