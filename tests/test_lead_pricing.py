@@ -17,6 +17,18 @@ from lead_pricing import age_days, discovery_date, price_cents
 
 
 class PricingTests(unittest.TestCase):
+    def test_storefront_payload_includes_age_days(self):
+        tree = ast.parse(Path("app.py").read_text(encoding="utf-8"))
+        index = next(node for node in tree.body if isinstance(node, ast.FunctionDef) and node.name == "index")
+        payload_keys = {
+            key.value
+            for node in ast.walk(index)
+            if isinstance(node, ast.Dict)
+            for key in node.keys
+            if isinstance(key, ast.Constant) and isinstance(key.value, str)
+        }
+        self.assertIn("age_days", payload_keys)
+
     def test_all_tier_boundaries_and_floors(self):
         today = date(2026, 9, 11)
         expected = {

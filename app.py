@@ -1360,6 +1360,7 @@ def index():
             "bid": masked_item.get("bid") or 0,
             "price": masked_item.get("price") or 0,
             "price_display": masked_item.get("price_display") or "",
+            "age_days": masked_item.get("age_days"),
             "sale_date": masked_item.get("sale_date") or "",
             "scraped_date": masked_item.get("scraped_date") or "",
             "county": masked_item.get("county") or "",
