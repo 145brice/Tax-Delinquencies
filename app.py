@@ -17,7 +17,8 @@ from werkzeug.security import generate_password_hash, check_password_hash
 from dotenv import load_dotenv
 import stripe
 import db
-from lead_pricing import BASE_CENTS, FLOOR_CENTS, age_days, discovery_date, price_cents
+from lead_pricing import (BASE_CENTS, FLOOR_CENTS, age_days, discovery_date,
+                          normalize_listing_dates, price_cents)
 
 load_dotenv()
 
@@ -110,8 +111,9 @@ def property_records_to_listings(records: list[dict]) -> list[dict]:
         if len(address) < 8:
             continue
 
-        date_str = (r.get("sale_date") or r.get("scraped_date") or
-                    datetime.now().strftime('%Y-%m-%d'))
+        scraped_date = r.get("scraped_date") or datetime.now().strftime('%Y-%m-%d')
+        event_date = r.get("sale_date") or ""
+        date_str = event_date or scraped_date
         # Parcel/APN is the most reliable unique identifier a county issues —
         # prefer it over the human-parsed address text, which can collide
         # when detail-page scraping mis-extracts the same (or blank) address
@@ -170,10 +172,10 @@ def property_records_to_listings(records: list[dict]) -> list[dict]:
             "price":        5,
             "bid":          bid,
             "amount_owed":  r.get("amount_owed", ""),
-            "date":         date_str,
-            "sale_date":    r.get("sale_date", ""),
-            "scraped_date": r.get("scraped_date", ""),
-            "first_seen":   discovery_date(r).isoformat() if discovery_date(r) else "",
+            "date":         event_date,
+            "sale_date":    event_date,
+            "scraped_date": scraped_date,
+            "first_seen":   scraped_date,
             "county":       county_raw.lower(),
             "link":         r.get("source_url", ""),
             "source":    county_raw.title() + " Co.",
@@ -653,7 +655,9 @@ def _storefront_display_row(item, reveal=False):
 
     public_item["owner"] = (_storefront_owner(public_item) if reveal
                             else _mask_public_owner(_storefront_owner(public_item)))
-    public_item["scraped_date"] = public_item.get("scraped_date") or public_item.get("date")
+    # Acquisition and source-event dates stay separate. Legacy date migration
+    # happens in stored data, not through ambiguous display fallbacks.
+    public_item["scraped_date"] = public_item.get("scraped_date") or ""
 
     if not public_item.get("amount_owed"):
         try:
@@ -666,9 +670,9 @@ def _storefront_display_row(item, reveal=False):
     if "homepath" in source or "hud" in source:
         public_item["parcel_id"] = public_item.get("parcel_id") or source_id or "REO listing"
         public_item["case_number"] = public_item.get("case_number") or ""
-        public_item["sale_date"] = public_item.get("sale_date") or public_item.get("date") or public_item.get("scraped_date")
+        public_item["sale_date"] = public_item.get("sale_date") or ""
     elif "tax" in status:
-        public_item["sale_date"] = public_item.get("sale_date") or public_item.get("date") or public_item.get("scraped_date")
+        public_item["sale_date"] = public_item.get("sale_date") or ""
         # Only fall back to "Parcel X, Jacksonville" when the record has no real
         # street address. Enriched records (via the Property Appraiser lookup)
         # carry a street and should keep it.
@@ -681,7 +685,7 @@ def _storefront_display_row(item, reveal=False):
             public_item["sale_date"] = DUVAL_TAX_CERTIFICATE_SALE_DATE
             parcel_display_address = True
     elif "foreclosure" in status:
-        public_item["sale_date"] = public_item.get("sale_date") or public_item.get("date") or public_item.get("scraped_date")
+        public_item["sale_date"] = public_item.get("sale_date") or ""
 
     if public_item.get("address") and not parcel_display_address and not reveal:
         public_item["address"] = obfuscate_address(str(public_item["address"]))
@@ -1317,7 +1321,7 @@ def _backfill_fields(item):
             if not item.get('zip'):   item['zip']   = (zip_code or '').strip()
     # Ensure all keys exist so the templates do not crash on older listings.
     for k in ['city','state','zip','owner','parcel_id','case_number',
-              'amount_owed','sale_date','scraped_date','county','link',
+              'amount_owed','sale_date','scraped_date','first_seen','county','link',
               'bid','record_type','street']:
         if item.get(k) is None:
             item[k] = '' if k != 'bid' else 0
@@ -3911,8 +3915,10 @@ def _migrate_clean_and_dedupe():
     try:
         listings = load_json(DATA_FILE, [])
         original = len(listings)
-        owners = addrs = 0
+        owners = addrs = dates = 0
         for item in listings:
+            if normalize_listing_dates(item):
+                dates += 1
             if owner_looks_polluted(item.get("owner")):
                 cleaned = clean_owner_name(item.get("owner"))
                 if cleaned != item.get("owner"):
@@ -3939,9 +3945,9 @@ def _migrate_clean_and_dedupe():
         if removed > original * 0.25:
             print(f"[migrate] ABORT dedupe: would remove {removed}/{original} (>25%).")
             return
-        if owners or addrs or removed:
+        if owners or addrs or dates or removed:
             save_json(DATA_FILE, deduped)
-            print(f"[migrate] owners={owners} ca_addr={addrs} deduped={removed} "
+            print(f"[migrate] owners={owners} ca_addr={addrs} dates={dates} deduped={removed} "
                   f"({original}->{len(deduped)}).")
     except Exception as e:
         print(f"[migrate] cleanup/dedupe skipped: {e}")

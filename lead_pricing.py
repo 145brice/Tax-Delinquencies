@@ -27,6 +27,26 @@ def age_days(item, today=None):
     return max(0, ((today or datetime.now(timezone.utc).date()) - discovered).days)
 
 
+def normalize_listing_dates(item):
+    """Separate acquisition dates from event dates on legacy stored listings.
+
+    Older rows used ``date`` as the acquisition date when neither explicit
+    date field existed. Never copy it when ``sale_date`` is present because in
+    that shape it may be an auction, filing, or publication date.
+    """
+    changed = False
+    if not str(item.get("scraped_date") or "").strip() and not str(item.get("sale_date") or "").strip():
+        legacy = discovery_date({"scraped_date": item.get("date")})
+        if legacy:
+            item["scraped_date"] = legacy.isoformat()
+            changed = True
+    discovered = discovery_date(item)
+    if discovered and not str(item.get("first_seen") or "").strip():
+        item["first_seen"] = discovered.isoformat()
+        changed = True
+    return changed
+
+
 def price_cents(item, traced=False, phase="beta", today=None):
     age = age_days(item, today)
     base = BASE_CENTS[phase][bool(traced)]

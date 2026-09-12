@@ -13,7 +13,7 @@ from types import SimpleNamespace
 from unittest.mock import Mock
 
 from flask import Flask, jsonify, request
-from lead_pricing import age_days, discovery_date, price_cents
+from lead_pricing import age_days, discovery_date, normalize_listing_dates, price_cents
 
 
 class PricingTests(unittest.TestCase):
@@ -49,6 +49,16 @@ class PricingTests(unittest.TestCase):
         self.assertEqual(price_cents({}), 600)
         self.assertEqual(age_days({"scraped_date": "2099-01-01"}), 0)
         self.assertEqual(discovery_date({"first_seen": "2025-01-01", "scraped_date": "2026-01-01"}), date(2025, 1, 1))
+
+    def test_legacy_acquisition_date_is_separated_safely(self):
+        legacy = {"date": "2026-05-31", "scraped_date": "", "sale_date": ""}
+        self.assertTrue(normalize_listing_dates(legacy))
+        self.assertEqual(legacy["scraped_date"], "2026-05-31")
+        self.assertEqual(legacy["first_seen"], "2026-05-31")
+
+        event = {"date": "2026-05-31", "scraped_date": "", "sale_date": "2026-05-31"}
+        self.assertFalse(normalize_listing_dates(event))
+        self.assertNotIn("first_seen", event)
 
 
 class PromoTests(unittest.TestCase):
