@@ -1,4 +1,5 @@
 .git
+.audit-deps/
 __pycache__/
 *.pyc
 .env

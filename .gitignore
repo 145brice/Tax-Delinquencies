@@ -1,4 +1,5 @@
 __pycache__/
+.audit-deps/
 *.pyc
 *.pyo
 *.log

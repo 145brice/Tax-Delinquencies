@@ -45,7 +45,7 @@ scrapers/
   source_registry.py       SOURCES + UI_COUNTY_SOURCES — the source of truth
   <county>_*.py            One module per county/source scraper class
 templates/                 Jinja templates (index = storefront; admin = local-only)
-data/                      Output CSVs + storefront_listings.csv deploy artifact
+data/                      Raw scraper CSVs + masked storefront export
 ```
 
 How a source is wired (each new county touches these):
@@ -58,48 +58,40 @@ The two record types are `Tax Delinquent` and `Pre-Foreclosure`. For a county
 with both a tax-foreclosure and a mortgage/sheriff source, keep them as separate
 sources so the property sets do not overlap (e.g. Barry MI).
 
-## Branching & Deployment Model
+## Production: Railway
 
-| Branch | Role | Deploys to |
-|--------|------|------------|
-| `master` | Working branch — where development is committed | nothing (no auto-deploy) |
-| `main` | Production storefront branch | **Vercel** (auto-deploy on push) |
+The storefront, accounts, admin portal, and fulfillment worker run on Railway.
+The connected production branch is `main`. This project does not use Vercel.
 
-- **Vercel is storefront-only.** `app.py` sets `STOREFRONT_ONLY = IS_VERCEL`,
-  where `IS_VERCEL` is auto-detected from the `VERCEL`/`VERCEL_ENV` env vars.
-  Admin, Data Explorer, scraper controls, raw listings JSON, and CSV exports are
-  disabled automatically when running on Vercel. Nothing you push can flip this —
-  it is environment-detected, not committed.
-- **Scrapers/admin run locally** (and, once stood up, on **Railway**). The
-  registry can grow freely without affecting the live store.
-- **Updating the store** = push `main` with a refreshed `data/storefront_listings.csv`.
-  Pushing only `master` lands code in the repo and leaves Vercel untouched.
+Mount a persistent volume at `/data`. Leave `SQLITE_DB` unset to use
+`/data/foreclosure.sqlite3`, or point it to a file inside the mounted volume.
+The app refuses purchases and fails its health check if hosted storage is not
+persistent. Runtime data is seeded only when missing, never overwritten by a
+new deployment. Back up the volume before the first upgrade.
 
-### Push playbook
+`railway.json` uses one replica and disables App Sleep so paid delivery and
+skip-trace retries continue without a browser visit. `serve.py` runs Waitress.
+The SQLite volume is the authority for listings, lead reservations, wallet
+balances, subscription allowances, promo claims, and the recovery journal.
+Appwrite (or Postgres) remains the account and purchased-order backend.
 
-```bash
-# Land backend/scraper work without redeploying the store:
-git add scrapers/...            # only the coherent code set
-git commit -m "..."
-git push origin master          # main/Vercel untouched
+Every checkout reserves its leads before a payment URL is returned. Wallet
+debits and reservations commit in one transaction; external order delivery is
+retried from the journal. Unpaid card reservations are released only after
+Stripe confirms expiration. Paid claims remain exclusive across re-scrapes.
+Existing paid orders are imported into the claim registry before new purchases.
 
-# Update the live store (when ready):
-git checkout main && git merge master   # or cherry-pick
-git push origin main            # triggers Vercel deploy
-```
+Admin authentication uses `ADMIN_TOKEN` (or `SKIPTRACE_ADMIN_TOKEN`) or an
+explicit comma-separated `ADMIN_USER_IDS` list. Email addresses alone never
+grant an admin role. Existing email-based admins can sign in with their admin
+token and configure their immutable account IDs. Logout clears all privileges;
+rotating the admin token revokes remembered token access.
 
-When committing the registry, **include every scraper it imports** — a clean
-checkout (e.g. a Vercel build) imports `source_registry.py` at startup, so a
-missing module crashes the deploy even though Vercel never runs the scrapers.
-
-### Push history
-
-- **2026-06-10** — Added Barry County MI (tax-foreclosure auction via
-  tax-sale.info + Hastings Banner foreclosure notices via mipublicnotices.com).
-  Also committed previously-untracked CA/AZ/TX scrapers the registry already
-  imported, so the import resolves on a clean checkout. **Pushed to `master`
-  only; `main`/Vercel left untouched** (rest of the stack stays local until
-  Railway is up). Commit `6795239`.
+County subscriptions include raw leads and 8/25/80 skip traces per billing
+period. Additional skip traces charge the age-based skip/raw price difference
+from wallet credit, shown for confirmation before purchase. Failed included
+traces restore the slot in the same billing period; paid failed upgrades credit
+only the actual upgrade charge. Retries do not consume another slot.
 
 ## Setup
 
@@ -120,15 +112,9 @@ python app.py
 # Open http://localhost:8095
 ```
 
-## Production Setup: Vercel Storefront Only
+## Account and payment configuration
 
-Vercel serves only the buyer-facing storefront. Admin, Data Explorer, scraper
-controls, raw listings JSON, and CSV exports are disabled automatically on
-Vercel.
-
-Buyer accounts, saved purchases, and Stripe unlock records are stored in
-Appwrite Databases. Configure these environment variables locally and in
-Vercel:
+Set these in Railway service variables (and `.env` for local development):
 
 ```text
 APPWRITE_ENDPOINT=https://nyc.cloud.appwrite.io/v1
@@ -137,25 +123,45 @@ APPWRITE_API_KEY=<server api key>
 APPWRITE_DATABASE_ID=tax_delinquencies
 APPWRITE_USERS_COLLECTION_ID=users
 APPWRITE_ORDERS_COLLECTION_ID=orders
-SECRET_KEY=<long random flask session secret>
-STRIPE_SECRET_KEY=<stripe secret key>
-STRIPE_WEBHOOK_SECRET=<stripe webhook secret>
+SECRET_KEY=<long random session secret>
+ADMIN_TOKEN=<long random admin token>
+STRIPE_SECRET_KEY=<Stripe secret key>
+STRIPE_WEBHOOK_SECRET=<Stripe webhook signing secret>
 ```
 
-The app creates the `tax_delinquencies` database plus `users` and `orders`
-collections if they do not exist. Keep API keys in `.env` or Vercel env vars;
-never commit them.
+Alternatively, configure `DATABASE_URL` for the Postgres account/order backend.
+Keep credentials out of source control. Configure Stripe's webhook for
+`/webhook/stripe`, including checkout completion, expiration, subscription
+updates/deletion, and paid invoices. Failed fulfillment returns HTTP 503 so
+Stripe can retry. The durable worker also reconciles journaled purchases.
 
-Run the Python app locally for scraping and data work:
+### Publishing inventory
+
+The live storefront reads the volume's SQLite listings, seeded from
+`listings.json` only on first use. Scraping through admin or the scheduled
+ingestion API updates that inventory immediately. Deploying a changed CSV
+does not replace live inventory or erase sold markers.
+
+To publish an existing **raw scraper CSV**, set `SCRAPE_TARGET_URL` and
+`ADMIN_TOKEN`, then run:
 
 ```bash
-python app.py
-# Open http://127.0.0.1:8095/admin
+python scripts/publish_csv.py data/raw_run.csv --county duval-fl --source duval_jaxdailyrecord
 ```
 
-Local scraper/admin state is stored in SQLite at `foreclosure_local.sqlite3`
-by default. Set `SQLITE_DB=path/to/file.sqlite3` if you want a different local
-database path.
+Use a county/source pair from `scrapers/source_registry.py`. The publisher
+validates raw columns and sends batches to the authenticated ingestion API.
+`data/storefront_listings.csv` is a masked export for inspection, not purchase
+inventory; the publisher rejects it. Other run/audit CSVs remain ignored.
+
+### Validation
+
+```bash
+python -m unittest discover -s tests -v
+```
+
+Tests import the real app with temporary storage and fake Stripe/account
+services. They never charge cards or mutate production data.
 
 ### Scheduled scraper jobs
 
@@ -167,20 +173,9 @@ completed records to `/api/scrape/ingest`, and exits. Posting windows and source
 assignments live in `scripts/county_schedule.json`.
 
 Set `EXTERNAL_SCRAPER_JOBS=true` on the hosted API to disable its old in-process
-scrape endpoint. Enable Railway App Sleep for that API service; ingestion and
-normal browser requests wake it automatically. The repository Actions secrets
+scrape endpoint. Keep App Sleep disabled because this service also owns
+paid-order recovery. The repository Actions secrets
 `SCRAPE_TARGET_URL` and `ADMIN_TOKEN` must match the hosted API configuration.
-
-The local app also writes one deploy artifact after each scraper save:
-
-```text
-data/storefront_listings.csv
-```
-
-That CSV is sorted in the same deterministic order the storefront uses:
-county, status, city, date, owner, parcel/APN, then address. Push that file to
-update the Vercel storefront data. Other run/audit CSVs stay ignored so
-`git add .` does not accidentally publish scratch data.
 
 ## Scraper CLI Usage
 

@@ -13,6 +13,8 @@ import sqlite3
 from datetime import datetime, timezone
 from functools import wraps
 from contextlib import closing
+from urllib.parse import urlsplit
+import commerce
 from flask import Flask, render_template, request, jsonify, Response, redirect, url_for, session
 from werkzeug.security import generate_password_hash, check_password_hash
 from dotenv import load_dotenv
@@ -134,7 +136,7 @@ def property_records_to_listings(records: list[dict]) -> list[dict]:
             key_basis = f"{county_key}-case-{case_no}"
         else:
             key_basis = f"{address.lower().strip()}-{date_str}"
-        key = hashlib.md5(key_basis.encode()).hexdigest()[:8]
+        key = hashlib.sha256(f"{state.lower()}|{key_basis}".encode()).hexdigest()[:32]
         if key in seen:
             continue
         seen.add(key)
@@ -278,7 +280,7 @@ def csrf_protect():
     # server-to-server callers (e.g. the scheduled scraper) authenticate
     # without a browser session.
     admin_token = _admin_token()
-    supplied_admin_token = request.args.get("token") or request.form.get("token")
+    supplied_admin_token = request.headers.get("X-Admin-Token") or request.args.get("token") or request.form.get("token")
     if admin_token and supplied_admin_token and secrets.compare_digest(supplied_admin_token, admin_token):
         return None
     expected = session.get("_csrf_token") or ""
@@ -352,6 +354,22 @@ elif _RAILWAY_VOLUME:
     SQLITE_DB = os.path.join(_RAILWAY_VOLUME, "foreclosure.sqlite3")
 else:
     SQLITE_DB = os.path.join(BASE_DIR, "foreclosure_local.sqlite3")
+SQLITE_DB = os.path.abspath(SQLITE_DB)
+# Paid state must never silently fall back to the container's disposable disk.
+def _persistent_storage_ready():
+    if not IS_HOSTED:
+        return True
+    volume = os.getenv("RAILWAY_VOLUME_MOUNT_PATH", "")
+    if not IS_RAILWAY or not volume:
+        return False
+    root = os.path.realpath(volume)
+    try:
+        return os.path.commonpath([root, os.path.realpath(SQLITE_DB)]) == root
+    except ValueError:
+        return False
+
+app.config.update(SESSION_COOKIE_HTTPONLY=True, SESSION_COOKIE_SAMESITE="Lax",
+                  SESSION_COOKIE_SECURE=IS_HOSTED)
 STOREFRONT_CSV = os.getenv("STOREFRONT_CSV", os.path.join(DATA_DIR, "storefront_listings.csv"))
 STOREFRONT_FIELDS = [
     "id", "status", "county", "state", "city", "zip", "address", "street",
@@ -364,7 +382,7 @@ def _sqlite_enabled():
 
 def _sqlite_conn():
     os.makedirs(os.path.dirname(SQLITE_DB) or ".", exist_ok=True)
-    conn = sqlite3.connect(SQLITE_DB)
+    conn = sqlite3.connect(SQLITE_DB, timeout=30)
     conn.row_factory = sqlite3.Row
     conn.execute("""
         CREATE TABLE IF NOT EXISTS app_json (
@@ -375,16 +393,19 @@ def _sqlite_conn():
     """)
     return conn
 
+purchase_store = commerce.Store(_sqlite_conn)
+
 def _sqlite_get(key, default):
     try:
-        with _sqlite_conn() as conn:
+        with closing(_sqlite_conn()) as conn:
             row = conn.execute("SELECT value FROM app_json WHERE key = ?", (key,)).fetchone()
         return json.loads(row["value"]) if row else default
-    except Exception:
-        return default
+    except (sqlite3.Error, json.JSONDecodeError):
+        app.logger.exception("Could not read durable application state: %s", key)
+        raise
 
 def _sqlite_set(key, data):
-    with _sqlite_conn() as conn:
+    with closing(_sqlite_conn()) as conn, conn:
         conn.execute(
             """
             INSERT INTO app_json (key, value, updated_at)
@@ -415,11 +436,8 @@ else:
 def _runtime_data_file(filename):
     """Runtime-writable path for a data file, seeded from the bundled git copy.
 
-    On a hosted volume we seed only when the runtime copy is missing or the
-    bundled (freshly deployed) copy is strictly newer. We deliberately do NOT
-    reseed on size differences, so writes made during a hosted scrape are
-    preserved across container restarts and only refreshed when a new deploy
-    ships updated data.
+    Seed only when the runtime copy is missing. A deployment must never
+    overwrite the live inventory or financial state based on file timestamps.
     """
     if not _RUNTIME_DIR:
         return os.path.join(BASE_DIR, filename)
@@ -428,7 +446,6 @@ def _runtime_data_file(filename):
     bundled_file = os.path.join(BASE_DIR, filename)
     if os.path.exists(bundled_file) and (
         not os.path.exists(runtime_file)
-        or os.path.getmtime(runtime_file) < os.path.getmtime(bundled_file)
     ):
         shutil.copyfile(bundled_file, runtime_file)
     return runtime_file
@@ -587,9 +604,11 @@ def _is_publishable_listing(item):
     return True
 
 def publishable_storefront_listings(listings):
-    reserved = _promo_reserved_ids()
+    reserved = _promo_reserved_ids() | purchase_store.claimed_ids()
+    properties = purchase_store.claimed_properties()
     return sort_storefront_listings([item for item in listings if _is_publishable_listing(item)
-                                    and str(item.get("id")) not in reserved])
+                                    and str(item.get("id")) not in reserved
+                                    and not commerce.identity_keys(item).intersection(properties)])
 
 def _storefront_owner(item):
     owner = str(item.get("owner") or "").strip()
@@ -809,11 +828,24 @@ def _load_subs():
     return load_json(SUBS_FILE, [])
 
 
-def _save_subs(subs):
-    if _sqlite_enabled():
-        _sqlite_set("subscriptions", subs)
-    else:
-        save_json(SUBS_FILE, subs)
+def _patch_subscription(sub_id, changes, *, remove=(), create=False):
+    with purchase_store.transaction() as conn:
+        current = purchase_store.read(conn, "subscriptions", [])
+        target = next((s for s in current if s.get("stripe_subscription_id") == sub_id), None)
+        if target is None:
+            if not create:
+                return None
+            target = dict(changes)
+            current.append(target)
+        else:
+            # Lifecycle writes must not overwrite concurrent usage/refunds or
+            # renewal watermarks, or any other subscription in the store.
+            protected = {"traces_used", "period_start", "last_renewal", "created_at", "id"}
+            target.update({k: v for k, v in changes.items() if k not in protected})
+        for key in remove:
+            target.pop(key, None)
+        purchase_store.write(conn, "subscriptions", current)
+        return dict(target)
 
 
 # --- Credit wallet (prepaid balance for per-lead unlocks) --------------------
@@ -842,81 +874,13 @@ def _wallet_balance_cents(user_id):
 
 
 def _wallet_adjust(user_id, delta_cents, reason):
-    """Add (or subtract) credit and append a ledger entry. Returns new balance."""
-    uid = str(user_id)
-    wallets = _load_wallets()
-    entry = wallets.get(uid) or {"balance_cents": 0, "ledger": []}
-    entry["balance_cents"] = int(entry.get("balance_cents", 0)) + int(delta_cents)
-    entry.setdefault("ledger", []).append({
-        "delta_cents": int(delta_cents),
-        "reason": reason,
-        "at": datetime.now().isoformat(timespec="seconds"),
-        "balance_after": entry["balance_cents"],
-    })
-    entry["ledger"] = entry["ledger"][-100:]   # cap history
-    wallets[uid] = entry
-    _save_wallets(wallets)
-    return entry["balance_cents"]
+    with purchase_store.transaction() as conn:
+        balance, _ = purchase_store.wallet_change(conn, user_id, int(delta_cents), reason)
+    return balance
 
 
 def _wallet_credit_once(user_id, cents, event_id, reason):
-    """Apply a wallet credit once, even if Stripe fulfillment is retried."""
-    cents = int(cents or 0)
-    if cents <= 0:
-        return _wallet_balance_cents(user_id), False
-    if not _sqlite_enabled():
-        with WALLET_LOCK:
-            wallets = _load_wallets()
-            uid = str(user_id)
-            entry = wallets.get(uid) or {"balance_cents": 0, "ledger": [], "event_ids": []}
-            if str(event_id) in entry.get("event_ids", []):
-                return int(entry.get("balance_cents", 0)), False
-            entry["balance_cents"] = int(entry.get("balance_cents", 0)) + cents
-            entry.setdefault("event_ids", []).append(str(event_id))
-            entry["event_ids"] = entry["event_ids"][-1000:]
-            entry.setdefault("ledger", []).append({
-                "delta_cents": cents, "reason": reason,
-                "at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
-                "balance_after": entry["balance_cents"],
-            })
-            entry["ledger"] = entry["ledger"][-100:]
-            wallets[uid] = entry
-            _save_wallets(wallets)
-            return entry["balance_cents"], True
-    with WALLET_LOCK, closing(_sqlite_conn()) as conn, conn:
-        conn.execute(
-            """CREATE TABLE IF NOT EXISTS wallet_credit_events (
-                   event_id TEXT PRIMARY KEY,
-                   user_id TEXT NOT NULL,
-                   cents INTEGER NOT NULL,
-                   created_at TEXT NOT NULL
-               )"""
-        )
-        inserted = conn.execute(
-            "INSERT OR IGNORE INTO wallet_credit_events VALUES (?, ?, ?, ?)",
-            (str(event_id), str(user_id), cents, datetime.now(timezone.utc).isoformat()),
-        ).rowcount
-        row = conn.execute("SELECT value FROM app_json WHERE key='credit_wallets'").fetchone()
-        wallets = json.loads(row["value"]) if row else {}
-        uid = str(user_id)
-        entry = wallets.get(uid) or {"balance_cents": 0, "ledger": []}
-        if inserted:
-            entry["balance_cents"] = int(entry.get("balance_cents", 0)) + cents
-            entry.setdefault("ledger", []).append({
-                "delta_cents": cents,
-                "reason": reason,
-                "at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
-                "balance_after": entry["balance_cents"],
-            })
-            entry["ledger"] = entry["ledger"][-100:]
-            wallets[uid] = entry
-            conn.execute(
-                """INSERT INTO app_json (key, value, updated_at) VALUES (?, ?, ?)
-                   ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at""",
-                ("credit_wallets", json.dumps(wallets, ensure_ascii=False),
-                 datetime.now(timezone.utc).isoformat(timespec="seconds")),
-            )
-        return int(entry.get("balance_cents", 0)), bool(inserted)
+    return purchase_store.credit(user_id, max(0, int(cents or 0)), str(event_id))
 
 
 # Credit packs (pay-as-you-go top-ups). price_cents = charged, credit_cents =
@@ -954,25 +918,20 @@ def _mark_credit_pack_fulfilled(session_id):
 
 
 def _fulfill_credit_pack(session_id):
-    """Credit the wallet for a paid credit-pack session. Idempotent; no-op for
-    non-pack sessions."""
-    if not session_id or not stripe.api_key:
+    if not session_id or not stripe.api_key or not _persistent_storage_ready():
         return False
-    if session_id in _credit_pack_sessions():
-        return True   # already granted
-    try:
-        cs = stripe.checkout.Session.retrieve(session_id)
-    except stripe.error.StripeError:
-        return False
+    cs = stripe.checkout.Session.retrieve(session_id)
     meta = cs.get("metadata") or {}
     if meta.get("kind") != "credit_pack" or cs.get("payment_status") != "paid":
         return False
-    user_id = meta.get("user_id")
-    credit_cents = int(meta.get("credit_cents") or 0)
-    if not user_id or credit_cents <= 0:
+    uid, cents = meta.get("user_id"), int(meta.get("credit_cents") or 0)
+    if not uid or cents <= 0:
         return False
-    _mark_credit_pack_fulfilled(session_id)   # mark first: avoid double-grant on retry
-    _wallet_adjust(user_id, credit_cents, f"pack:{session_id}")
+    # Preserve the old fulfillment marker while moving to an atomic ledger.
+    with purchase_store.transaction() as conn:
+        done = purchase_store.read(conn, "credit_pack_fulfilled", [])
+        if session_id not in done:
+            purchase_store.wallet_change(conn, uid, cents, "pack:" + session_id)
     return True
 
 
@@ -985,7 +944,7 @@ def _fulfill_order_skiptraces(session_id):
     try:
         order = db.get_order_by_session(session_id)
         if not order or order.get("status") != "paid":
-            return
+            return False
         order_id = order.get("id")
         user_id = order.get("user_id")
         for lead in order.get("leads_json") or []:
@@ -994,15 +953,19 @@ def _fulfill_order_skiptraces(session_id):
             if lead.get("skiptrace_status") in {"completed", "failed_credited"}:
                 continue
             lead_id = str(lead.get("id") or "")
+            event_id = f"skiptrace-refund:{session_id}:{lead_id}"
+            refund_decided = purchase_store.credit_recorded(event_id)
             evidence = lead.get("_purchase_evidence") or {}
             source = evidence.get("lead") if isinstance(evidence.get("lead"), dict) else lead
             phones = [str(source.get(key) or "").strip() for key in ("primary_phone", "phone_2")]
             emails = [str(source.get(key) or "").strip() for key in ("email_1", "email_2")]
             phones = [value for value in phones if value]
             emails = [value for value in emails if value]
+            if refund_decided:
+                phones, emails = [], []
             query = ""
             error = ""
-            if not phones and not emails:
+            if not phones and not emails and not refund_decided:
                 try:
                     from scrapers import skiptrace_search
                     city, state = _skiptrace_city_state(source)
@@ -1023,7 +986,7 @@ def _fulfill_order_skiptraces(session_id):
 
             now = datetime.now(timezone.utc).isoformat(timespec="seconds")
             if phones or emails:
-                db.update_order_lead_contacts(order_id, lead_id, {
+                updated = db.update_order_lead_contacts(order_id, lead_id, {
                     "primary_phone": phones[0] if phones else "",
                     "phone_2": phones[1] if len(phones) > 1 else "",
                     "email_1": emails[0] if emails else "",
@@ -1033,40 +996,138 @@ def _fulfill_order_skiptraces(session_id):
                     "skiptrace_notes": query,
                     "skiptraced_at": now,
                 })
+                if not updated:
+                    raise RuntimeError("Could not persist completed skip trace")
                 continue
 
             raw_cents = int(lead.get("raw_price_cents") or evidence.get("raw_price_cents") or 0)
             skip_cents = int(lead.get("skip_price_cents") or evidence.get("skip_price_cents") or 0)
-            credit_cents = max(0, skip_cents - raw_cents)
+            if error and error != "no usable owner name":
+                raise RuntimeError("Skip-trace provider unavailable; will retry")
+            credit_cents = int(lead.get("skiptrace_refund_cents", max(0, skip_cents - raw_cents)))
             event_id = f"skiptrace-refund:{session_id}:{lead_id}"
             _wallet_credit_once(
                 user_id, credit_cents, event_id,
                 f"Skip trace unavailable; raw lead delivered ({lead_id})",
             )
-            db.update_order_lead_contacts(order_id, lead_id, {
+            _restore_included_trace(lead, event_id)
+            updated = db.update_order_lead_contacts(order_id, lead_id, {
                 "skiptrace_status": "failed_credited",
                 "skiptrace_credit_cents": credit_cents,
                 "skiptrace_error": error or "No usable phone or email found",
                 "skiptraced_at": now,
             })
+            if not updated:
+                raise RuntimeError("Could not persist failed skip trace")
+        return True
     except Exception as exc:
         app.logger.exception("post-payment skip tracing failed for %s: %s", session_id, exc)
+        return False
     finally:
         with SKIPTRACE_FULFILL_LOCK:
             SKIPTRACE_FULFILLING.discard(str(session_id))
 
 
 def _start_order_skiptraces(session_id):
-    """Start durable, idempotent post-payment processing without delaying checkout."""
-    key = str(session_id or "")
-    if not key:
+    if session_id:
+        purchase_store.add_job("trace:" + str(session_id), "trace")
+
+
+def _restore_included_trace(lead, event_id):
+    included = lead.get("included_trace")
+    if not included:
         return
-    with SKIPTRACE_FULFILL_LOCK:
-        if key in SKIPTRACE_FULFILLING:
+    with purchase_store.transaction() as conn:
+        marker = "allowance:" + event_id
+        if conn.execute("SELECT 1 FROM commerce_events WHERE id=?", (marker,)).fetchone():
             return
-        SKIPTRACE_FULFILLING.add(key)
-    worker = threading.Thread(target=_fulfill_order_skiptraces, args=(key,), daemon=True)
-    worker.start()
+        subs = purchase_store.read(conn, "subscriptions", [])
+        for sub in subs:
+            if (sub.get("stripe_subscription_id") == included["subscription_id"]
+                    and sub.get("period_start", "") == included["period"]):
+                sub["traces_used"] = max(0, int(sub.get("traces_used", 0)) - 1)
+        purchase_store.write(conn, "subscriptions", subs)
+        conn.execute("INSERT INTO commerce_events VALUES (?)", (marker,))
+
+
+def _renew_subscription_allowance(invoice):
+    # Invoice IDs deduplicate delivery; period_start rejects delayed old renewals.
+    with purchase_store.transaction() as conn:
+        event = "invoice:" + str(invoice["id"])
+        if conn.execute("SELECT 1 FROM commerce_events WHERE id=?", (event,)).fetchone():
+            return
+        subs = purchase_store.read(conn, "subscriptions", [])
+        matched = False
+        for sub in subs:
+            if sub.get("stripe_subscription_id") == invoice["subscription"]:
+                matched = True
+                period = int(invoice.get("period_start") or 0)
+                if invoice.get("billing_reason") == "subscription_cycle" and period > int(sub.get("last_renewal", 0)):
+                    sub["traces_used"] = 0
+                    sub["period_start"] = datetime.fromtimestamp(period, timezone.utc).isoformat()
+                    sub["last_renewal"] = period
+        if not matched:
+            raise RuntimeError("Subscription has not been activated yet")
+        purchase_store.write(conn, "subscriptions", subs)
+        conn.execute("INSERT INTO commerce_events VALUES (?)", (event,))
+
+
+def _subscription_access_status(stripe_status):
+    return {
+        "active": "active", "trialing": "active", "past_due": "past_due",
+        "incomplete": "incomplete", "incomplete_expired": "inactive",
+        "unpaid": "inactive", "paused": "paused", "canceled": "canceled",
+    }.get(str(stripe_status or "").lower(), "inactive")
+
+
+def _sync_subscription_object(stripe_sub):
+    sub_id = stripe_sub.get("id")
+    if not sub_id:
+        return False
+    metadata = stripe_sub.get("metadata") or {}
+    items = (stripe_sub.get("items") or {}).get("data") or []
+    price_id = ((items[0].get("price") or {}).get("id") if items else "") or ""
+    tier = next((key for key, value in TIER_PRICES.items() if value and value == price_id), None)
+    existing = next((s for s in _load_subs() if s.get("stripe_subscription_id") == sub_id), None)
+    if not existing:
+        # A Stripe account can send subscription events for other products to the
+        # same endpoint. Acknowledge those events instead of retrying them forever.
+        if metadata.get("kind") != "county_subscription":
+            return True
+        if not metadata.get("user_id") or not metadata.get("county") or not tier:
+            return False
+    changes = {"stripe_subscription_id": sub_id,
+               "status": _subscription_access_status(stripe_sub.get("status")),
+               "current_period_end": _sub_period_end(stripe_sub)}
+    if tier:
+        changes.update({"tier": tier, "price_id": price_id})
+    if not existing:
+        now = datetime.now(timezone.utc).isoformat(timespec="seconds")
+        changes.update({"id": secrets.token_hex(8), "user_id": str(metadata["user_id"]),
+                        "email": str(metadata.get("email") or ""),
+                        "county": str(metadata["county"]).lower(),
+                        "stripe_customer_id": str(stripe_sub.get("customer") or ""),
+                        "created_at": now, "period_start": now, "traces_used": 0})
+    remove = ()
+    if existing and tier and existing.get("pending_tier") == tier:
+        remove = ("pending_tier", "pending_tier_at")
+    return _patch_subscription(sub_id, changes, remove=remove, create=not bool(existing)) is not None
+
+
+def _record_billing_problem(event_id, event_type, obj):
+    subscription = obj.get("subscription") or ((obj.get("parent") or {}).get("subscription_details") or {}).get("subscription")
+    with purchase_store.transaction() as conn:
+        problems = purchase_store.read(conn, "stripe_billing_problems", {})
+        problems[str(event_id)] = {"type": event_type, "subscription": str(subscription or ""),
+            "invoice": str(obj.get("id") or ""), "customer": str(obj.get("customer") or ""),
+            "created": int(obj.get("created") or time.time()), "attempt_count": int(obj.get("attempt_count") or 0)}
+        purchase_store.write(conn, "stripe_billing_problems", dict(list(problems.items())[-500:]))
+    if subscription:
+        try:
+            return _sync_subscription_object(stripe.Subscription.retrieve(subscription))
+        except stripe.error.StripeError:
+            return False
+    return True
 
 
 def _grant_signup_promo(user_id):
@@ -1095,51 +1156,51 @@ def _promo_reserved_ids():
 @app.route('/api/claim-aged-leads', methods=['POST'])
 def claim_aged_leads():
     if not _accounts_ready():
-        return jsonify({"error": "Accounts are not configured yet."}), 503
+        return jsonify({"error": "Accounts and persistent storage must be configured."}), 503
     user = current_user()
     if not user:
         return jsonify({"login_required": True}), 401
-    claimed = _claimed_counties(exclude_user=user["id"]) if _subscriptions_ready() else {}
-    with PROMO_LOCK:
-        with closing(_sqlite_conn()) as conn, conn:
-            conn.execute("CREATE TABLE IF NOT EXISTS signup_promos (user_id TEXT PRIMARY KEY, payload TEXT NOT NULL)")
-            conn.execute("BEGIN IMMEDIATE")
+    try:
+        _ensure_purchase_history()
+        state = _promo_status(user["id"])
+        key = state.get("pending_key")
+        if state.get("pending"):
+            order = purchase_store.adopt_promo(user["id"], user["email"], state,
+                                              _prepare_purchased_leads(state["pending"]["leads"]))
+            key = order["id"]
+        elif key:
+            order = purchase_store.get(key=key)
+        else:
+            claimed = _claimed_counties(exclude_user=user["id"]) if _subscriptions_ready() else {}
+            available = [it for it in publishable_storefront_listings(current_listings())
+                         if (age_days(it) or 0) > 60 and str(it.get("county") or "").lower() not in claimed]
+            available.sort(key=lambda it: (_lead_is_traced(it), -age_days(it), str(it["id"])))
+            selected = available[:max(0, min(3, state["remaining"]))]
+            if not selected:
+                return jsonify({"ok": True, "unlocked": 0, "remaining": state["remaining"]})
+            key = "aged_" + secrets.token_hex(16)
+            def consume(conn, payload):
+                row = conn.execute("SELECT payload FROM signup_promos WHERE user_id=?", (str(user["id"]),)).fetchone()
+                current = json.loads(row[0]) if row else {"remaining": 0}
+                if current.get("pending_key") or current.get("pending") or current["remaining"] < len(selected):
+                    raise commerce.Unavailable("Another claim is processing; please retry")
+                current["remaining"] -= len(selected)
+                current["pending_key"] = key
+                conn.execute("UPDATE signup_promos SET payload=? WHERE user_id=?", (json.dumps(current), str(user["id"])))
+            order = purchase_store.reserve(key, {"kind": "promo", "user_id": str(user["id"]),
+                "email": user["email"], "amount_cents": 0, "leads": _prepare_purchased_leads(selected)}, prepare=consume)
+        _deliver_purchase(order)
+        with purchase_store.transaction() as conn:
             row = conn.execute("SELECT payload FROM signup_promos WHERE user_id=?", (str(user["id"]),)).fetchone()
-            state = json.loads(row[0]) if row else {"remaining": 0}
-            pending = state.get("pending")
-            if not pending:
-                reserved = set()
-                for other in conn.execute("SELECT payload FROM signup_promos"):
-                    reserved.update(json.loads(other[0]).get("reserved_ids", []))
-                available = [it for it in publishable_storefront_listings(current_listings())
-                             if (age_days(it) or 0) > 60 and str(it.get("id")) not in reserved
-                             and str(it.get("county") or "").strip().lower() not in claimed]
-                available.sort(key=lambda it: (_lead_is_traced(it), -age_days(it), str(it.get("id"))))
-                selected = available[:max(0, min(3, state["remaining"]))]
-                if not selected:
-                    return jsonify({"ok": True, "unlocked": 0, "remaining": state["remaining"],
-                                    "message": "No free aged leads available right now."})
-                pending = {"session_id": "aged_" + secrets.token_hex(12), "leads": selected}
-                state["remaining"] -= len(selected)
-                state["pending"] = pending
-                state.setdefault("reserved_ids", []).extend(str(it["id"]) for it in selected)
-                conn.execute("UPDATE signup_promos SET payload=? WHERE user_id=?", (json.dumps(state), str(user["id"])))
-        # Durable reservations and a stable order ID make failed claims retryable.
-        try:
-            db.init_db()
-            db.create_pending_order(user_id=user["id"], email=user["email"],
-                                    stripe_session_id=pending["session_id"], amount_cents=0,
-                                    leads=_prepare_purchased_leads(pending["leads"]))
-            if not db.mark_order_paid(pending["session_id"]):
-                raise RuntimeError("Could not fulfill promo order")
-            _mark_leads_sold({str(it["id"]) for it in pending["leads"]})
-            state.pop("pending", None)
-            with closing(_sqlite_conn()) as conn, conn:
-                conn.execute("UPDATE signup_promos SET payload=? WHERE user_id=?", (json.dumps(state), str(user["id"])))
-        except Exception:
-            app.logger.exception("Could not fulfill aged-lead promo")
-            return jsonify({"error": "Could not complete your claim. Please retry; your leads are reserved."}), 503
-    return jsonify({"ok": True, "unlocked": len(pending["leads"]), "remaining": state["remaining"]})
+            state = json.loads(row[0])
+            state.pop("pending_key", None)
+            conn.execute("UPDATE signup_promos SET payload=? WHERE user_id=?", (json.dumps(state), str(user["id"])))
+        return jsonify({"ok": True, "unlocked": len(order["leads"]), "remaining": state["remaining"]})
+    except commerce.Unavailable as exc:
+        return jsonify({"error": str(exc)}), 409
+    except Exception:
+        app.logger.exception("Promo order awaiting recovery")
+        return jsonify({"error": "Your claim is saved; please retry shortly."}), 503
 
 
 # --- Per-user preferences (storefront column order, etc.) --------------------
@@ -1257,16 +1318,8 @@ def _tier_included(tier: str) -> int:
 
 def _upsert_sub(record):
     """Insert or update by stripe_subscription_id (fallback to id)."""
-    subs = _load_subs()
     key = record.get("stripe_subscription_id") or record.get("id")
-    for i, s in enumerate(subs):
-        if (s.get("stripe_subscription_id") or s.get("id")) == key:
-            subs[i] = {**s, **record}
-            _save_subs(subs)
-            return subs[i]
-    subs.append(record)
-    _save_subs(subs)
-    return record
+    return _patch_subscription(key, record, create=True)
 
 def merge_listings(existing, incoming):
     merged = list(existing)
@@ -1301,14 +1354,14 @@ def merge_listings_only(existing, incoming):
     return merged
 
 def _parcel_date_key(item):
-    # County + parcel only (no date): the same parcel scraped on different
-    # publish dates is the same property and must collapse to one listing,
-    # not a new row per date. Different parcels in a county stay distinct.
-    parcel = re.sub(r"\D", "", str(item.get("parcel_id") or ""))
-    county = str(item.get("county") or "").lower().strip()
-    if not parcel or not county:
-        return ""
-    return f"{county}|{parcel}"
+    # Use the same state-scoped identity as exclusive purchase reservations.
+    # Address/case fallback also merges date-only ID changes on re-scrapes.
+    keys = commerce.identity_keys(item)
+    for prefix in ("parcel:", "case:", "address:"):
+        match = next((key for key in keys if key.startswith(prefix)), None)
+        if match:
+            return match
+    return ""
 
 def _upgrade_listing(existing, incoming):
     """Keep existing lead identity, but fill in better data from newer scrapes."""
@@ -1640,7 +1693,8 @@ def inject_user():
 
 @app.route('/healthz')
 def healthz():
-    return jsonify({"ok": True, "storefront_only": STOREFRONT_ONLY})
+    ready = _persistent_storage_ready()
+    return jsonify({"ok": ready, "persistent_storage": ready}), (200 if ready else 503)
 
 
 @app.route('/version')
@@ -1676,29 +1730,21 @@ def _admin_token():
 
 
 def admin_allowed():
-    # Session writes require a secret key; without one Flask's NullSession
-    # raises on assignment, so token access still works but isn't remembered.
-    can_remember = bool(app.secret_key)
     token = _admin_token()
+    proof = hashlib.sha256(token.encode()).hexdigest() if token else ""
     if token:
-        if can_remember and session.get("admin_allowed"):
+        supplied = request.headers.get("X-Admin-Token") or request.args.get("token") or request.form.get("token")
+        if supplied and secrets.compare_digest(supplied, token):
+            if app.secret_key:
+                session["admin_token_proof"] = proof
             return True
-        supplied = request.args.get("token") or request.form.get("token")
-        if supplied and supplied == token:
-            if can_remember:
-                session["admin_allowed"] = True
-                session["skiptrace_admin"] = True
+        if app.secret_key and secrets.compare_digest(session.get("admin_token_proof", ""), proof):
             return True
+    # Email ownership is not verified by this app. Grant roles only to
+    # explicitly provisioned, immutable account IDs, never an entered email.
     user = current_user()
-    if user:
-        admin_email = (os.getenv("ADMIN_EMAIL", "") or "").strip().lower()
-        allowed = set(OWNER_ADMIN_EMAILS)
-        allowed.update(email.strip() for email in admin_email.split(",") if email.strip())
-        if user["email"].lower() in allowed:
-            if can_remember:
-                session["admin_allowed"] = True
-            return True
-    return False
+    allowed = {uid.strip() for uid in os.getenv("ADMIN_USER_IDS", "").split(",") if uid.strip()}
+    return bool(user and str(user["id"]) in allowed)
 
 
 def admin_required(view):
@@ -1713,8 +1759,7 @@ def admin_required(view):
 
 
 def _accounts_ready():
-    """True when both the DB and the session secret are configured."""
-    return db.is_configured() and bool(app.secret_key)
+    return db.is_configured() and bool(app.secret_key) and _persistent_storage_ready()
 
 
 @app.route('/register', methods=['GET', 'POST'])
@@ -1748,6 +1793,7 @@ def register():
             _grant_signup_promo(user['id'])   # separate aged-lead allowance
         except Exception:
             app.logger.exception("Could not register signup promo")
+        session.clear()
         session['user_id'] = user['id']
         return redirect(url_for('account'))
     return render_template('auth.html', mode='register')
@@ -1773,9 +1819,10 @@ def login():
                                    error="Account service is temporarily unavailable. Please try again in a few minutes.")
         if not user or not check_password_hash(user['password_hash'], password):
             return render_template('auth.html', mode='login', error="Incorrect email or password.", email=email)
+        session.clear()
         session['user_id'] = user['id']
         nxt = request.args.get('next') or url_for('account')
-        if not nxt.startswith('/'):
+        if not nxt.startswith('/') or nxt.startswith('//') or '\\' in nxt or urlsplit(nxt).netloc:
             nxt = url_for('account')
         return redirect(nxt)
     return render_template('auth.html', mode='login')
@@ -1784,7 +1831,7 @@ def login():
 @app.route('/logout', methods=['POST'])
 def logout():
     if app.secret_key:
-        session.pop('user_id', None)
+        session.clear()
     return redirect(url_for('index'))
 
 
@@ -2477,96 +2524,37 @@ def admin_trace_export():
 
 @app.route('/api/create-checkout-session', methods=['POST'])
 def create_checkout_session():
-    if not stripe.api_key:
-        return jsonify({"error": "Payments are not configured yet."}), 503
-    if not _accounts_ready():
-        return jsonify({"error": "Accounts are not configured yet. Set Appwrite env vars and SECRET_KEY."}), 503
-
+    if not stripe.api_key or not _accounts_ready():
+        return jsonify({"error": "Payments require account configuration and persistent storage."}), 503
     user = current_user()
     if not user:
-        return jsonify({"login_required": True,
-                        "error": "Please log in to purchase leads."}), 401
-
-    payload = request.get_json(silent=True) or {}
-    selected_ids = {str(lead_id) for lead_id in payload.get("lead_ids", [])}
-    if not selected_ids:
-        return jsonify({"error": "Select at least one lead first."}), 400
-
-    listings = current_listings()
-    selected = [item for item in publishable_storefront_listings(listings) if str(item.get("id")) in selected_ids]
-    if len(selected) != len(selected_ids):
-        return jsonify({"error": "Some selected leads are no longer available. Refresh and try again."}), 409
-    if not selected:
-        return jsonify({"error": "Selected leads were not found."}), 400
-    lead_modes = _requested_lead_modes(payload, selected_ids)
-
-    # County is derived from the selected leads themselves — no need to pick one
-    # up front. All leads in a single order must share a county.
-    counties = {str(item.get("county") or "").strip().lower() for item in selected}
-    counties.discard("")
-    if len(counties) > 1:
-        return jsonify({"error": "Checkout is limited to one county at a time. Please select leads from a single county."}), 400
-    if not counties:
-        return jsonify({"error": "Selected leads are missing county information."}), 400
-    selected_county = next(iter(counties))
-
-    # County exclusivity: when subscriptions are live, a county claimed by an active
-    # subscriber is reserved and not available for per-lead purchase by others.
-    if _subscriptions_ready() and selected_county in _claimed_counties(exclude_user=user["id"]):
-        return jsonify({"error": "This county is reserved for its subscriber and isn't available for per-lead purchase."}), 409
-
-    total_cents = sum(
-        _purchase_price_cents(item, lead_modes[str(item.get("id"))]) for item in selected
-    )
-    if total_cents <= 0:
-        return jsonify({"error": "Selected leads do not have a valid price."}), 400
-
-    origin = request.host_url.rstrip("/")
+        return jsonify({"login_required": True}), 401
     try:
-        checkout_session = stripe.checkout.Session.create(
-            mode="payment",
-            payment_method_types=["card"],
-            customer_email=user["email"],
-            line_items=[{
-                "price_data": {
-                    "currency": "usd",
-                    "product_data": {
-                        "name": f"{selected_county.title()} foreclosure lead order",
-                    },
-                    "unit_amount": total_cents,
-                },
-                "quantity": 1,
-            }],
-            metadata={
-                "user_id": str(user["id"]),
-                "county": selected_county,
-                "lead_count": str(len(selected)),
-                "skip_count": str(sum(mode == "skip" for mode in lead_modes.values())),
-                "lead_ids": ",".join(str(item.get("id")) for item in selected)[:500],
-            },
-            success_url=f"{origin}/checkout/success?session_id={{CHECKOUT_SESSION_ID}}",
-            cancel_url=f"{origin}/checkout/cancel",
-        )
-    except stripe.error.StripeError as exc:
-        return jsonify({"error": str(exc)}), 502
-
-    # Record a pending order with a full snapshot of the purchased leads, so the
-    # buyer keeps access even if a lead later drops out of the storefront CSV.
-    try:
-        db.init_db()
-        order_id = db.create_pending_order(
-            user_id=user["id"],
-            email=user["email"],
-            stripe_session_id=checkout_session.id,
-            amount_cents=total_cents,
-            leads=_prepare_purchased_leads(selected, lead_modes),
-        )
-    except Exception as exc:
-        return jsonify({"error": f"Could not record this order before checkout: {type(exc).__name__}"}), 503
-    if not order_id:
-        return jsonify({"error": "Could not record this order before checkout."}), 503
-
-    return jsonify({"url": checkout_session.url})
+        payload, selected, modes, county = _purchase_selection(user)
+        key = "checkout_" + secrets.token_hex(16)
+        amount = sum(_purchase_price_cents(it, modes[str(it["id"])]) for it in selected)
+        origin = request.host_url.rstrip("/")
+        checkout_args = {
+            "mode": "payment", "payment_method_types": ["card"], "customer_email": user["email"],
+            "line_items": [{"price_data": {"currency": "usd", "product_data": {
+                "name": f"{county.title()} exclusive lead order"}, "unit_amount": amount}, "quantity": 1}],
+            "metadata": {"user_id": str(user["id"]), "purchase_id": key, "county": county},
+            "expires_at": int(time.time()) + 3600,
+            "success_url": f"{origin}/checkout/success?session_id={{CHECKOUT_SESSION_ID}}",
+            "cancel_url": f"{origin}/checkout/cancel",
+        }
+        order = purchase_store.reserve(key, {"kind": "stripe", "user_id": str(user["id"]),
+            "email": user["email"], "amount_cents": amount,
+            "leads": _prepare_purchased_leads(selected, modes), "checkout_args": checkout_args})
+        cs = _create_reserved_checkout(order)
+        return jsonify({"url": cs.url})
+    except commerce.Unavailable as exc:
+        return jsonify({"error": str(exc)}), 409
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+    except Exception:
+        app.logger.exception("Could not create checkout; journal will retry")
+        return jsonify({"error": "Checkout could not finish. Your reservation will be recovered automatically."}), 503
 
 
 def _user_active_sub_counties(user_id):
@@ -2586,7 +2574,7 @@ def wallet_status():
     return jsonify({
         "balance_cents": _wallet_balance_cents(user["id"]),
         "aged_promo_remaining": _promo_status(user["id"])["remaining"],
-        "aged_promo_pending": bool(_promo_status(user["id"]).get("pending")),
+        "aged_promo_pending": bool(_promo_status(user["id"]).get("pending") or _promo_status(user["id"]).get("pending_key")),
         "price_traced_cents": int(round(LEAD_PRICE_TRACED * 100)),
         "price_raw_cents": int(round(LEAD_PRICE_RAW * 100)),
     })
@@ -2594,70 +2582,37 @@ def wallet_status():
 
 @app.route('/api/unlock', methods=['POST'])
 def unlock_with_credits():
-    """Unlock selected leads by spending wallet credit (free within a county the
-    user subscribes to). Records a paid order so the account page shows them."""
     if not _accounts_ready():
-        return jsonify({"error": "Accounts are not configured yet."}), 503
+        return jsonify({"error": "Accounts and persistent storage must be configured."}), 503
     user = current_user()
     if not user:
-        return jsonify({"login_required": True, "error": "Please log in to unlock leads."}), 401
-
-    payload = request.get_json(silent=True) or {}
-    selected_ids = {str(x) for x in payload.get("lead_ids", [])}
-    if not selected_ids:
-        return jsonify({"error": "Select at least one lead first."}), 400
-
-    listings = current_listings()
-    selected = [it for it in publishable_storefront_listings(listings) if str(it.get("id")) in selected_ids]
-    if len(selected) != len(selected_ids):
-        return jsonify({"error": "Some selected leads are no longer available. Refresh and try again."}), 409
-    if not selected:
-        return jsonify({"error": "Selected leads were not found."}), 400
-    lead_modes = _requested_lead_modes(payload, selected_ids)
-    counties = {str(it.get("county") or "").strip().lower() for it in selected}
-    counties.discard("")
-    if len(counties) > 1:
-        return jsonify({"error": "Unlock one county at a time."}), 400
-    if not counties:
-        return jsonify({"error": "Selected leads are missing county information."}), 400
-    selected_county = next(iter(counties))
-
-    covered = selected_county in _user_active_sub_counties(user["id"])
-    cost = 0 if covered else sum(
-        _purchase_price_cents(it, lead_modes[str(it.get("id"))]) for it in selected
-    )
-    balance = _wallet_balance_cents(user["id"])
-    if cost > balance:
-        return jsonify({
-            "error": "Not enough credit.",
-            "need_cents": cost, "balance_cents": balance,
-            "short_cents": cost - balance,
-        }), 402
-
-    # Record the unlock as a paid order (synthetic session id, no Stripe charge).
-    session_id = "credit_" + os.urandom(8).hex()
+        return jsonify({"login_required": True}), 401
     try:
-        db.init_db()
-        db.create_pending_order(
-            user_id=user["id"], email=user["email"],
-            stripe_session_id=session_id, amount_cents=cost,
-            leads=_prepare_purchased_leads(selected, lead_modes),
-        )
-        db.mark_order_paid(session_id)
-    except Exception as exc:
-        return jsonify({"error": f"Could not record unlock: {type(exc).__name__}"}), 503
+        return jsonify(_wallet_purchase(user, request.get_json(silent=True) or {}))
+    except commerce.InsufficientCredit:
+        return jsonify({"error": "Not enough credit.", "balance_cents": _wallet_balance_cents(user["id"])}), 402
+    except commerce.Unavailable as exc:
+        return jsonify({"error": str(exc)}), 409
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+    except Exception:
+        app.logger.exception("Wallet order awaiting recovery")
+        return jsonify({"error": "Your order is saved and delivery is being retried. You will not be charged twice."}), 503
 
-    _mark_leads_sold(selected_ids)   # exclusive sale: pull them off the storefront
-    _start_order_skiptraces(session_id)
 
-    if cost:
-        balance = _wallet_adjust(user["id"], -cost,
-                                 f"unlock:{selected_county}:{len(selected)}")
-    return jsonify({
-        "ok": True, "unlocked": len(selected),
-        "charged_cents": cost, "balance_cents": balance,
-        "covered_by_subscription": covered,
-    })
+@app.route('/api/unlock/quote', methods=['POST'])
+def unlock_quote():
+    if not _accounts_ready():
+        return jsonify({"error": "Purchases are temporarily unavailable."}), 503
+    user = current_user()
+    if not user:
+        return jsonify({"login_required": True}), 401
+    try:
+        return jsonify(purchase_runtime.quote(sys.modules[__name__], user, request.get_json(silent=True) or {}))
+    except commerce.Unavailable as exc:
+        return jsonify({"error": str(exc)}), 409
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
 
 
 @app.route('/api/credit-packs')
@@ -2669,7 +2624,7 @@ def credit_packs():
 def buy_credits():
     """Start a Stripe checkout to top up the wallet. Built on the fly (no Stripe
     dashboard products needed). Credit is granted on fulfillment."""
-    if not stripe.api_key:
+    if not stripe.api_key or not _accounts_ready():
         return jsonify({"error": "Payments are not configured yet."}), 503
     user = current_user()
     if not user:
@@ -2717,101 +2672,139 @@ def buy_credits():
 
 
 def _fulfill_session(session_id):
-    """Mark the matching order paid if Stripe confirms payment. Idempotent."""
-    if not session_id or not stripe.api_key:
+    if not session_id or not stripe.api_key or not _persistent_storage_ready():
         return False
-    try:
-        cs = stripe.checkout.Session.retrieve(session_id)
-    except stripe.error.StripeError:
+    cs = stripe.checkout.Session.retrieve(session_id)
+    if cs.get("mode") != "payment" or (cs.get("metadata") or {}).get("kind") == "credit_pack":
         return False
     if cs.get("payment_status") != "paid":
         return False
-    try:
-        db.init_db()
-        paid = db.mark_order_paid(session_id)
-    except Exception:
-        return False
-    if paid:
-        try:
-            # Exclusive sale: hide the purchased leads from the storefront.
-            _mark_leads_sold([l.get("id") for l in db.get_order_leads(session_id)])
-        except Exception as exc:
-            # Non-fatal: the buyer's order is already fulfilled. Both webhook
-            # and /checkout/success call this idempotently, so a transient
-            # failure here gets another chance on the other path.
-            app.logger.warning(f"could not mark leads sold for {session_id}: {exc}")
-        _start_order_skiptraces(session_id)
-    return paid
+    order = purchase_store.get(session_id=session_id)
+    if not order:
+        key = (cs.get("metadata") or {}).get("purchase_id")
+        order = purchase_store.get(key=key) if key else None
+        if order:
+            purchase_store.bind(key, session_id)
+        else:
+            # Checkout sessions created before the journal was introduced.
+            old = db.get_order_by_session(session_id)
+            if not old:
+                return False
+            if old.get("status") == "refunded":
+                return True
+            if old.get("status") == "paid":
+                _mark_leads_sold([it["id"] for it in old["leads_json"]])
+                _start_order_skiptraces(session_id)
+                return True
+            try:
+                order = purchase_store.reserve(session_id, {"kind": "stripe", "user_id": str(old["user_id"]),
+                    "email": old["email"], "amount_cents": old["amount_cents"], "leads": old["leads_json"]})
+            except commerce.Unavailable:
+                # A pre-upgrade checkout had no reservation. Never deliver a
+                # second copy if its leads were purchased in the meantime.
+                refund = stripe.Refund.create(payment_intent=cs["payment_intent"],
+                    idempotency_key="exclusive-refund:" + session_id)
+                if refund.get("status") not in {"pending", "succeeded"}:
+                    raise RuntimeError("Inventory-conflict refund not accepted")
+                return db.set_order_status(session_id, "refunded")
+            purchase_store.bind(order["id"], session_id)
+    if int(cs.get("amount_total", -1)) != int(order["amount_cents"]) or cs.get("currency") != "usd":
+        raise ValueError("Payment does not match reserved order")
+    purchase_store.paid(order["id"])
+    return _deliver_purchase(purchase_store.get(key=order["id"]))
 
 
 @app.route('/checkout/success')
 def checkout_success():
-    session_id = request.args.get('session_id')
-    # Fallback fulfillment (in case the webhook is delayed/missed). Both no-op
-    # for the wrong kind, so calling both is safe and idempotent.
-    _fulfill_credit_pack(session_id)
-    _fulfill_session(session_id)
-    if current_user():
+    sid = request.args.get('session_id')
+    success = False
+    try:
+        if sid and stripe.api_key:
+            cs = stripe.checkout.Session.retrieve(sid)
+            success = (_fulfill_credit_pack(sid) if (cs.get("metadata") or {}).get("kind") == "credit_pack"
+                       else _fulfill_session(sid))
+    except Exception:
+        app.logger.exception("Return-page fulfillment pending")
+    if success and sid and (cs.get("metadata") or {}).get("kind") != "credit_pack":
+        order = db.get_order_by_session(sid)
+        if order and order.get("status") == "refunded":
+            return render_template('checkout_status.html', title="Payment refunded",
+                message="These exclusive leads were no longer available. Your payment has been refunded to your original payment method.")
+    if success and current_user():
         return redirect(url_for('account'))
-    return render_template('checkout_status.html', title="Payment complete",
-                           message="Payment complete. Log in to view your purchased leads.")
+    return render_template('checkout_status.html', title="Payment complete" if success else "Payment processing",
+        message="Log in to view your purchased leads." if success else "We are confirming your payment and preparing your order. Please check your account shortly."), (200 if success else 202)
 
 
 @app.route('/webhook/stripe', methods=['POST'])
 def stripe_webhook():
-    secret = os.getenv("STRIPE_WEBHOOK_SECRET", "")
-    if not secret:
-        return ("webhook not configured", 200)
-    payload = request.get_data()
-    sig = request.headers.get('Stripe-Signature', '')
     try:
-        event = stripe.Webhook.construct_event(payload, sig, secret)
-    except (ValueError, stripe.error.SignatureVerificationError):
-        return ("invalid", 400)
-    etype = event.get("type")
-    obj = event.get("data", {}).get("object", {}) or {}
-    if etype == "checkout.session.completed":
-        if obj.get("mode") == "subscription":
-            _fulfill_subscription(obj.get("id"))      # county subscription
-        elif (obj.get("metadata") or {}).get("kind") == "credit_pack":
-            _fulfill_credit_pack(obj.get("id"))       # wallet top-up
-        else:
-            _fulfill_session(obj.get("id"))           # per-lead one-time order
-    elif etype == "customer.subscription.deleted":
-        _set_sub_status(obj.get("id"), "canceled")    # releases the county claim
-    elif etype == "customer.subscription.updated":
-        status = obj.get("status") or "active"
-        new_status = "active" if status == "active" else "canceled"
-        _set_sub_status(obj.get("id"), new_status)
-        # Sync tier in case price changed (immediate upgrade, or a scheduled
-        # downgrade landing at renewal). Clear any pending-downgrade marker
-        # once the live price matches the new tier.
+        if not _persistent_storage_ready():
+            return ("persistent storage unavailable", 503)
+        secret = os.getenv("STRIPE_WEBHOOK_SECRET", "")
+        if not secret:
+            return ("webhook not configured", 503)
+        payload = request.get_data()
+        sig = request.headers.get('Stripe-Signature', '')
         try:
-            price_id = obj["items"]["data"][0]["price"]["id"]
-            new_tier = next((k for k, v in TIER_PRICES.items() if v == price_id), None)
-            if new_tier:
-                subs = _load_subs()
-                for s in subs:
-                    if s.get("stripe_subscription_id") == obj.get("id"):
-                        s["tier"] = new_tier
-                        if s.get("pending_tier") == new_tier:
-                            s.pop("pending_tier", None)
-                            s.pop("pending_tier_at", None)
-                _save_subs(subs)
-        except Exception:
-            pass
-    elif etype == "invoice.paid" and obj.get("subscription"):
-        # renewal -> reset the monthly included-trace allowance
-        subs = _load_subs()
-        hit = False
-        for s in subs:
-            if s.get("stripe_subscription_id") == obj.get("subscription"):
-                s["traces_used"] = 0
-                s["period_start"] = datetime.now().isoformat(timespec="seconds")
-                hit = True
-        if hit:
-            _save_subs(subs)
-    return ("ok", 200)
+            event = stripe.Webhook.construct_event(payload, sig, secret)
+        except (ValueError, stripe.error.SignatureVerificationError):
+            return ("invalid", 400)
+        etype = event.get("type")
+        event_id = event.get("id") or secrets.token_hex(8)
+        obj = event.get("data", {}).get("object", {}) or {}
+        if etype in {"checkout.session.completed", "checkout.session.async_payment_succeeded"}:
+            if obj.get("mode") == "subscription":
+                if not _fulfill_subscription(obj.get("id")):
+                    return ("fulfillment pending", 503)
+            elif (obj.get("metadata") or {}).get("kind") == "credit_pack":
+                if not _fulfill_credit_pack(obj.get("id")):
+                    return ("fulfillment pending", 503)
+            else:
+                if not _fulfill_session(obj.get("id")):
+                    return ("fulfillment pending", 503)
+        elif etype == "customer.subscription.deleted":
+            if not _sync_subscription_object(obj):
+                return ("subscription synchronization pending", 503)
+        elif etype == "customer.subscription.updated":
+            obj = stripe.Subscription.retrieve(obj["id"])
+            if not _sync_subscription_object(obj):
+                return ("subscription synchronization pending", 503)
+        elif etype == "checkout.session.expired":
+            order = purchase_store.get(session_id=obj.get("id"))
+            if order:
+                cs = stripe.checkout.Session.retrieve(obj["id"])
+                if cs.get("status") == "expired":
+                    purchase_store.expire(order["id"])
+        elif etype == "checkout.session.async_payment_failed":
+            order = purchase_store.get(session_id=obj.get("id"))
+            if order:
+                cs = stripe.checkout.Session.retrieve(obj["id"])
+                if cs.get("payment_status") == "unpaid":
+                    purchase_store.expire(order["id"])
+        elif etype in {"customer.subscription.created", "customer.subscription.paused",
+                       "customer.subscription.resumed"}:
+            authoritative = stripe.Subscription.retrieve(obj["id"])
+            if not _sync_subscription_object(authoritative):
+                return ("subscription synchronization pending", 503)
+        elif etype == "invoice.paid":
+            subscription = obj.get("subscription") or ((obj.get("parent") or {}).get("subscription_details") or {}).get("subscription")
+            if subscription:
+                known = any(s.get("stripe_subscription_id") == subscription for s in _load_subs())
+                if not known:
+                    if not _sync_subscription_object(stripe.Subscription.retrieve(subscription)):
+                        return ("subscription synchronization pending", 503)
+                    known = any(s.get("stripe_subscription_id") == subscription for s in _load_subs())
+                if known:
+                    _renew_subscription_allowance({**obj, "subscription": subscription})
+        elif etype in {"invoice.payment_failed", "invoice.payment_action_required",
+                       "invoice.finalization_failed"}:
+            if not _record_billing_problem(event_id, etype, obj):
+                return ("billing status synchronization pending", 503)
+        return ("ok", 200)
+    except Exception:
+        app.logger.exception("Stripe webhook fulfillment failed")
+        return ("fulfillment pending", 503)
 
 @app.route('/checkout/cancel')
 def checkout_cancel():
@@ -2847,10 +2840,13 @@ def _activate_subscription(sub_id, customer_id, user_id, county, email="", tier=
         if items:
             price_id = (items[0].get("price") or {}).get("id", "")
     except Exception:
-        pass
+        return False
+    if s.get("status") != "active":
+        return False
     # Infer tier from price_id if not explicitly passed
-    if tier not in TIER_PRICES:
-        tier = next((k for k, v in TIER_PRICES.items() if v == price_id), "professional")
+    tier = next((k for k, v in TIER_PRICES.items() if v and v == price_id), None)
+    if not tier:
+        return False
     now = datetime.now().isoformat(timespec="seconds")
     _upsert_sub({
         "id": secrets.token_hex(8),
@@ -2872,15 +2868,7 @@ def _activate_subscription(sub_id, customer_id, user_id, county, email="", tier=
 
 def _set_sub_status(sub_id, status) -> bool:
     """Update an existing subscription's status (e.g. 'canceled' releases the county)."""
-    subs = _load_subs()
-    changed = False
-    for s in subs:
-        if s.get("stripe_subscription_id") == sub_id:
-            s["status"] = status
-            changed = True
-    if changed:
-        _save_subs(subs)
-    return changed
+    return _patch_subscription(sub_id, {"status": status}) is not None
 
 
 def _fulfill_subscription(session_id) -> bool:
@@ -2901,85 +2889,40 @@ def _fulfill_subscription(session_id) -> bool:
                                   md.get("tier", "professional"))
 
 
-def record_trace_use(user_id, county) -> dict:
-    """Count one skip-trace against the subscriber's monthly allowance. Returns
-    {included, used, overage} — when used exceeds INCLUDED_TRACES_PER_MONTH, an
-    overage invoice item ($5) is added to the Stripe subscription if a price is set.
-    Call this at the point a trace is REVEALED to a subscribed buyer."""
-    subs = _load_subs()
-    target = None
-    for s in subs:
-        if (s.get("status") == "active" and str(s.get("user_id")) == str(user_id)
-                and str(s.get("county") or "").lower() == str(county).lower()):
-            target = s
-            break
-    if not target:
-        return {"included": False, "used": 0, "overage": False}
-    target["traces_used"] = int(target.get("traces_used") or 0) + 1
-    used = target["traces_used"]
-    included = _tier_included(target.get("tier", "professional"))
-    overage = used > included
-    _save_subs(subs)
-    if overage and STRIPE_PRICE_TRACE_OVERAGE and target.get("stripe_subscription_id"):
-        try:
-            stripe.InvoiceItem.create(
-                customer=target.get("stripe_customer_id"),
-                price=STRIPE_PRICE_TRACE_OVERAGE,
-                subscription=target.get("stripe_subscription_id"),
-            )
-        except Exception:
-            pass  # never block a reveal on billing; reconcile later
-    return {"included": True, "used": used, "overage": overage}
+def record_trace_use(user_id, county):
+    raise RuntimeError("Trace allowances must be consumed with an exclusive purchase")
 
 
 @app.route('/api/subscriber/reveal', methods=['POST'])
 @login_required
 def subscriber_reveal():
-    """Return real contact data for one lead to an active county subscriber.
-    Counts against their monthly allotment; triggers overage charge if exceeded."""
     user = current_user()
     payload = request.get_json(silent=True) or {}
     lead_id = str(payload.get("lead_id") or "").strip()
     if not lead_id:
         return jsonify({"error": "lead_id required"}), 400
-
-    listings = current_listings()
-    lead = next((r for r in listings if str(r.get("id")) == lead_id), None)
+    # Repeated reveals return the owned snapshot without consuming another slot.
+    for order in db.get_paid_orders_for_user(user["id"]):
+        for lead in order.get("leads_json") or []:
+            if str(lead.get("id")) == lead_id and lead.get("purchase_mode") == "skip":
+                return jsonify({"phone": lead.get("primary_phone", ""), "email": lead.get("email_1", ""),
+                                "pending": lead.get("skiptrace_status") == "pending"})
+    lead = next((it for it in current_listings() if str(it.get("id")) == lead_id), None)
     if not lead:
         return jsonify({"error": "Lead not found"}), 404
-
-    county = str(lead.get("county") or "").strip().lower()
-    user_subs = _user_subs(user["id"])
-    sub = next((s for s in user_subs
-                if str(s.get("county") or "").lower() == county
-                and s.get("status") == "active"), None)
-    if not sub:
-        return jsonify({"error": "You don't have an active subscription for this county."}), 403
-
-    result = record_trace_use(user["id"], county)
-
-    phone = str(lead.get("primary_phone") or "").strip()
-    email = str(lead.get("email_1") or "").strip()
-    if not phone and not email:
-        return jsonify({
-            "phone": "",
-            "email": "",
-            "overage": result.get("overage", False),
-            "used": result.get("used", 0),
-            "no_contact": True,
-        })
-
-    # A reveal delivers the product (contact info), so it's a sale like any
-    # other — pull the lead off the storefront. Skipped for no-contact leads
-    # above: the subscriber got nothing, so the lead stays sellable.
-    _mark_leads_sold([lead_id])
-
-    return jsonify({
-        "phone": phone,
-        "email": email,
-        "overage": result.get("overage", False),
-        "used": result.get("used", 0),
-    })
+    if str(lead.get("county") or "").lower() not in _user_active_sub_counties(user["id"]):
+        return jsonify({"error": "No active county subscription"}), 403
+    if not _lead_is_traced(lead):
+        return jsonify({"phone": "", "email": "", "no_contact": True, "overage": False})
+    try:
+        result = _wallet_purchase(user, {"lead_ids": [lead_id], "lead_modes": {lead_id: "skip"},
+                                          "max_charge_cents": payload.get("max_charge_cents", 0)})
+        return jsonify({"phone": lead.get("primary_phone", ""), "email": lead.get("email_1", ""),
+                        "overage": result["charged_cents"] > 0, "charged_cents": result["charged_cents"]})
+    except commerce.InsufficientCredit:
+        return jsonify({"error": "Included traces used. Add wallet credit for the displayed skip-trace upgrade."}), 402
+    except commerce.Unavailable as exc:
+        return jsonify({"error": str(exc)}), 409
 
 
 @app.route('/api/subscriber/change-tier', methods=['POST'])
@@ -3065,17 +3008,10 @@ def subscriber_change_tier():
 
     # Persist local record. Upgrade flips tier now; downgrade keeps the current
     # tier and records the pending change (webhook clears it at renewal).
-    subs = _load_subs()
-    for s in subs:
-        if s.get("stripe_subscription_id") == stripe_sub_id:
-            if is_upgrade:
-                s["tier"] = new_tier
-                s.pop("pending_tier", None)
-                s.pop("pending_tier_at", None)
-            else:
-                s["pending_tier"] = new_tier
-                s["pending_tier_at"] = period_end
-    _save_subs(subs)
+    if is_upgrade:
+        _patch_subscription(stripe_sub_id, {"tier": new_tier}, remove=("pending_tier", "pending_tier_at"))
+    else:
+        _patch_subscription(stripe_sub_id, {"pending_tier": new_tier, "pending_tier_at": period_end})
 
     return jsonify({
         "ok": True,
@@ -3286,8 +3222,8 @@ def _write_scrape_csv(source_key, records):
     return filename
 
 def _load_csv_rows(filename):
-    path = os.path.join(DATA_DIR, filename)
-    if not os.path.exists(path):
+    path = _safe_csv_path(filename)
+    if not path:
         return []
     rows = []
     with open(path, newline='', encoding='utf-8') as f:
@@ -3693,8 +3629,6 @@ def purge_stray_counties():
 @app.route('/admin/data/download')
 @admin_required
 def admin_data_download():
-    if STOREFRONT_ONLY:
-        return redirect(url_for('index'), code=302)
     from flask import send_file
     filename = request.args.get('file', '')
     if not filename:
@@ -3702,10 +3636,10 @@ def admin_data_download():
         if not files:
             return "No CSV files available", 404
         filename = files[0]
-    path = os.path.join(DATA_DIR, filename)
-    if not os.path.exists(path):
+    path = _safe_csv_path(filename)
+    if not path:
         return "File not found", 404
-    return send_file(path, as_attachment=True, download_name=filename)
+    return send_file(path, as_attachment=True, download_name=os.path.basename(path))
 
 @app.route('/csv-dash')
 @admin_required
@@ -4081,22 +4015,7 @@ def _clean_ca_address_inplace(item):
 
 
 def _dedupe_key(item):
-    """Strong per-property key, or None when we can't safely dedupe. Parcel and
-    case number are stable across publish dates; owner+street is the last resort."""
-    county = str(item.get("county") or "").lower().strip()
-    if not county:
-        return None
-    parcel = re.sub(r"\D", "", str(item.get("parcel_id") or ""))
-    if parcel:
-        return f"{county}|apn|{parcel}"
-    case = str(item.get("case_number") or "").strip().lower()
-    if case:
-        return f"{county}|case|{case}"
-    owner = str(item.get("owner") or "").strip().lower()
-    street = str(item.get("street") or "").strip().lower()
-    if owner and street:
-        return f"{county}|os|{owner}|{street}"
-    return None
+    return _parcel_date_key(item) or None
 
 
 def _completeness(item):
@@ -4169,7 +4088,12 @@ def _migrate_clean_and_dedupe():
         print(f"[migrate] cleanup/dedupe skipped: {e}")
 
 
-_migrate_clean_and_dedupe()
+import sys
+import purchase_runtime
+purchase_runtime.install(sys.modules[__name__])
+
+if os.getenv("DISABLE_STARTUP_MIGRATION") != "1":
+    _migrate_clean_and_dedupe()
 
 
 if __name__ == '__main__':

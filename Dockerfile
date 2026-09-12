@@ -11,4 +11,4 @@ COPY . .
 
 # app.py reads PORT from the environment; Railway injects it at runtime.
 ENV PORT=8095
-CMD ["python", "app.py"]
+CMD ["python", "serve.py"]

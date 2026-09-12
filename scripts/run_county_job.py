@@ -33,7 +33,7 @@ def post_batch(
         try:
             response = requests.post(
                 f"{base_url.rstrip('/')}/api/scrape/ingest",
-                params={"token": token},
+                headers={"X-Admin-Token": token},
                 json={"county": county, "source": source, "records": records},
                 timeout=60,
             )

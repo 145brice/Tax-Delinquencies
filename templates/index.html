@@ -1002,13 +1002,20 @@
         const selected_county = counties[0] || '';
         const lead_ids = [...selectedIds];
         try {
+            const purchase = {lead_ids, lead_modes: Object.fromEntries(lead_ids.map(id => [id, selectedModes.get(id) || 'raw']))};
+            const quoteResponse = await fetch('/api/unlock/quote', {
+                method: 'POST', headers: {'Content-Type': 'application/json', 'X-CSRF-Token': CSRF_TOKEN},
+                body: JSON.stringify(purchase)
+            });
+            const quote = await quoteResponse.json();
+            if (quoteResponse.status === 401) { window.location.href = '/login?next=/'; return; }
+            if (!quoteResponse.ok) return alert(quote.error || 'Could not price this order.');
+            if (!quote.resume && !confirm(`Unlock ${lead_ids.length} exclusive lead(s) for $${(quote.amount_cents / 100).toFixed(2)} in wallet credit?`)) return;
+            purchase.max_charge_cents = quote.amount_cents;
             const resp = await fetch('/api/unlock', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': CSRF_TOKEN },
-                body: JSON.stringify({
-                    lead_ids, selected_county,
-                    lead_modes: Object.fromEntries(lead_ids.map(id => [id, selectedModes.get(id) || 'raw']))
-                })
+                body: JSON.stringify(purchase)
             });
             const data = await resp.json();
             if (resp.status === 401 || data.login_required) {
@@ -1016,7 +1023,7 @@
                 return;
             }
             if (resp.status === 402) {
-                const short = (data.short_cents / 100).toFixed(2);
+                const short = (Math.max(0, quote.amount_cents - (data.balance_cents || 0)) / 100).toFixed(2);
                 if (confirm(`You're $${short} short on credits. Pay the full amount by card instead?`)) {
                     checkout();
                 }
@@ -1071,10 +1078,19 @@
         btn.textContent = '…';
         const csrf = document.querySelector('meta[name="csrf-token"]').content;
         try {
+            const quoteResponse = await fetch('/api/unlock/quote', {
+                method: 'POST', headers: {'Content-Type': 'application/json', 'X-CSRF-Token': csrf},
+                body: JSON.stringify({lead_ids: [leadId], lead_modes: {[leadId]: 'skip'}})
+            });
+            const quote = await quoteResponse.json();
+            if (!quoteResponse.ok) throw new Error(quote.error || 'Could not price this lead.');
+            if (quote.amount_cents > 0 && !confirm(`Your included traces are used. Spend $${(quote.amount_cents / 100).toFixed(2)} in wallet credit to reveal this exclusive lead?`)) {
+                btn.disabled = false; btn.textContent = 'Reveal'; return;
+            }
             const r = await fetch('/api/subscriber/reveal', {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json', 'X-CSRF-Token': csrf},
-                body: JSON.stringify({lead_id: leadId})
+                body: JSON.stringify({lead_id: leadId, max_charge_cents: quote.amount_cents})
             });
             const d = await r.json();
             if (d.error) {
@@ -1086,8 +1102,8 @@
             // Replace the phone cell
             const phoneSpan = btn.closest('.reveal-contact');
             if (phoneSpan) {
-                let html = `<span class="revealed-phone">${d.phone || '—'}</span>`;
-                if (d.overage) html += `<span class="overage-note">+$7 overage</span>`;
+                let html = `<span class="revealed-phone">${esc(d.phone || '—')}</span>`;
+                if (d.overage) html += `<span class="overage-note">$${(d.charged_cents / 100).toFixed(2)} wallet credit</span>`;
                 phoneSpan.outerHTML = html;
             }
             // Fill in the email cell

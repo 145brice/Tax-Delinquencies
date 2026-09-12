@@ -15,6 +15,7 @@ import os
 import threading
 import time
 import hashlib
+from functools import wraps
 from datetime import datetime, timezone
 
 import requests
@@ -32,6 +33,16 @@ _DB_URL_ENV_VARS = (
 
 _init_lock = threading.Lock()
 _initialized = False
+_lead_update_lock = threading.RLock()
+
+
+def _serialize_lead_update(view):
+    """Appwrite snapshots need serialization in the single Railway process."""
+    @wraps(view)
+    def wrapped(*args, **kwargs):
+        with _lead_update_lock:
+            return view(*args, **kwargs)
+    return wrapped
 
 
 class DatabaseNotConfigured(RuntimeError):
@@ -486,10 +497,20 @@ def create_pending_order(user_id, email, stripe_session_id, amount_cents, leads)
         )
         row = cur.fetchone()
         conn.commit()
-        return row["id"] if row else None
+        if row:
+            return row["id"]
+        cur.execute("SELECT id FROM orders WHERE stripe_session_id = %s", (stripe_session_id,))
+        existing = cur.fetchone()
+        return existing["id"] if existing else None
 
 
 def mark_order_paid(stripe_session_id):
+    return set_order_status(stripe_session_id, "paid")
+
+
+def set_order_status(stripe_session_id, status):
+    if status not in {"paid", "refunded"}:
+        raise ValueError("Unsupported order status")
     if _use_appwrite():
         doc_id = _safe_doc_id(stripe_session_id)
         try:
@@ -497,13 +518,13 @@ def mark_order_paid(stripe_session_id):
         except AppwriteError:
             return False
         _appwrite_request("PATCH", f"/databases/{_appwrite_database_id()}/collections/{_appwrite_orders_collection_id()}/documents/{doc_id}", data={
-            "data": {"status": "paid"},
+            "data": {"status": status},
         })
         return True
     with get_conn() as conn, conn.cursor() as cur:
         cur.execute(
-            "UPDATE orders SET status = 'paid' WHERE stripe_session_id = %s",
-            (stripe_session_id,),
+            "UPDATE orders SET status = %s WHERE stripe_session_id = %s",
+            (status, stripe_session_id),
         )
         conn.commit()
         return cur.rowcount > 0
@@ -520,6 +541,8 @@ def get_order_leads(stripe_session_id):
             return []
         row = _order_doc_to_row(doc)
         return list(row["leads_json"] or []) if row else []
+    order = get_order_by_session(stripe_session_id)
+    return list(order["leads_json"] or []) if order else []
 
 
 def get_order_by_session(stripe_session_id):
@@ -582,7 +605,7 @@ def get_paid_orders():
     with get_conn() as conn, conn.cursor() as cur:
         cur.execute(
             """
-            SELECT id, user_id, email, amount_cents, leads_json, created_at
+            SELECT id, user_id, email, stripe_session_id, amount_cents, leads_json, created_at
             FROM orders
             WHERE status = 'paid'
             ORDER BY created_at DESC
@@ -591,6 +614,7 @@ def get_paid_orders():
         return cur.fetchall()
 
 
+@_serialize_lead_update
 def update_order_lead_contacts(order_id, lead_id, contact_fields):
     if _use_appwrite():
         doc = _appwrite_request("GET", f"/databases/{_appwrite_database_id()}/collections/{_appwrite_orders_collection_id()}/documents/{order_id}")
@@ -612,7 +636,7 @@ def update_order_lead_contacts(order_id, lead_id, contact_fields):
         return True
     with get_conn() as conn, conn.cursor() as cur:
         cur.execute(
-            "SELECT leads_json FROM orders WHERE id = %s AND status = 'paid'",
+            "SELECT leads_json FROM orders WHERE id = %s AND status = 'paid' FOR UPDATE",
             (order_id,),
         )
         row = cur.fetchone()
@@ -637,6 +661,7 @@ def update_order_lead_contacts(order_id, lead_id, contact_fields):
         return True
 
 
+@_serialize_lead_update
 def update_order_lead_tracking(order_id, user_id, lead_id, tracking_fields):
     allowed = {
         "buyer_folder", "buyer_status", "buyer_notes", "buyer_priority",
@@ -668,7 +693,7 @@ def update_order_lead_tracking(order_id, user_id, lead_id, tracking_fields):
 
     with get_conn() as conn, conn.cursor() as cur:
         cur.execute(
-            "SELECT leads_json FROM orders WHERE id = %s AND user_id = %s AND status = 'paid'",
+            "SELECT leads_json FROM orders WHERE id = %s AND user_id = %s AND status = 'paid' FOR UPDATE",
             (order_id, user_id),
         )
         row = cur.fetchone()
