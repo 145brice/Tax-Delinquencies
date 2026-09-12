@@ -1658,6 +1658,7 @@ def version():
         "volume_mount": volume,
         "sqlite_db": SQLITE_DB,
         "db_persistent": persistent,
+        "serper_configured": bool((os.getenv("SERPER_API_KEY", "") or "").strip()),
     })
 
 
