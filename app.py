@@ -7,6 +7,7 @@ import threading
 import time
 import csv
 import io
+import copy
 import shutil
 import sqlite3
 from datetime import datetime, timezone
@@ -1767,7 +1768,17 @@ def _prepare_purchased_leads(leads):
     prepared = []
     now = _utc_now_iso()
     for lead in leads:
-        item = dict(lead)
+        # Preserve the exact, unmasked source record and calculated checkout
+        # price as immutable purchase evidence. Buyer workflow fields remain at
+        # the top level and can change without rewriting this complaint record.
+        source_record = copy.deepcopy(dict(lead))
+        item = copy.deepcopy(source_record)
+        item["_purchase_evidence"] = {
+            "schema_version": 1,
+            "captured_at": now,
+            "price_cents": _listing_price_cents(source_record),
+            "lead": source_record,
+        }
         item["buyer_purchased_at"] = now
         item["buyer_updated_at"] = now
         _normalize_buyer_tracking(item, purchased_at=now)

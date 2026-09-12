@@ -426,7 +426,27 @@ def _order_doc_to_row(doc):
 def _list_order_docs(*queries):
     dbid = _appwrite_database_id()
     coll = _appwrite_orders_collection_id()
-    return _appwrite_request("GET", f"/databases/{dbid}/collections/{coll}/documents")
+    # Appwrite returns only 25 documents by default. Walk every page so buyer
+    # history and the staff queue do not silently lose older purchases.
+    documents = []
+    offset = 0
+    page_size = 100
+    while True:
+        page_queries = list(queries) + [
+            json.dumps({"method": "limit", "values": [page_size]}),
+            json.dumps({"method": "offset", "values": [offset]}),
+        ]
+        page = _appwrite_request(
+            "GET",
+            f"/databases/{dbid}/collections/{coll}/documents",
+            params=[("queries[]", query) for query in page_queries],
+        )
+        batch = page.get("documents", [])
+        documents.extend(batch)
+        offset += len(batch)
+        total = int(page.get("total") or 0)
+        if not batch or len(batch) < page_size or (total and offset >= total):
+            return {"total": total or len(documents), "documents": documents}
 
 
 def create_pending_order(user_id, email, stripe_session_id, amount_cents, leads):
