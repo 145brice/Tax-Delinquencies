@@ -47,6 +47,13 @@
             display: flex; flex-direction: column; justify-content: center;
         }
         .overview-title { color: #fff; font-size: 1.25rem; font-weight: 800; margin-bottom: 4px; }
+        .beta-pricing-badge {
+            display: inline-flex; align-items: center; width: fit-content;
+            margin-bottom: 8px; padding: 4px 9px; border-radius: 999px;
+            border: 1px solid #d97706; background: #3a2408; color: #fde68a;
+            font-size: 0.7rem; font-weight: 800; letter-spacing: 0.06em;
+            text-transform: uppercase;
+        }
         .overview-copy { color: #9ca3af; max-width: 720px; line-height: 1.45; }
         .metric-label { color: #6b7280; font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.08em; font-weight: 800; }
         .metric-value { color: #fff; font-size: 1.5rem; font-weight: 800; margin-top: 6px; }
@@ -317,6 +324,9 @@
 
 <section class="overview">
     <div class="overview-panel">
+        {% if pricing_phase == 'beta' %}
+        <div class="beta-pricing-badge">Beta pricing &middot; Limited time only</div>
+        {% endif %}
         <div class="overview-title">Live foreclosure lead desk</div>
         <div class="overview-copy">Browse masked public records, filter by county or lead type, then unlock the full contact package once checkout is connected.</div>
     </div>
