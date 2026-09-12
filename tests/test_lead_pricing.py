@@ -46,7 +46,10 @@ class PricingTests(unittest.TestCase):
 
     def test_age_uses_discovery_not_sale_date(self):
         self.assertIsNone(age_days({"scraped_date": "bad", "sale_date": "2000-01-01"}))
-        self.assertEqual(price_cents({}), 600)
+        self.assertEqual(price_cents({}), 270)
+        self.assertEqual(price_cents({}, traced=True), 675)
+        self.assertEqual(price_cents({}, phase="post_beta"), 810)
+        self.assertEqual(price_cents({}, traced=True, phase="post_beta"), 1350)
         self.assertEqual(age_days({"scraped_date": "2099-01-01"}), 0)
         self.assertEqual(discovery_date({"first_seen": "2025-01-01", "scraped_date": "2026-01-01"}), date(2025, 1, 1))
 

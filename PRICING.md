@@ -22,7 +22,8 @@ instead of dropping to $1.50 and then rising to $2 at day 61.
 Age uses UTC calendar days since the earliest valid `first_seen`,
 `first_seen_at`, or `scraped_date`. Re-scrape merges preserve that earliest
 date. Sale dates are not discovery dates. Missing or invalid discovery dates
-use fresh pricing and are ineligible for the promo; future dates count as age 0.
+use the lower-middle 45% tier and remain ineligible for the promo; future dates
+count as age 0.
 
 Storefront prices, Stripe checkout totals, and wallet unlocks share the same
 engine. The static marketing page lists beta and post-beta pricing explicitly.
