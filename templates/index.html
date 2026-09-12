@@ -159,11 +159,6 @@
             padding: 5px 6px; border-radius: 6px; font-size: 0.82rem; outline: none;
         }
         .pager-input:focus { border-color: #3b82f6; }
-        .pager-sort {
-            background: #1e2130; border: 1px solid #2a2d3a; color: #e0e0e0;
-            padding: 6px 8px; border-radius: 6px; font-size: 0.82rem; outline: none;
-        }
-        .pager-sort:focus { border-color: #3b82f6; }
         .pager .btn-clear:disabled { opacity: 0.35; cursor: default; }
         .pager .btn-clear:disabled:hover { color: #9ca3af; border-color: #374151; }
         .pager-bottom {
@@ -380,17 +375,20 @@
         <select id="state-filter" onchange="applyFilters()">
             <option value="">All states</option>
         </select>
+        <select id="age-filter" onchange="applyFilters()">
+            <option value="">All ages</option>
+            <option value="0-3">0–3 days</option>
+            <option value="4-7">4–7 days</option>
+            <option value="8-14">8–14 days</option>
+            <option value="15-30">15–30 days</option>
+            <option value="31-60">31–60 days</option>
+            <option value="61+">61+ days</option>
+            <option value="unknown">Age unknown</option>
+        </select>
         <button class="btn-clear" onclick="clearFilters()">Clear</button>
         <button class="btn-clear" id="reset-cols-btn" onclick="resetColumns()" title="Restore the default column order" style="display:none;">Reset columns</button>
     </div>
     <div class="toolbar-right">
-        <label style="display:flex; align-items:center; gap:6px; font-size:13px;">Sort
-            <select class="pager-sort age-sort" onchange="changeAgeSort(this.value)">
-                <option value="default">Default</option>
-                <option value="newest">Age: newest first</option>
-                <option value="oldest">Age: oldest first</option>
-            </select>
-        </label>
         <label style="display:flex; align-items:center; gap:6px; font-size:13px;">Per page
             <select id="page-size" onchange="changePageSize()">
                 <option value="10">10</option>
@@ -451,13 +449,6 @@
 
 {% if has_listings %}
 <div class="pager pager-bottom" style="display:flex; gap:12px; align-items:center; justify-content:center; padding:16px;">
-    <label style="display:flex; align-items:center; gap:6px; font-size:13px;">Sort
-        <select class="pager-sort age-sort" onchange="changeAgeSort(this.value)">
-            <option value="default">Default</option>
-            <option value="newest">Age: newest first</option>
-            <option value="oldest">Age: oldest first</option>
-        </select>
-    </label>
     <button class="btn-clear pager-prev" onclick="gotoPage(currentPage - 1)">&lsaquo; Prev</button>
     <span class="pager-indicator" style="font-size:13px; white-space:nowrap;">Page
         <input type="number" class="pager-input" min="1" value="1"
@@ -492,34 +483,6 @@
     let pageSize = 100;
     let currentPage = 1;
     let filtered = LEADS.slice();
-    let ageSort = 'default';
-
-    function applyCurrentSort() {
-        if (ageSort === 'default') return;
-        const direction = ageSort === 'newest' ? 1 : -1;
-        filtered.sort((a, b) => {
-            const aKnown = a.age_days !== null && a.age_days !== '' && Number.isFinite(Number(a.age_days));
-            const bKnown = b.age_days !== null && b.age_days !== '' && Number.isFinite(Number(b.age_days));
-            if (aKnown !== bKnown) return aKnown ? -1 : 1;
-            if (!aKnown) return String(a.id).localeCompare(String(b.id));
-            const ageDifference = Number(a.age_days) - Number(b.age_days);
-            return ageDifference ? ageDifference * direction : String(a.id).localeCompare(String(b.id));
-        });
-    }
-
-    function changeAgeSort(value) {
-        ageSort = ['newest', 'oldest'].includes(value) ? value : 'default';
-        document.querySelectorAll('.age-sort').forEach(select => { select.value = ageSort; });
-        document.querySelectorAll('th[data-sort]').forEach(th => th.classList.remove('sorted-asc','sorted-desc'));
-        sortCol = null;
-        filtered = filtered.slice();
-        if (ageSort === 'default') applyFilters();
-        else {
-            applyCurrentSort();
-            currentPage = 1;
-            renderPage();
-        }
-    }
 
     // ── Row rendering ────────────────────────────────────────────────────────
     function esc(s) {
@@ -709,8 +672,6 @@
                 if (av > bv) return sortDir === 'asc' ?  1 : -1;
                 return 0;
             });
-            ageSort = 'default';
-            document.querySelectorAll('.age-sort').forEach(select => { select.value = ageSort; });
             currentPage = 1;
             renderPage();
         });
@@ -789,19 +750,34 @@
     })();
 
     // Filtering
+    function matchesAgeTier(lead, tier) {
+        if (!tier) return true;
+        const known = lead.age_days !== null && lead.age_days !== '' && Number.isFinite(Number(lead.age_days));
+        if (tier === 'unknown') return !known;
+        if (!known) return false;
+        const age = Number(lead.age_days);
+        if (tier === '0-3') return age <= 3;
+        if (tier === '4-7') return age >= 4 && age <= 7;
+        if (tier === '8-14') return age >= 8 && age <= 14;
+        if (tier === '15-30') return age >= 15 && age <= 30;
+        if (tier === '31-60') return age >= 31 && age <= 60;
+        return tier === '61+' && age >= 61;
+    }
+
     function applyFilters() {
         const q = document.getElementById('search-input').value.toLowerCase().trim();
         const fc = document.getElementById('county-filter').value;
         const fs = (document.getElementById('status-filter').value || '').toLowerCase();
         const fst = document.getElementById('state-filter').value;
+        const fa = document.getElementById('age-filter').value;
         filtered = LEADS.filter(l => {
             const matchQ  = !q  || l._s.includes(q);
             const matchC  = !fc  || l.county === fc;
             const matchS  = !fs  || (l.status || '').toLowerCase() === fs;
             const matchSt = !fst || l.state  === fst;
-            return matchQ && matchC && matchS && matchSt;
+            const matchAge = matchesAgeTier(l, fa);
+            return matchQ && matchC && matchS && matchSt && matchAge;
         });
-        applyCurrentSort();
         currentPage = 1;
         renderPage();
     }
@@ -810,6 +786,7 @@
         document.getElementById('county-filter').value = '';
         document.getElementById('status-filter').value = '';
         document.getElementById('state-filter').value  = '';
+        document.getElementById('age-filter').value = '';
         applyFilters();
     }
 
