@@ -55,6 +55,9 @@
             text-transform: uppercase;
         }
         .overview-copy { color: #9ca3af; max-width: 720px; line-height: 1.45; }
+        .overview-copy strong { color: #fff; }
+        .overview-copy a { color: #93c5fd; font-weight: 700; text-decoration: none; }
+        .overview-copy a:hover { color: #bfdbfe; text-decoration: underline; }
         .metric-label { color: #6b7280; font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.08em; font-weight: 800; }
         .metric-value { color: #fff; font-size: 1.5rem; font-weight: 800; margin-top: 6px; }
         .metric-sub { color: #93c5fd; font-size: 0.78rem; margin-top: 2px; }
@@ -325,10 +328,13 @@
 <section class="overview">
     <div class="overview-panel">
         {% if pricing_phase == 'beta' %}
-        <div class="beta-pricing-badge">Beta pricing &middot; Limited time only</div>
-        {% endif %}
+        <div class="beta-pricing-badge">&#10022; Limited-time beta pricing</div>
+        <div class="overview-title">Get in early. Find your next opportunity.</div>
+        <div class="overview-copy"><strong>Fresh raw leads are just $6, with aged leads starting at $2.</strong> Explore live inventory and secure the leads that fit your market while launch pricing lasts. <a href="/pricing">See beta pricing &rarr;</a></div>
+        {% else %}
         <div class="overview-title">Live foreclosure lead desk</div>
-        <div class="overview-copy">Browse masked public records, filter by county or lead type, then unlock the full contact package once checkout is connected.</div>
+        <div class="overview-copy">Browse masked public records, filter by county or lead type, then unlock the full contact package.</div>
+        {% endif %}
     </div>
     <div class="overview-panel">
         <div class="metric-label">Live Leads</div>
