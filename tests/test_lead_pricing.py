@@ -1,6 +1,7 @@
 import ast
+import copy
 from contextlib import closing
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
 import json
 import os
 from pathlib import Path
@@ -72,11 +73,13 @@ class PromoTests(unittest.TestCase):
         app = Flask(__name__)
         self.ns = {
             "app": app, "json": json, "jsonify": jsonify, "secrets": secrets, "closing": closing,
-            "PROMO_LOCK": threading.Lock(), "age_days": age_days,
+            "copy": copy, "datetime": datetime, "timezone": timezone,
+            "PROMO_LOCK": threading.Lock(), "WALLET_LOCK": threading.Lock(), "age_days": age_days,
             "_accounts_ready": lambda: True, "current_user": lambda: {"id": "new", "email": "test@example.com"},
             "_sqlite_conn": self.connection,
-            "_prepare_purchased_leads": lambda leads: leads,
+            "_sqlite_enabled": lambda: True,
             "_mark_leads_sold": Mock(),
+            "_start_order_skiptraces": Mock(),
             "db": SimpleNamespace(init_db=Mock(), create_pending_order=Mock(return_value="order"), mark_order_paid=Mock(return_value=True)),
             "_is_publishable_listing": lambda item: not item.get("sold_at"),
             "sort_storefront_listings": lambda items: items,
@@ -90,7 +93,10 @@ class PromoTests(unittest.TestCase):
                 create=Mock(return_value=SimpleNamespace(id="checkout-test", url="https://example.com/checkout"))))),
         }
         names = {"_grant_signup_promo", "_promo_status", "_promo_reserved_ids", "claim_aged_leads",
-                 "publishable_storefront_listings", "_lead_is_traced", "_lead_price", "_listing_price_cents", "_upgrade_listing",
+                 "publishable_storefront_listings", "_lead_is_traced", "_lead_price", "_listing_price_cents",
+                 "_purchase_price_cents", "_requested_lead_modes", "_upgrade_listing",
+                 "_utc_now_iso", "_default_buyer_folder", "_normalize_buyer_tracking", "_prepare_purchased_leads",
+                 "_wallet_credit_once",
                  "create_checkout_session", "unlock_with_credits"}
         tree = ast.parse(Path("app.py").read_text(encoding="utf-8"))
         functions = [node for node in tree.body if isinstance(node, ast.FunctionDef) and node.name in names]
@@ -103,6 +109,7 @@ class PromoTests(unittest.TestCase):
     def connection(self):
         conn = sqlite3.connect(str(Path(self.tmp.name) / "test.sqlite"))
         conn.row_factory = sqlite3.Row
+        conn.execute("CREATE TABLE IF NOT EXISTS app_json (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at TEXT NOT NULL)")
         return conn
 
     def grant(self):
@@ -157,14 +164,48 @@ class PromoTests(unittest.TestCase):
     def test_checkout_and_wallet_match_display_price(self):
         for phase in ("beta", "post_beta"):
             self.ns["PRICING_PHASE"] = phase
-            for traced in (False, True):
-                self.items[0]["email_2"] = "contact@example.com" if traced else ""
-                expected = round(self.ns["_lead_price"](self.items[0]) * 100)
-                response = self.client.post('/api/create-checkout-session', json={"lead_ids": ["lead-0"], "price": 1})
+            for mode in ("raw", "skip"):
+                expected = price_cents(self.items[0], traced=(mode == "skip"), phase=phase)
+                payload = {"lead_ids": ["lead-0"], "lead_modes": {"lead-0": mode}, "price": 1}
+                response = self.client.post('/api/create-checkout-session', json=payload)
                 self.assertEqual(response.status_code, 200)
                 self.assertEqual(self.ns["stripe"].checkout.Session.create.call_args.kwargs["line_items"][0]["price_data"]["unit_amount"], expected)
-                response = self.client.post('/api/unlock', json={"lead_ids": ["lead-0"], "price": 1})
+                response = self.client.post('/api/unlock', json=payload)
                 self.assertEqual(response.json["charged_cents"], expected)
+
+    def test_checkout_defaults_to_raw_and_ignores_unknown_mode(self):
+        expected = price_cents(self.items[0], traced=False, phase="beta")
+        for lead_modes in ({}, {"lead-0": "expensive-client-value"}):
+            response = self.client.post('/api/create-checkout-session', json={
+                "lead_ids": ["lead-0"], "lead_modes": lead_modes,
+            })
+            self.assertEqual(response.status_code, 200)
+            charged = self.ns["stripe"].checkout.Session.create.call_args.kwargs["line_items"][0]["price_data"]["unit_amount"]
+            self.assertEqual(charged, expected)
+
+    def test_purchase_snapshot_separates_raw_delivery_from_evidence(self):
+        lead = {
+            "id": "private-contact", "county": "test", "scraped_date": "2020-01-01",
+            "owner": "Owner", "address": "123 Main St", "primary_phone": "5551234567",
+            "email_1": "owner@example.com",
+        }
+        raw = self.ns["_prepare_purchased_leads"]([lead], {"private-contact": "raw"})[0]
+        self.assertEqual(raw["purchase_mode"], "raw")
+        self.assertEqual(raw["primary_phone"], "")
+        self.assertEqual(raw["email_1"], "")
+        self.assertEqual(raw["_purchase_evidence"]["lead"]["primary_phone"], "5551234567")
+        skipped = self.ns["_prepare_purchased_leads"]([lead], {"private-contact": "skip"})[0]
+        self.assertEqual(skipped["purchase_mode"], "skip")
+        self.assertEqual(skipped["skiptrace_status"], "pending")
+        self.assertGreater(skipped["purchase_price_cents"], skipped["raw_price_cents"])
+
+    def test_failed_trace_credit_is_applied_exactly_once(self):
+        balance, applied = self.ns["_wallet_credit_once"]("new", 800, "refund:order:lead", "test")
+        self.assertTrue(applied)
+        self.assertEqual(balance, 800)
+        balance, applied = self.ns["_wallet_credit_once"]("new", 800, "refund:order:lead", "test")
+        self.assertFalse(applied)
+        self.assertEqual(balance, 800)
 
     def test_promo_reservations_cannot_be_purchased(self):
         self.grant()

@@ -821,6 +821,7 @@ def _save_subs(subs):
 WALLET_FILE = _runtime_data_file('credit_wallets.json')
 # Signup allowances are stored separately in signup_promos.
 PROMO_LOCK = threading.Lock()
+WALLET_LOCK = threading.Lock()
 
 
 def _load_wallets():
@@ -856,6 +857,66 @@ def _wallet_adjust(user_id, delta_cents, reason):
     wallets[uid] = entry
     _save_wallets(wallets)
     return entry["balance_cents"]
+
+
+def _wallet_credit_once(user_id, cents, event_id, reason):
+    """Apply a wallet credit once, even if Stripe fulfillment is retried."""
+    cents = int(cents or 0)
+    if cents <= 0:
+        return _wallet_balance_cents(user_id), False
+    if not _sqlite_enabled():
+        with WALLET_LOCK:
+            wallets = _load_wallets()
+            uid = str(user_id)
+            entry = wallets.get(uid) or {"balance_cents": 0, "ledger": [], "event_ids": []}
+            if str(event_id) in entry.get("event_ids", []):
+                return int(entry.get("balance_cents", 0)), False
+            entry["balance_cents"] = int(entry.get("balance_cents", 0)) + cents
+            entry.setdefault("event_ids", []).append(str(event_id))
+            entry["event_ids"] = entry["event_ids"][-1000:]
+            entry.setdefault("ledger", []).append({
+                "delta_cents": cents, "reason": reason,
+                "at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+                "balance_after": entry["balance_cents"],
+            })
+            entry["ledger"] = entry["ledger"][-100:]
+            wallets[uid] = entry
+            _save_wallets(wallets)
+            return entry["balance_cents"], True
+    with WALLET_LOCK, closing(_sqlite_conn()) as conn, conn:
+        conn.execute(
+            """CREATE TABLE IF NOT EXISTS wallet_credit_events (
+                   event_id TEXT PRIMARY KEY,
+                   user_id TEXT NOT NULL,
+                   cents INTEGER NOT NULL,
+                   created_at TEXT NOT NULL
+               )"""
+        )
+        inserted = conn.execute(
+            "INSERT OR IGNORE INTO wallet_credit_events VALUES (?, ?, ?, ?)",
+            (str(event_id), str(user_id), cents, datetime.now(timezone.utc).isoformat()),
+        ).rowcount
+        row = conn.execute("SELECT value FROM app_json WHERE key='credit_wallets'").fetchone()
+        wallets = json.loads(row["value"]) if row else {}
+        uid = str(user_id)
+        entry = wallets.get(uid) or {"balance_cents": 0, "ledger": []}
+        if inserted:
+            entry["balance_cents"] = int(entry.get("balance_cents", 0)) + cents
+            entry.setdefault("ledger", []).append({
+                "delta_cents": cents,
+                "reason": reason,
+                "at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+                "balance_after": entry["balance_cents"],
+            })
+            entry["ledger"] = entry["ledger"][-100:]
+            wallets[uid] = entry
+            conn.execute(
+                """INSERT INTO app_json (key, value, updated_at) VALUES (?, ?, ?)
+                   ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at""",
+                ("credit_wallets", json.dumps(wallets, ensure_ascii=False),
+                 datetime.now(timezone.utc).isoformat(timespec="seconds")),
+            )
+        return int(entry.get("balance_cents", 0)), bool(inserted)
 
 
 # Credit packs (pay-as-you-go top-ups). price_cents = charged, credit_cents =
@@ -913,6 +974,99 @@ def _fulfill_credit_pack(session_id):
     _mark_credit_pack_fulfilled(session_id)   # mark first: avoid double-grant on retry
     _wallet_adjust(user_id, credit_cents, f"pack:{session_id}")
     return True
+
+
+SKIPTRACE_FULFILL_LOCK = threading.Lock()
+SKIPTRACE_FULFILLING = set()
+
+
+def _fulfill_order_skiptraces(session_id):
+    """Trace only paid order lines that explicitly requested skip tracing."""
+    try:
+        order = db.get_order_by_session(session_id)
+        if not order or order.get("status") != "paid":
+            return
+        order_id = order.get("id")
+        user_id = order.get("user_id")
+        for lead in order.get("leads_json") or []:
+            if lead.get("purchase_mode") != "skip":
+                continue
+            if lead.get("skiptrace_status") in {"completed", "failed_credited"}:
+                continue
+            lead_id = str(lead.get("id") or "")
+            evidence = lead.get("_purchase_evidence") or {}
+            source = evidence.get("lead") if isinstance(evidence.get("lead"), dict) else lead
+            phones = [str(source.get(key) or "").strip() for key in ("primary_phone", "phone_2")]
+            emails = [str(source.get(key) or "").strip() for key in ("email_1", "email_2")]
+            phones = [value for value in phones if value]
+            emails = [value for value in emails if value]
+            query = ""
+            error = ""
+            if not phones and not emails:
+                try:
+                    from scrapers import skiptrace_search
+                    city, state = _skiptrace_city_state(source)
+                    result = skiptrace_search.lookup(
+                        str(source.get("owner") or ""),
+                        str(source.get("street") or source.get("address") or ""),
+                        city,
+                        state,
+                        engine="serper",
+                        use_cache=False,
+                    )
+                    phones = list(result.get("phones") or [])
+                    emails = list(result.get("emails") or [])
+                    query = str(result.get("query") or "")
+                    error = str(result.get("error") or "")
+                except Exception as exc:
+                    error = f"{type(exc).__name__}: {exc}"
+
+            now = datetime.now(timezone.utc).isoformat(timespec="seconds")
+            if phones or emails:
+                db.update_order_lead_contacts(order_id, lead_id, {
+                    "primary_phone": phones[0] if phones else "",
+                    "phone_2": phones[1] if len(phones) > 1 else "",
+                    "email_1": emails[0] if emails else "",
+                    "email_2": emails[1] if len(emails) > 1 else "",
+                    "skiptrace_status": "completed",
+                    "skiptrace_source": "Google (Serper)" if query else str(source.get("skiptrace_source") or "Existing verified data"),
+                    "skiptrace_notes": query,
+                    "skiptraced_at": now,
+                })
+                continue
+
+            raw_cents = int(lead.get("raw_price_cents") or evidence.get("raw_price_cents") or 0)
+            skip_cents = int(lead.get("skip_price_cents") or evidence.get("skip_price_cents") or 0)
+            credit_cents = max(0, skip_cents - raw_cents)
+            event_id = f"skiptrace-refund:{session_id}:{lead_id}"
+            _wallet_credit_once(
+                user_id, credit_cents, event_id,
+                f"Skip trace unavailable; raw lead delivered ({lead_id})",
+            )
+            db.update_order_lead_contacts(order_id, lead_id, {
+                "skiptrace_status": "failed_credited",
+                "skiptrace_credit_cents": credit_cents,
+                "skiptrace_error": error or "No usable phone or email found",
+                "skiptraced_at": now,
+            })
+    except Exception as exc:
+        app.logger.exception("post-payment skip tracing failed for %s: %s", session_id, exc)
+    finally:
+        with SKIPTRACE_FULFILL_LOCK:
+            SKIPTRACE_FULFILLING.discard(str(session_id))
+
+
+def _start_order_skiptraces(session_id):
+    """Start durable, idempotent post-payment processing without delaying checkout."""
+    key = str(session_id or "")
+    if not key:
+        return
+    with SKIPTRACE_FULFILL_LOCK:
+        if key in SKIPTRACE_FULFILLING:
+            return
+        SKIPTRACE_FULFILLING.add(key)
+    worker = threading.Thread(target=_fulfill_order_skiptraces, args=(key,), daemon=True)
+    worker.start()
 
 
 def _grant_signup_promo(user_id):
@@ -1334,6 +1488,19 @@ def _listing_price_cents(item):
     # Use the same price engine as storefront display and credit unlocks.
     return int(round(_lead_price(item) * 100))
 
+
+def _purchase_price_cents(item, mode="raw"):
+    return price_cents(item, traced=(str(mode).lower() == "skip"), phase=PRICING_PHASE)
+
+
+def _requested_lead_modes(payload, selected_ids):
+    requested = payload.get("lead_modes") if isinstance(payload, dict) else {}
+    requested = requested if isinstance(requested, dict) else {}
+    return {
+        lead_id: ("skip" if str(requested.get(lead_id) or "raw").lower() == "skip" else "raw")
+        for lead_id in selected_ids
+    }
+
 @app.route('/')
 def index():
     listings = publishable_storefront_listings(current_listings())
@@ -1358,6 +1525,8 @@ def index():
         else:
             display_address = masked_item.get("address") or obfuscate_address(item.get('address', ''))
         subscriber_county = str(item.get("county") or "").strip().lower() in sub_counties
+        raw_price = _purchase_price_cents(item, "raw") / 100
+        skip_price = _purchase_price_cents(item, "skip") / 100
         leads_json.append({
             "id": masked_item.get("id"),
             "status": masked_item.get("status") or "",
@@ -1365,6 +1534,10 @@ def index():
             "bid": masked_item.get("bid") or 0,
             "price": masked_item.get("price") or 0,
             "price_display": masked_item.get("price_display") or "",
+            "raw_price": raw_price,
+            "raw_price_display": _price_str(raw_price),
+            "skip_price": skip_price,
+            "skip_price_display": _price_str(skip_price),
             "age_days": masked_item.get("age_days"),
             "sale_date": masked_item.get("sale_date") or "",
             "scraped_date": masked_item.get("scraped_date") or "",
@@ -1623,6 +1796,10 @@ def account():
         orders = db.get_paid_orders_for_user(user['id'])
     except Exception:
         orders = []
+    for order in orders:
+        if any(lead.get("purchase_mode") == "skip" and lead.get("skiptrace_status") == "pending"
+               for lead in order.get("leads_json") or []):
+            _start_order_skiptraces(order.get("stripe_session_id"))
     folders = set()
     statuses = ["New", "Contacted", "Follow-up", "Offer Made", "Won", "Lost", "Do Not Contact"]
     for order in orders:
@@ -1764,21 +1941,39 @@ def _normalize_buyer_tracking(lead, purchased_at=""):
     return lead
 
 
-def _prepare_purchased_leads(leads):
+def _prepare_purchased_leads(leads, modes=None):
     prepared = []
     now = _utc_now_iso()
+    modes = modes or {}
     for lead in leads:
         # Preserve the exact, unmasked source record and calculated checkout
         # price as immutable purchase evidence. Buyer workflow fields remain at
         # the top level and can change without rewriting this complaint record.
         source_record = copy.deepcopy(dict(lead))
         item = copy.deepcopy(source_record)
+        lead_id = str(source_record.get("id") or "")
+        mode = "skip" if str(modes.get(lead_id) or "raw").lower() == "skip" else "raw"
+        raw_cents = _purchase_price_cents(source_record, "raw")
+        skip_cents = _purchase_price_cents(source_record, "skip")
         item["_purchase_evidence"] = {
             "schema_version": 1,
             "captured_at": now,
-            "price_cents": _listing_price_cents(source_record),
+            "mode": mode,
+            "price_cents": skip_cents if mode == "skip" else raw_cents,
+            "raw_price_cents": raw_cents,
+            "skip_price_cents": skip_cents,
             "lead": source_record,
         }
+        item["purchase_mode"] = mode
+        item["purchase_price_cents"] = skip_cents if mode == "skip" else raw_cents
+        item["raw_price_cents"] = raw_cents
+        item["skip_price_cents"] = skip_cents
+        # Contacts are delivered only for the paid mode. Skip requests start
+        # pending and are populated after Stripe confirms payment.
+        for field in ("primary_phone", "phone_2", "email_1", "email_2",
+                      "mailing_address", "skiptrace_notes", "skiptrace_source", "skiptraced_at"):
+            item[field] = ""
+        item["skiptrace_status"] = "pending" if mode == "skip" else "raw"
         item["buyer_purchased_at"] = now
         item["buyer_updated_at"] = now
         _normalize_buyer_tracking(item, purchased_at=now)
@@ -2302,6 +2497,7 @@ def create_checkout_session():
         return jsonify({"error": "Some selected leads are no longer available. Refresh and try again."}), 409
     if not selected:
         return jsonify({"error": "Selected leads were not found."}), 400
+    lead_modes = _requested_lead_modes(payload, selected_ids)
 
     # County is derived from the selected leads themselves — no need to pick one
     # up front. All leads in a single order must share a county.
@@ -2318,7 +2514,9 @@ def create_checkout_session():
     if _subscriptions_ready() and selected_county in _claimed_counties(exclude_user=user["id"]):
         return jsonify({"error": "This county is reserved for its subscriber and isn't available for per-lead purchase."}), 409
 
-    total_cents = sum(_listing_price_cents(item) for item in selected)
+    total_cents = sum(
+        _purchase_price_cents(item, lead_modes[str(item.get("id"))]) for item in selected
+    )
     if total_cents <= 0:
         return jsonify({"error": "Selected leads do not have a valid price."}), 400
 
@@ -2332,7 +2530,7 @@ def create_checkout_session():
                 "price_data": {
                     "currency": "usd",
                     "product_data": {
-                        "name": f"{selected_county.title()} foreclosure lead(s)",
+                        "name": f"{selected_county.title()} foreclosure lead order",
                     },
                     "unit_amount": total_cents,
                 },
@@ -2342,6 +2540,7 @@ def create_checkout_session():
                 "user_id": str(user["id"]),
                 "county": selected_county,
                 "lead_count": str(len(selected)),
+                "skip_count": str(sum(mode == "skip" for mode in lead_modes.values())),
                 "lead_ids": ",".join(str(item.get("id")) for item in selected)[:500],
             },
             success_url=f"{origin}/checkout/success?session_id={{CHECKOUT_SESSION_ID}}",
@@ -2359,7 +2558,7 @@ def create_checkout_session():
             email=user["email"],
             stripe_session_id=checkout_session.id,
             amount_cents=total_cents,
-            leads=_prepare_purchased_leads(selected),
+            leads=_prepare_purchased_leads(selected, lead_modes),
         )
     except Exception as exc:
         return jsonify({"error": f"Could not record this order before checkout: {type(exc).__name__}"}), 503
@@ -2413,6 +2612,7 @@ def unlock_with_credits():
         return jsonify({"error": "Some selected leads are no longer available. Refresh and try again."}), 409
     if not selected:
         return jsonify({"error": "Selected leads were not found."}), 400
+    lead_modes = _requested_lead_modes(payload, selected_ids)
     counties = {str(it.get("county") or "").strip().lower() for it in selected}
     counties.discard("")
     if len(counties) > 1:
@@ -2422,7 +2622,9 @@ def unlock_with_credits():
     selected_county = next(iter(counties))
 
     covered = selected_county in _user_active_sub_counties(user["id"])
-    cost = 0 if covered else sum(_listing_price_cents(it) for it in selected)
+    cost = 0 if covered else sum(
+        _purchase_price_cents(it, lead_modes[str(it.get("id"))]) for it in selected
+    )
     balance = _wallet_balance_cents(user["id"])
     if cost > balance:
         return jsonify({
@@ -2438,13 +2640,14 @@ def unlock_with_credits():
         db.create_pending_order(
             user_id=user["id"], email=user["email"],
             stripe_session_id=session_id, amount_cents=cost,
-            leads=_prepare_purchased_leads(selected),
+            leads=_prepare_purchased_leads(selected, lead_modes),
         )
         db.mark_order_paid(session_id)
     except Exception as exc:
         return jsonify({"error": f"Could not record unlock: {type(exc).__name__}"}), 503
 
     _mark_leads_sold(selected_ids)   # exclusive sale: pull them off the storefront
+    _start_order_skiptraces(session_id)
 
     if cost:
         balance = _wallet_adjust(user["id"], -cost,
@@ -2536,6 +2739,7 @@ def _fulfill_session(session_id):
             # and /checkout/success call this idempotently, so a transient
             # failure here gets another chance on the other path.
             app.logger.warning(f"could not mark leads sold for {session_id}: {exc}")
+        _start_order_skiptraces(session_id)
     return paid
 
 

@@ -520,6 +520,30 @@ def get_order_leads(stripe_session_id):
             return []
         row = _order_doc_to_row(doc)
         return list(row["leads_json"] or []) if row else []
+
+
+def get_order_by_session(stripe_session_id):
+    """Return the complete order row for fulfillment work."""
+    if _use_appwrite():
+        doc_id = _safe_doc_id(stripe_session_id)
+        try:
+            doc = _appwrite_request(
+                "GET",
+                f"/databases/{_appwrite_database_id()}/collections/{_appwrite_orders_collection_id()}/documents/{doc_id}",
+            )
+        except AppwriteError:
+            return None
+        return _order_doc_to_row(doc)
+    with get_conn() as conn, conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT id, user_id, email, stripe_session_id, amount_cents,
+                   status, leads_json, created_at
+            FROM orders WHERE stripe_session_id = %s
+            """,
+            (stripe_session_id,),
+        )
+        return cur.fetchone()
     with get_conn() as conn, conn.cursor() as cur:
         cur.execute(
             "SELECT leads_json FROM orders WHERE stripe_session_id = %s",
@@ -540,7 +564,7 @@ def get_paid_orders_for_user(user_id):
     with get_conn() as conn, conn.cursor() as cur:
         cur.execute(
             """
-            SELECT id, amount_cents, leads_json, created_at
+            SELECT id, stripe_session_id, amount_cents, leads_json, created_at
             FROM orders
             WHERE user_id = %s AND status = 'paid'
             ORDER BY created_at DESC

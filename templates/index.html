@@ -245,6 +245,20 @@
             font-size: 0.7rem; font-weight: 600;
         }
         .price-tag { color: #22c55e; font-weight: 700; }
+        .lead-mode-select {
+            display: block; margin-top: 4px; min-width: 132px;
+            padding: 4px 6px; border-radius: 5px; border: 1px solid #334155;
+            background: #171b25; color: #dbeafe; font-size: 0.72rem;
+        }
+        .cart-detail { display: none; background: #10131a; border-bottom: 1px solid #2563eb; padding: 10px 24px; }
+        .cart-detail.visible { display: block; }
+        .cart-detail-title { color: #93c5fd; font-size: 0.75rem; font-weight: 800; text-transform: uppercase; letter-spacing: .06em; margin-bottom: 7px; }
+        .cart-lines { display: grid; gap: 5px; max-height: 190px; overflow-y: auto; }
+        .cart-line { display: grid; grid-template-columns: minmax(180px, 1fr) 110px 80px 26px; align-items: center; gap: 10px; padding: 6px 9px; background: #171b25; border: 1px solid #252b3a; border-radius: 6px; }
+        .cart-line-name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: #e5e7eb; }
+        .cart-line-mode { color: #93c5fd; font-weight: 700; text-transform: capitalize; }
+        .cart-line-price { color: #4ade80; font-weight: 800; text-align: right; }
+        .cart-remove { border: 0; background: transparent; color: #94a3b8; cursor: pointer; font-size: 1rem; }
         .src-link { color: #60a5fa; text-decoration: none; font-size: 0.75rem; }
         th[draggable="true"] { cursor: grab; }
         th[draggable="true"]:active { cursor: grabbing; }
@@ -372,6 +386,11 @@
     </div>
 </div>
 
+<div class="cart-detail" id="cart-detail">
+    <div class="cart-detail-title">Your selected leads</div>
+    <div class="cart-lines" id="cart-lines"></div>
+</div>
+
 <div class="toolbar">
     <div class="toolbar-left">
         <input type="text" id="search-input" placeholder="&#128269; Filter address, owner, parcel, city, county..." oninput="applyFilters()">
@@ -493,6 +512,7 @@
 
     // Selection persists across pages/filters (rows are re-rendered on nav).
     const selectedIds = new Set();
+    const selectedModes = new Map();
     let WALLET_CENTS = null;   // null until we learn the user is logged in
 
     // Pagination state — operates on the current filtered + sorted set
@@ -525,7 +545,14 @@
         select: l => `<td class="col-cb" data-col="select"><input type="checkbox" class="lead-cb" data-id="${esc(l.id)}" onchange="toggleRow(this)"${selectedIds.has(String(l.id)) ? ' checked' : ''}></td>`,
         type:    l => `<td data-col="type">${badgeCell(l.status)}</td>`,
         amount:  l => `<td data-col="amount">${amountText(l)}</td>`,
-        price:   l => `<td data-col="price"><span class="price-tag">$${esc(l.price_display || l.price)}</span></td>`,
+        price:   l => {
+            const mode = selectedModes.get(String(l.id)) || 'raw';
+            return `<td data-col="price"><span class="price-tag">$${esc(mode === 'skip' ? l.skip_price_display : l.raw_price_display)}</span>`
+                + `<select class="lead-mode-select" aria-label="Purchase option" onchange="setLeadMode('${esc(l.id)}',this.value)">`
+                + `<option value="raw"${mode === 'raw' ? ' selected' : ''}>Raw · $${esc(l.raw_price_display)}</option>`
+                + `<option value="skip"${mode === 'skip' ? ' selected' : ''}>Skip traced · $${esc(l.skip_price_display)}</option>`
+                + `</select></td>`;
+        },
         sale_date: l => `<td data-col="sale_date">${esc(l.sale_date)}</td>`,
         scraped: l => `<td data-col="scraped">${esc(l.scraped_date)}</td>`,
         county:  l => `<td data-col="county"><span class="badge-county">${esc(l.county || '-')}</span></td>`,
@@ -809,9 +836,30 @@
     // Cart — selection tracked in selectedIds so it survives page/filter changes.
     function toggleRow(cb) {
         const id = String(cb.dataset.id);
-        if (cb.checked) selectedIds.add(id); else selectedIds.delete(id);
+        if (cb.checked) {
+            selectedIds.add(id);
+            if (!selectedModes.has(id)) selectedModes.set(id, 'raw');
+        } else selectedIds.delete(id);
         const tr = document.getElementById('row-' + cb.dataset.id);
         if (tr) tr.classList.toggle('selected', cb.checked);
+        updateCart();
+    }
+
+    function setLeadMode(id, mode) {
+        id = String(id);
+        selectedModes.set(id, mode === 'skip' ? 'skip' : 'raw');
+        updateCart();
+        renderPage();
+    }
+
+    function selectedLeadPrice(l) {
+        const mode = selectedModes.get(String(l.id)) || 'raw';
+        return Number(mode === 'skip' ? l.skip_price : l.raw_price) || 0;
+    }
+
+    function removeFromCart(id) {
+        selectedIds.delete(String(id));
+        renderPage();
         updateCart();
     }
     function toggleAll(master) {
@@ -819,7 +867,10 @@
         const start = (currentPage - 1) * pageSize;
         filtered.slice(start, start + pageSize).forEach(l => {
             const id = String(l.id);
-            if (master.checked) selectedIds.add(id); else selectedIds.delete(id);
+            if (master.checked) {
+                selectedIds.add(id);
+                if (!selectedModes.has(id)) selectedModes.set(id, 'raw');
+            } else selectedIds.delete(id);
         });
         renderPage();
         updateCart();
@@ -827,12 +878,25 @@
 
     function updateCart() {
         let total = 0;
-        selectedIds.forEach(id => { const l = byId[id]; if (l) total += parseFloat(l.price) || 0; });
+        selectedIds.forEach(id => { const l = byId[id]; if (l) total += selectedLeadPrice(l); });
         const count = selectedIds.size;
         document.getElementById('cart-count').innerText = count;
         document.getElementById('cart-total').innerText = total.toFixed(2);
         document.getElementById('selected-metric').innerText = count.toLocaleString();
         document.getElementById('selected-total-metric').innerText = total.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2});
+        const detail = document.getElementById('cart-detail');
+        const lines = document.getElementById('cart-lines');
+        detail.classList.toggle('visible', count > 0);
+        lines.innerHTML = [...selectedIds].map(id => {
+            const l = byId[id];
+            if (!l) return '';
+            const mode = selectedModes.get(id) || 'raw';
+            const name = l.address || `${l.county || 'Lead'} · ${l.id}`;
+            return `<div class="cart-line"><span class="cart-line-name" title="${esc(name)}">${esc(name)}</span>`
+                + `<span class="cart-line-mode">${mode === 'skip' ? 'Skip traced' : 'Raw'}</span>`
+                + `<span class="cart-line-price">$${selectedLeadPrice(l).toFixed(2)}</span>`
+                + `<button class="cart-remove" onclick="removeFromCart('${esc(id)}')" title="Remove">&times;</button></div>`;
+        }).join('');
 
         // Credit-unlock button reflects the current selection vs. the balance.
         const btn = document.getElementById('unlock-btn');
@@ -941,7 +1005,10 @@
             const resp = await fetch('/api/unlock', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': CSRF_TOKEN },
-                body: JSON.stringify({ lead_ids, selected_county })
+                body: JSON.stringify({
+                    lead_ids, selected_county,
+                    lead_modes: Object.fromEntries(lead_ids.map(id => [id, selectedModes.get(id) || 'raw']))
+                })
             });
             const data = await resp.json();
             if (resp.status === 401 || data.login_required) {
@@ -974,7 +1041,10 @@
             const resp = await fetch('/api/create-checkout-session', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': CSRF_TOKEN },
-                body: JSON.stringify({ lead_ids, selected_county })
+                body: JSON.stringify({
+                    lead_ids, selected_county,
+                    lead_modes: Object.fromEntries(lead_ids.map(id => [id, selectedModes.get(id) || 'raw']))
+                })
             });
             const data = await resp.json();
             if (resp.status === 401 || data.login_required) {

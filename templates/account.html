@@ -344,7 +344,7 @@
             <table>
                 <thead>
                     <tr>
-                        <th>Type</th><th>County</th><th>State</th><th>City</th><th>Zip</th>
+                        <th>Type</th><th>Purchase</th><th>County</th><th>State</th><th>City</th><th>Zip</th>
                         <th>Folder</th><th>Status</th><th>Priority</th><th>Notes</th>
                         <th>Purchased</th><th>Updated</th><th>Address</th><th>Phone</th><th>Email</th><th>Mailing Address</th><th>Owner</th><th>Parcel/APN</th><th>Case #</th><th>Save</th>
                     </tr>
@@ -358,6 +358,12 @@
                         data-priority="{{ (lead.buyer_priority or 'Normal')|lower }}"
                         data-county="{{ (lead.county or '')|lower }}">
                         <td><span class="type-badge">{{ lead.status or lead.record_type or 'Lead' }}</span></td>
+                        <td>
+                            <strong>{% if lead.purchase_mode == 'skip' %}Skip traced{% elif lead.purchase_mode == 'raw' %}Raw{% else %}Legacy purchase{% endif %}</strong><br>
+                            {% if lead.purchase_price_cents is defined %}${{ '%.2f'|format(lead.purchase_price_cents / 100) }}{% endif %}
+                            {% if lead.skiptrace_status == 'pending' %}<br><span class="pending">Tracing&hellip;</span>{% endif %}
+                            {% if lead.skiptrace_status == 'failed_credited' %}<br><span class="pending">Raw delivered &middot; ${{ '%.2f'|format((lead.skiptrace_credit_cents or 0) / 100) }} credited</span>{% endif %}
+                        </td>
                         <td>{{ (lead.county or '')|title }}</td>
                         <td>{{ lead.state or '' }}</td>
                         <td>{{ lead.city or '' }}</td>
@@ -427,18 +433,22 @@
                         <td class="contact">
                             {% if lead.primary_phone %}
                                 {{ lead.primary_phone }}{% if lead.phone_2 %}<br>{{ lead.phone_2 }}{% endif %}
-                            {% else %}
+                            {% elif lead.purchase_mode == 'skip' and lead.skiptrace_status == 'pending' %}
                                 <span class="pending">Pending</span>
+                            {% else %}
+                                <span class="muted">Not included</span>
                             {% endif %}
                         </td>
                         <td class="contact">
                             {% if lead.email_1 %}
                                 {{ lead.email_1 }}{% if lead.email_2 %}<br>{{ lead.email_2 }}{% endif %}
-                            {% else %}
+                            {% elif lead.purchase_mode == 'skip' and lead.skiptrace_status == 'pending' %}
                                 <span class="pending">Pending</span>
+                            {% else %}
+                                <span class="muted">Not included</span>
                             {% endif %}
                         </td>
-                        <td>{{ lead.mailing_address or 'Pending' }}</td>
+                        <td>{{ lead.mailing_address or ('Pending' if lead.purchase_mode == 'skip' and lead.skiptrace_status == 'pending' else 'Not included') }}</td>
                         <td>{{ lead.owner or '—' }}</td>
                         <td>{{ lead.parcel_id or '—' }}</td>
                         <td>{{ lead.case_number or '—' }}</td>
