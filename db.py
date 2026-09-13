@@ -345,6 +345,17 @@ def _sqlite_init():
                 FOREIGN KEY (user_id) REFERENCES account_users(id)
             )
         """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS account_oauth_identities (
+                provider TEXT NOT NULL,
+                subject TEXT NOT NULL,
+                user_id TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                PRIMARY KEY (provider, subject),
+                UNIQUE (provider, user_id),
+                FOREIGN KEY (user_id) REFERENCES account_users(id)
+            )
+        """)
         conn.execute("CREATE INDEX IF NOT EXISTS idx_account_orders_user_status ON account_orders(user_id, status)")
 
 
@@ -501,6 +512,60 @@ def get_user_by_id(user_id):
             (user_id,),
         )
         return cur.fetchone()
+
+
+def get_or_create_oauth_user(provider, subject, email):
+    """Resolve an OAuth identity by immutable provider subject, linking only a
+    provider-verified email to an existing Railway SQLite account."""
+    if not _use_sqlite():
+        raise DatabaseNotConfigured("Google sign-in requires the Railway SQLite account backend.")
+    provider = str(provider or "").strip().lower()
+    subject = str(subject or "").strip()
+    email = _normalize_email(email)
+    if not provider or not subject or not email:
+        raise ValueError("OAuth identity is incomplete.")
+    init_db()
+    with closing(_sqlite_conn()) as conn, conn:
+        conn.execute("BEGIN IMMEDIATE")
+        row = conn.execute(
+            """SELECT u.id, u.email, u.password_hash, u.created_at
+               FROM account_oauth_identities i
+               JOIN account_users u ON u.id = i.user_id
+               WHERE i.provider = ? AND i.subject = ?""",
+            (provider, subject),
+        ).fetchone()
+        if row:
+            return dict(row), False
+
+        row = conn.execute(
+            "SELECT id, email, password_hash, created_at FROM account_users WHERE email = ?", (email,)
+        ).fetchone()
+        created = False
+        if row:
+            user = dict(row)
+        else:
+            created_at = datetime.now(timezone.utc).isoformat()
+            user = {"id": _safe_doc_id(email), "email": email, "password_hash": "", "created_at": created_at}
+            conn.execute(
+                "INSERT INTO account_users (id, email, password_hash, created_at) VALUES (?, ?, ?, ?)",
+                (user["id"], email, "", created_at),
+            )
+            created = True
+        try:
+            conn.execute(
+                "INSERT INTO account_oauth_identities (provider, subject, user_id, created_at) VALUES (?, ?, ?, ?)",
+                (provider, subject, user["id"], datetime.now(timezone.utc).isoformat()),
+            )
+        except sqlite3.IntegrityError:
+            # One local account can have one identity per provider. If this
+            # races another callback, accept only the same immutable subject.
+            linked = conn.execute(
+                "SELECT subject FROM account_oauth_identities WHERE provider = ? AND user_id = ?",
+                (provider, user["id"]),
+            ).fetchone()
+            if not linked or linked["subject"] != subject:
+                raise ValueError("This account is already linked to another Google identity.")
+        return user, created
 
 
 def _order_doc_to_row(doc):

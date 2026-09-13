@@ -153,6 +153,55 @@ class ReviewTests(unittest.TestCase):
         self.assertEqual(lead["primary_phone"], "5551234567")
         self.assertEqual(lead["buyer_notes"], "Call")
 
+    def test_google_identity_uses_immutable_subject_and_links_verified_email(self):
+        user = db.create_user("buyer@example.com", "password-hash")
+        linked, created = db.get_or_create_oauth_user("google", "google-sub-1", "buyer@example.com")
+        self.assertFalse(created)
+        self.assertEqual(linked["id"], user["id"])
+        same, created = db.get_or_create_oauth_user("google", "google-sub-1", "changed@example.com")
+        self.assertFalse(created)
+        self.assertEqual(same["id"], user["id"])
+        with self.assertRaises(ValueError):
+            db.get_or_create_oauth_user("google", "different-google-sub", "buyer@example.com")
+
+    def test_google_callback_creates_session_and_rejects_unverified_email(self):
+        os.environ["GOOGLE_OAUTH_CLIENT_ID"] = "client-id"
+        os.environ["GOOGLE_OAUTH_CLIENT_SECRET"] = "client-secret"
+        self.a.current_user = lambda: None
+        self.a.db = SimpleNamespace(backend_name=lambda: "sqlite", is_configured=lambda: True,
+            appwrite_configured=lambda: False,
+            get_or_create_oauth_user=Mock(return_value=({"id": "google-user", "email": "buyer@example.com"}, True)))
+        self.a.google_oauth = SimpleNamespace(authorize_access_token=Mock(return_value={"userinfo": {
+            "sub": "google-sub", "email": "buyer@example.com", "email_verified": True}}))
+        with self.client.session_transaction() as sess:
+            sess["oauth_next"] = "//evil.example"
+        response = self.client.get("/auth/google/callback")
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response.location, "/account")
+        with self.client.session_transaction() as sess:
+            self.assertEqual(sess["user_id"], "google-user")
+
+        self.a.google_oauth.authorize_access_token.return_value = {"userinfo": {
+            "sub": "other", "email": "unverified@example.com", "email_verified": False}}
+        response = self.client.get("/auth/google/callback")
+        self.assertEqual(response.status_code, 400)
+        self.assertNotIn("unverified@example.com", response.get_data(as_text=True))
+
+    def test_google_login_uses_state_nonce_and_safe_return_path(self):
+        os.environ["GOOGLE_OAUTH_CLIENT_ID"] = "client-id"
+        os.environ["GOOGLE_OAUTH_CLIENT_SECRET"] = "client-secret"
+        self.a.current_user = lambda: None
+        self.a.db.backend_name = lambda: "sqlite"
+        authorize = Mock(side_effect=lambda uri, **kwargs: self.a.redirect("https://accounts.google.test/auth"))
+        self.a.google_oauth = SimpleNamespace(authorize_redirect=authorize)
+        response = self.client.get("/auth/google?next=//evil.example")
+        self.assertEqual(response.status_code, 302)
+        redirect_uri = authorize.call_args.args[0]
+        self.assertEqual(redirect_uri, "http://localhost/auth/google/callback")
+        self.assertTrue(authorize.call_args.kwargs["nonce"])
+        with self.client.session_transaction() as sess:
+            self.assertEqual(sess["oauth_next"], "/account")
+
     def test_async_payment_failure_releases_reserved_property(self):
         self.client.post("/api/create-checkout-session", json={"lead_ids": ["10"]})
         cs = next(iter(self.sessions.values()))

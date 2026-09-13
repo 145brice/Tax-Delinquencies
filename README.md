@@ -123,6 +123,8 @@ SECRET_KEY=<long random session secret>
 ADMIN_TOKEN=<long random admin token>
 STRIPE_SECRET_KEY=<Stripe secret key>
 STRIPE_WEBHOOK_SECRET=<Stripe webhook signing secret>
+GOOGLE_OAUTH_CLIENT_ID=<Google OAuth web client ID>
+GOOGLE_OAUTH_CLIENT_SECRET=<Google OAuth web client secret>
 ```
 
 Railway selects SQLite automatically when a persistent volume is mounted. To
@@ -132,6 +134,19 @@ Keep credentials out of source control. Configure Stripe's webhook for
 `/webhook/stripe`, including checkout completion, expiration, subscription
 updates/deletion, and paid invoices. Failed fulfillment returns HTTP 503 so
 Stripe can retry. The durable worker also reconciles journaled purchases.
+
+For Google sign-in, create an OAuth 2.0 **Web application** client in Google
+Cloud and add this exact authorized redirect URI:
+
+```text
+https://tax-delinquencies-production.up.railway.app/auth/google/callback
+```
+
+The app requests only `openid email profile`, accepts only a Google-verified
+email, and stores Google's immutable `sub` claim as the linked identity. An
+existing password account with the same verified email is linked instead of
+duplicated. Set `GOOGLE_OAUTH_REDIRECT_URI` only if the public callback differs
+from the Railway URL above.
 
 ### Publishing inventory
 

@@ -15,7 +15,9 @@ from functools import wraps
 from contextlib import closing
 from urllib.parse import urlsplit
 import commerce
+from authlib.integrations.flask_client import OAuth
 from flask import Flask, render_template, request, jsonify, Response, redirect, url_for, session
+from werkzeug.middleware.proxy_fix import ProxyFix
 from werkzeug.security import generate_password_hash, check_password_hash
 from dotenv import load_dotenv
 import stripe
@@ -187,6 +189,15 @@ def property_records_to_listings(records: list[dict]) -> list[dict]:
 
 app = Flask(__name__)
 app.secret_key = os.getenv("SECRET_KEY", "")
+app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1)
+oauth = OAuth(app)
+google_oauth = oauth.register(
+    name="google",
+    client_id=os.getenv("GOOGLE_OAUTH_CLIENT_ID", ""),
+    client_secret=os.getenv("GOOGLE_OAUTH_CLIENT_SECRET", ""),
+    server_metadata_url="https://accounts.google.com/.well-known/openid-configuration",
+    client_kwargs={"scope": "openid email profile"},
+)
 stripe.api_key = os.getenv("STRIPE_SECRET_KEY", "")
 
 # --- County subscriptions (tiered: Starter $99 / Professional $199 / Power $399) ----
@@ -1683,6 +1694,7 @@ def inject_user():
         "database_configured": database_configured,
         "secret_key_set": secret_key_set,
         "stripe_configured": stripe_configured,
+        "google_oauth_ready": _google_oauth_ready(),
         "appwrite_endpoint_set": appwrite_endpoint_set,
         "appwrite_project_set": appwrite_project_set,
         "appwrite_key_set": appwrite_key_set,
@@ -1762,6 +1774,19 @@ def _accounts_ready():
     return db.is_configured() and bool(app.secret_key) and _persistent_storage_ready()
 
 
+def _safe_local_next(value, default=None):
+    target = str(value or "")
+    if not target.startswith('/') or target.startswith('//') or '\\' in target or urlsplit(target).netloc:
+        return default or url_for('account')
+    return target
+
+
+def _google_oauth_ready():
+    return bool(os.getenv("GOOGLE_OAUTH_CLIENT_ID", "").strip()
+                and os.getenv("GOOGLE_OAUTH_CLIENT_SECRET", "").strip()
+                and _accounts_ready() and db.backend_name() == "sqlite")
+
+
 @app.route('/register', methods=['GET', 'POST'])
 def register():
     if not _accounts_ready():
@@ -1821,11 +1846,59 @@ def login():
             return render_template('auth.html', mode='login', error="Incorrect email or password.", email=email)
         session.clear()
         session['user_id'] = user['id']
-        nxt = request.args.get('next') or url_for('account')
-        if not nxt.startswith('/') or nxt.startswith('//') or '\\' in nxt or urlsplit(nxt).netloc:
-            nxt = url_for('account')
-        return redirect(nxt)
+        return redirect(_safe_local_next(request.args.get('next')))
     return render_template('auth.html', mode='login')
+
+
+@app.route('/auth/google')
+def google_login():
+    if not _google_oauth_ready():
+        return render_template('auth.html', mode='login',
+                               error="Google sign-in is not configured yet."), 503
+    if current_user():
+        return redirect(url_for('account'))
+    session['oauth_next'] = _safe_local_next(request.args.get('next'))
+    nonce = secrets.token_urlsafe(24)
+    session['google_oauth_nonce'] = nonce
+    redirect_uri = os.getenv("GOOGLE_OAUTH_REDIRECT_URI", "").strip() or url_for('google_callback', _external=True)
+    return google_oauth.authorize_redirect(redirect_uri, nonce=nonce)
+
+
+@app.route('/auth/google/callback')
+def google_callback():
+    if not _google_oauth_ready():
+        return render_template('auth.html', mode='login',
+                               error="Google sign-in is not configured yet."), 503
+    next_url = _safe_local_next(session.pop('oauth_next', None))
+    try:
+        token = google_oauth.authorize_access_token()
+        identity = token.get('userinfo') or {}
+    except Exception:
+        app.logger.exception("Google sign-in failed")
+        session.pop('google_oauth_nonce', None)
+        return render_template('auth.html', mode='login',
+                               error="Google sign-in could not be completed. Please try again."), 400
+    verified = identity.get('email_verified')
+    subject = str(identity.get('sub') or '').strip()
+    email = str(identity.get('email') or '').strip().lower()
+    if verified not in (True, "true", "True", 1) or not subject or not email:
+        session.pop('google_oauth_nonce', None)
+        return render_template('auth.html', mode='login',
+                               error="Google did not return a verified email address."), 400
+    try:
+        user, created = db.get_or_create_oauth_user('google', subject, email)
+    except Exception:
+        app.logger.exception("Could not persist Google identity")
+        return render_template('auth.html', mode='login',
+                               error="Google sign-in could not be completed. Please try again."), 503
+    session.clear()
+    session['user_id'] = user['id']
+    if created:
+        try:
+            _grant_signup_promo(user['id'])
+        except Exception:
+            app.logger.exception("Could not register Google signup promo")
+    return redirect(next_url)
 
 
 @app.route('/logout', methods=['POST'])
