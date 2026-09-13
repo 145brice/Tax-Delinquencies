@@ -1679,7 +1679,7 @@ def inject_user():
         "accounts_ready": accounts_ready,
         "checkout_ready": bool(accounts_ready and stripe_configured),
         "subscriptions_ready": _subscriptions_ready(),
-        "appwrite_pending": not appwrite_configured,
+        "appwrite_pending": not database_configured,
         "database_configured": database_configured,
         "secret_key_set": secret_key_set,
         "stripe_configured": stripe_configured,
@@ -1766,7 +1766,7 @@ def _accounts_ready():
 def register():
     if not _accounts_ready():
         return render_template('auth.html', mode='register',
-                               error="Accounts are not configured yet. Set Appwrite env vars and SECRET_KEY.")
+                               error="Accounts are not configured yet. Configure persistent storage and SECRET_KEY.")
     if current_user():
         return redirect(url_for('account'))
     if request.method == 'POST':
@@ -1803,7 +1803,7 @@ def register():
 def login():
     if not _accounts_ready():
         return render_template('auth.html', mode='login',
-                               error="Accounts are not configured yet. Set Appwrite env vars and SECRET_KEY.")
+                               error="Accounts are not configured yet. Configure persistent storage and SECRET_KEY.")
     if current_user():
         return redirect(url_for('account'))
     if request.method == 'POST':
@@ -3131,7 +3131,7 @@ def stripe_status():
 @app.route('/api/accounts-status')
 @admin_required
 def accounts_status():
-    """Diagnostic for Appwrite/Postgres accounts."""
+    """Diagnostic for the configured account store."""
     backend_configured = db.is_configured()
     appwrite_configured = db.appwrite_configured()
     secret_set = bool(app.secret_key)
@@ -3145,7 +3145,7 @@ def accounts_status():
             detail = type(exc).__name__ + ": " + str(exc)[:200]
     return jsonify({
         "accounts_ready": bool(backend_configured and secret_set and backend_connected),
-        "backend": "appwrite" if appwrite_configured else "postgres" if backend_configured else None,
+        "backend": db.backend_name(),
         "appwrite_configured": appwrite_configured,
         "backend_configured": backend_configured,
         "secret_key_set": secret_set,
@@ -3174,7 +3174,7 @@ def checkout_status_api():
         "checkout_ready": bool(stripe_set and backend_configured and secret_set and backend_connected),
         "stripe_secret_key_set": stripe_set,
         "stripe_webhook_secret_set": webhook_set,
-        "backend": "appwrite" if appwrite_configured else "postgres" if backend_configured else None,
+        "backend": db.backend_name(),
         "appwrite_configured": appwrite_configured,
         "backend_configured": backend_configured,
         "secret_key_set": secret_set,

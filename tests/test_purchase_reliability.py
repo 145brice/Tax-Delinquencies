@@ -318,7 +318,7 @@ class SecurityTests(unittest.TestCase):
             self.assertEqual(response.location, "/account")
 
     def test_postgres_order_leads_fallback(self):
-        with patch.object(db, "_use_appwrite", return_value=False), patch.object(db, "get_order_by_session", return_value={"leads_json": [{"id": "lead"}]}):
+        with patch.object(db, "_use_sqlite", return_value=False), patch.object(db, "_use_appwrite", return_value=False), patch.object(db, "get_order_by_session", return_value={"leads_json": [{"id": "lead"}]}):
             self.assertEqual(db.get_order_leads("session"), [{"id": "lead"}])
 
 

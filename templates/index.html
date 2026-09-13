@@ -82,6 +82,8 @@
         .btn-unlock { background: #16a34a; }
         .btn-unlock:hover { background: #15803d; }
         .cart-actions { display: flex; gap: 8px; align-items: center; }
+        .btn-cart-detail { background: #334155; }
+        .btn-cart-detail:hover { background: #475569; }
         .wallet-chip {
             display: inline-flex; align-items: center; gap: 4px;
             background: #14321f; color: #86efac; border: 1px solid #166534;
@@ -253,7 +255,7 @@
         .cart-detail { display: none; background: #10131a; border-bottom: 1px solid #2563eb; padding: 10px 24px; }
         .cart-detail.visible { display: block; }
         .cart-detail-title { color: #93c5fd; font-size: 0.75rem; font-weight: 800; text-transform: uppercase; letter-spacing: .06em; margin-bottom: 7px; }
-        .cart-lines { display: grid; gap: 5px; max-height: 190px; overflow-y: auto; }
+        .cart-lines { display: grid; gap: 5px; height: 150px; overflow-y: auto; align-content: start; }
         .cart-line { display: grid; grid-template-columns: minmax(180px, 1fr) 110px 80px 26px; align-items: center; gap: 10px; padding: 6px 9px; background: #171b25; border: 1px solid #252b3a; border-radius: 6px; }
         .cart-line-name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: #e5e7eb; }
         .cart-line-mode { color: #93c5fd; font-weight: 700; text-transform: capitalize; }
@@ -319,7 +321,7 @@
         <a href="/login" class="nav-tab">Log in</a>
         <a href="/register" class="nav-tab">Register</a>
         {% else %}
-        <span class="setup-pill">Appwrite pending</span>
+        <span class="setup-pill">Accounts pending</span>
         {% endif %}
         {% endif %}
     </div>
@@ -327,7 +329,7 @@
 
 {% if appwrite_pending %}
 <div class="setup-banner">
-    <div><strong>Account system pending:</strong> connect Appwrite with <code>APPWRITE_ENDPOINT</code>, <code>APPWRITE_PROJECT_ID</code>, and <code>APPWRITE_API_KEY</code> to enable registration, checkout, and saved purchases.</div>
+    <div><strong>Account system pending:</strong> configure persistent account storage and <code>SECRET_KEY</code> to enable registration, checkout, and saved purchases.</div>
     <div>Storefront browsing stays live.</div>
 </div>
 {% endif %}
@@ -375,12 +377,15 @@
         <span class="wallet-chip" id="wallet-chip" style="display:none;">&#128179; Credits: <strong>$<span id="wallet-balance">0</span></strong></span>
     </div>
     <div class="cart-actions">
+        <button class="btn-checkout btn-cart-detail" id="cart-detail-btn" onclick="toggleCartDetail()" style="display:none;" aria-expanded="false">
+            Review selected
+        </button>
         <div class="pack-wrap" id="pack-wrap" style="display:none;">
             <button class="btn-checkout btn-credits" onclick="togglePackMenu()">&#43; Add credits</button>
             <div class="pack-menu" id="pack-menu" style="display:none;"></div>
         </div>
         <button class="btn-checkout btn-unlock" id="unlock-btn" onclick="unlockWithCredits()" style="display:none;">Unlock with credits</button>
-        <button class="btn-checkout" onclick="checkout()" {% if not checkout_ready %}disabled title="Connect Appwrite and Stripe to enable checkout"{% endif %}>
+        <button class="btn-checkout" onclick="checkout()" {% if not checkout_ready %}disabled title="Configure accounts and Stripe to enable checkout"{% endif %}>
             {% if checkout_ready %}Pay by card &rarr;{% else %}Checkout setup pending{% endif %}
         </button>
     </div>
@@ -513,6 +518,7 @@
     // Selection persists across pages/filters (rows are re-rendered on nav).
     const selectedIds = new Set();
     const selectedModes = new Map();
+    let cartDetailOpen = false;
     let WALLET_CENTS = null;   // null until we learn the user is logged in
 
     // Pagination state — operates on the current filtered + sorted set
@@ -886,7 +892,12 @@
         document.getElementById('selected-total-metric').innerText = total.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2});
         const detail = document.getElementById('cart-detail');
         const lines = document.getElementById('cart-lines');
-        detail.classList.toggle('visible', count > 0);
+        const detailBtn = document.getElementById('cart-detail-btn');
+        if (!count) cartDetailOpen = false;
+        detail.classList.toggle('visible', count > 0 && cartDetailOpen);
+        detailBtn.style.display = count ? 'inline-block' : 'none';
+        detailBtn.textContent = `${cartDetailOpen ? 'Hide' : 'Review'} selected (${count})`;
+        detailBtn.setAttribute('aria-expanded', String(cartDetailOpen));
         lines.innerHTML = [...selectedIds].map(id => {
             const l = byId[id];
             if (!l) return '';
@@ -993,6 +1004,12 @@
             alert(data.message || 'No free aged leads available right now.');
         } catch (error) { alert('Could not reach the server. Please retry.'); }
         finally { btn.disabled = false; loadWallet(); }
+    }
+
+    function toggleCartDetail() {
+        if (!selectedIds.size) return;
+        cartDetailOpen = !cartDetailOpen;
+        updateCart();
     }
 
     async function unlockWithCredits() {

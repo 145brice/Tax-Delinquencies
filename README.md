@@ -71,9 +71,10 @@ new deployment. Back up the volume before the first upgrade.
 
 `railway.json` uses one replica and disables App Sleep so paid delivery and
 skip-trace retries continue without a browser visit. `serve.py` runs Waitress.
-The SQLite volume is the authority for listings, lead reservations, wallet
-balances, subscription allowances, promo claims, and the recovery journal.
-Appwrite (or Postgres) remains the account and purchased-order backend.
+The SQLite volume is the authority for accounts, purchased orders, listings,
+lead reservations, wallet balances, subscription allowances, promo claims, and
+the recovery journal. Set `ACCOUNT_BACKEND=appwrite` or `postgres` only when an
+external account store is intentionally required.
 
 Every checkout reserves its leads before a payment URL is returned. Wallet
 debits and reservations commit in one transaction; external order delivery is
@@ -117,19 +118,16 @@ python app.py
 Set these in Railway service variables (and `.env` for local development):
 
 ```text
-APPWRITE_ENDPOINT=https://nyc.cloud.appwrite.io/v1
-APPWRITE_PROJECT_ID=<project id>
-APPWRITE_API_KEY=<server api key>
-APPWRITE_DATABASE_ID=tax_delinquencies
-APPWRITE_USERS_COLLECTION_ID=users
-APPWRITE_ORDERS_COLLECTION_ID=orders
+ACCOUNT_BACKEND=sqlite
 SECRET_KEY=<long random session secret>
 ADMIN_TOKEN=<long random admin token>
 STRIPE_SECRET_KEY=<Stripe secret key>
 STRIPE_WEBHOOK_SECRET=<Stripe webhook signing secret>
 ```
 
-Alternatively, configure `DATABASE_URL` for the Postgres account/order backend.
+Railway selects SQLite automatically when a persistent volume is mounted. To
+use an external backend instead, set `ACCOUNT_BACKEND=appwrite` with the
+Appwrite variables, or `ACCOUNT_BACKEND=postgres` with `DATABASE_URL`.
 Keep credentials out of source control. Configure Stripe's webhook for
 `/webhook/stripe`, including checkout completion, expiration, subscription
 updates/deletion, and paid invoices. Failed fulfillment returns HTTP 503 so

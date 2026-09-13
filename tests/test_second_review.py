@@ -20,7 +20,7 @@ class ReviewTests(unittest.TestCase):
         conn.__enter__.return_value = conn
         cursor = conn.cursor.return_value.__enter__.return_value
         cursor.fetchall.return_value = []
-        with patch.object(db, "_use_appwrite", return_value=False), patch.object(db, "get_conn", return_value=conn):
+        with patch.object(db, "_use_sqlite", return_value=False), patch.object(db, "_use_appwrite", return_value=False), patch.object(db, "get_conn", return_value=conn):
             db.get_paid_orders()
         self.assertIn("stripe_session_id", cursor.execute.call_args.args[0])
 
@@ -128,7 +128,7 @@ class ReviewTests(unittest.TestCase):
                 return snapshot
             document.update(kwargs["data"]["data"])
             return copy.deepcopy(document)
-        with patch.object(db, "_use_appwrite", return_value=True), patch.object(db, "_appwrite_request", side_effect=request):
+        with patch.object(db, "_use_sqlite", return_value=False), patch.object(db, "_use_appwrite", return_value=True), patch.object(db, "_appwrite_request", side_effect=request):
             with ThreadPoolExecutor(2) as pool:
                 a = pool.submit(db.update_order_lead_contacts, "order", "lead", {"primary_phone": "5551234567"})
                 b = pool.submit(db.update_order_lead_tracking, "order", "buyer", "lead", {"buyer_notes": "Call tomorrow"})
@@ -137,6 +137,21 @@ class ReviewTests(unittest.TestCase):
         lead = json.loads(document["leads_json"])[0]
         self.assertEqual(lead["primary_phone"], "5551234567")
         self.assertEqual(lead["buyer_notes"], "Call tomorrow")
+
+    def test_railway_sqlite_account_and_order_backend(self):
+        self.assertEqual(db.backend_name(), "sqlite")
+        user = db.create_user("buyer@example.com", "password-hash")
+        self.assertEqual(db.get_user_by_email("BUYER@example.com")["id"], user["id"])
+        order_id = db.create_pending_order(user["id"], user["email"], "cs_sqlite", 600,
+                                           [{"id": "lead", "address": "123 Main"}])
+        self.assertTrue(db.mark_order_paid("cs_sqlite"))
+        self.assertEqual(db.get_order_by_session("cs_sqlite")["id"], order_id)
+        self.assertEqual(db.get_order_leads("cs_sqlite")[0]["address"], "123 Main")
+        self.assertTrue(db.update_order_lead_contacts(order_id, "lead", {"primary_phone": "5551234567"}))
+        self.assertTrue(db.update_order_lead_tracking(order_id, user["id"], "lead", {"buyer_notes": "Call"}))
+        lead = db.get_paid_orders_for_user(user["id"])[0]["leads_json"][0]
+        self.assertEqual(lead["primary_phone"], "5551234567")
+        self.assertEqual(lead["buyer_notes"], "Call")
 
     def test_async_payment_failure_releases_reserved_property(self):
         self.client.post("/api/create-checkout-session", json={"lead_ids": ["10"]})

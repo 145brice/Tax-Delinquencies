@@ -9,11 +9,41 @@ import sys
 import threading
 import unittest
 import urllib.request
+from unittest.mock import Mock
 
 from app_fixture import isolated_app
 
 
 class RuntimeTests(unittest.TestCase):
+    def test_sqlite_account_can_start_and_fulfill_card_checkout(self):
+        a = isolated_app(self)
+        a.app.before_request_funcs[None] = []
+        client = a.app.test_client()
+        registered = client.post("/register", data={"email": "buyer@example.com", "password": "password123"})
+        self.assertEqual(registered.status_code, 302)
+        lead = {"id": "lead-1", "county": "test", "source": "County source",
+                "address": "123 Main Street", "owner": "Test Owner", "scraped_date": "2026-09-12"}
+        a._sqlite_set("listings", [lead])
+
+        session = {"id": "cs_sqlite_checkout", "url": "https://checkout.stripe.test/session",
+                   "mode": "payment", "status": "complete", "payment_status": "paid",
+                   "amount_total": 600, "currency": "usd", "metadata": {}}
+        a.stripe.api_key = "sk_test"
+        a.stripe.checkout.Session.create = Mock(return_value=type("Checkout", (dict,), {"__getattr__": dict.__getitem__})(session))
+        a.stripe.checkout.Session.retrieve = Mock(return_value=session)
+        checkout = client.post("/api/create-checkout-session", json={"lead_ids": ["lead-1"]})
+        self.assertEqual(checkout.status_code, 200, checkout.get_data(as_text=True))
+
+        order = a.purchase_store.get(session_id="cs_sqlite_checkout")
+        session["metadata"] = {"purchase_id": order["id"], "user_id": order["user_id"]}
+        import os
+        os.environ["STRIPE_WEBHOOK_SECRET"] = "whsec_test"
+        a.stripe.Webhook.construct_event = Mock(return_value={"id": "evt_sqlite_checkout",
+            "type": "checkout.session.completed", "data": {"object": session}})
+        fulfilled = client.post("/webhook/stripe")
+        self.assertEqual(fulfilled.status_code, 200, fulfilled.get_data(as_text=True))
+        self.assertEqual(a.db.get_paid_orders_for_user(order["user_id"])[0]["stripe_session_id"], "cs_sqlite_checkout")
+
     def test_rendered_storefront_javascript_parses(self):
         node = shutil.which("node")
         if not node:

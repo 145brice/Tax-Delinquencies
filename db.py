@@ -1,20 +1,18 @@
 """Account and order persistence for the storefront.
 
-Primary backend: Appwrite Cloud, configured with APPWRITE_ENDPOINT,
-APPWRITE_PROJECT_ID, and APPWRITE_API_KEY. Purchased lead snapshots are stored
-in an Appwrite database/collection.
-
-Fallback backend: Postgres, kept for older deployments that still use
-DATABASE_URL / POSTGRES_URL.
+Railway deployments default to SQLite on the mounted persistent volume. Appwrite
+and Postgres remain available when ACCOUNT_BACKEND explicitly selects them.
 """
 
 from __future__ import annotations
 
 import json
 import os
+import sqlite3
 import threading
 import time
 import hashlib
+from contextlib import closing
 from functools import wraps
 from datetime import datetime, timezone
 
@@ -33,6 +31,7 @@ _DB_URL_ENV_VARS = (
 
 _init_lock = threading.Lock()
 _initialized = False
+_initialized_backend = ""
 _lead_update_lock = threading.RLock()
 
 
@@ -73,12 +72,51 @@ def _postgres_configured():
     return bool(_database_url())
 
 
+def _sqlite_path():
+    explicit = _env("SQLITE_DB")
+    if explicit:
+        return os.path.abspath(explicit)
+    volume = _env("RAILWAY_VOLUME_MOUNT_PATH")
+    return os.path.abspath(os.path.join(volume, "foreclosure.sqlite3")) if volume else ""
+
+
+def _use_sqlite():
+    selected = _env("ACCOUNT_BACKEND").lower()
+    if selected:
+        return selected == "sqlite"
+    return bool(_env("RAILWAY_VOLUME_MOUNT_PATH") or _env("SQLITE_DB"))
+
+
 def is_configured():
-    return appwrite_configured() or _postgres_configured()
+    return (_use_sqlite() and bool(_sqlite_path())) or appwrite_configured() or _postgres_configured()
+
+
+def backend_name():
+    if _use_sqlite() and _sqlite_path():
+        return "sqlite"
+    if _use_appwrite():
+        return "appwrite"
+    if _postgres_configured():
+        return "postgres"
+    return None
 
 
 def _use_appwrite():
-    return appwrite_configured()
+    selected = _env("ACCOUNT_BACKEND").lower()
+    return not _use_sqlite() and appwrite_configured() and selected != "postgres"
+
+
+def _sqlite_conn():
+    path = _sqlite_path()
+    if not path:
+        raise DatabaseNotConfigured("SQLite account storage is not configured.")
+    os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+    conn = sqlite3.connect(path, timeout=30)
+    conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA foreign_keys=ON")
+    conn.execute("PRAGMA busy_timeout=30000")
+    return conn
 
 
 def _appwrite_endpoint():
@@ -267,18 +305,47 @@ def get_conn():
 
 def init_db():
     """Create backing tables/collections if needed. Safe to call repeatedly."""
-    global _initialized
-    if _initialized:
+    global _initialized, _initialized_backend
+    backend = "sqlite:" + _sqlite_path() if _use_sqlite() else ("appwrite" if _use_appwrite() else "postgres")
+    if _initialized and _initialized_backend == backend:
         return
     with _init_lock:
-        if _initialized:
+        if _initialized and _initialized_backend == backend:
             return
-        if _use_appwrite():
+        if _use_sqlite():
+            _sqlite_init()
+        elif _use_appwrite():
             _appwrite_init()
-            _initialized = True
-            return
-        _postgres_init()
+        else:
+            _postgres_init()
         _initialized = True
+        _initialized_backend = backend
+
+
+def _sqlite_init():
+    with closing(_sqlite_conn()) as conn, conn:
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS account_users (
+                id TEXT PRIMARY KEY,
+                email TEXT UNIQUE NOT NULL,
+                password_hash TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            )
+        """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS account_orders (
+                id TEXT PRIMARY KEY,
+                user_id TEXT NOT NULL,
+                email TEXT,
+                stripe_session_id TEXT UNIQUE NOT NULL,
+                amount_cents INTEGER NOT NULL DEFAULT 0,
+                status TEXT NOT NULL DEFAULT 'pending',
+                leads_json TEXT NOT NULL DEFAULT '[]',
+                created_at TEXT NOT NULL,
+                FOREIGN KEY (user_id) REFERENCES account_users(id)
+            )
+        """)
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_account_orders_user_status ON account_orders(user_id, status)")
 
 
 def _postgres_init():
@@ -316,6 +383,18 @@ def _normalize_email(email):
 
 def create_user(email, password_hash=None, password=None):
     email = _normalize_email(email)
+    if _use_sqlite():
+        init_db()
+        user_id = _safe_doc_id(email)
+        created_at = datetime.now(timezone.utc).isoformat()
+        with closing(_sqlite_conn()) as conn, conn:
+            cur = conn.execute(
+                "INSERT OR IGNORE INTO account_users (id, email, password_hash, created_at) VALUES (?, ?, ?, ?)",
+                (user_id, email, password_hash or "", created_at),
+            )
+            if not cur.rowcount:
+                return None
+        return {"id": user_id, "email": email, "password_hash": password_hash or "", "created_at": created_at}
     if _use_appwrite():
         init_db()
         user_id = _safe_doc_id(email)
@@ -385,6 +464,13 @@ def _appwrite_user_doc_to_row(doc):
 
 def get_user_by_email(email):
     email = _normalize_email(email)
+    if _use_sqlite():
+        init_db()
+        with closing(_sqlite_conn()) as conn, conn:
+            row = conn.execute(
+                "SELECT id, email, password_hash, created_at FROM account_users WHERE email = ?", (email,)
+            ).fetchone()
+        return dict(row) if row else None
     if _use_appwrite():
         return get_user_by_id(_safe_doc_id(email))
     with get_conn() as conn, conn.cursor() as cur:
@@ -396,6 +482,13 @@ def get_user_by_email(email):
 
 
 def get_user_by_id(user_id):
+    if _use_sqlite():
+        init_db()
+        with closing(_sqlite_conn()) as conn, conn:
+            row = conn.execute(
+                "SELECT id, email, password_hash, created_at FROM account_users WHERE id = ?", (str(user_id),)
+            ).fetchone()
+        return dict(row) if row else None
     if _use_appwrite():
         try:
             doc = _appwrite_request("GET", f"/databases/{_appwrite_database_id()}/collections/{_appwrite_users_collection_id()}/documents/{user_id}")
@@ -434,6 +527,22 @@ def _order_doc_to_row(doc):
     }
 
 
+def _sqlite_order_to_row(row):
+    if not row:
+        return None
+    result = dict(row)
+    try:
+        result["leads_json"] = json.loads(result.get("leads_json") or "[]")
+    except (TypeError, ValueError):
+        result["leads_json"] = []
+    created = result.get("created_at")
+    try:
+        result["created_at"] = datetime.fromisoformat(str(created).replace("Z", "+00:00")) if created else None
+    except ValueError:
+        result["created_at"] = None
+    return result
+
+
 def _list_order_docs(*queries):
     dbid = _appwrite_database_id()
     coll = _appwrite_orders_collection_id()
@@ -461,6 +570,19 @@ def _list_order_docs(*queries):
 
 
 def create_pending_order(user_id, email, stripe_session_id, amount_cents, leads):
+    if _use_sqlite():
+        init_db()
+        order_id = _safe_doc_id(stripe_session_id)
+        with closing(_sqlite_conn()) as conn, conn:
+            conn.execute(
+                """INSERT OR IGNORE INTO account_orders
+                   (id, user_id, email, stripe_session_id, amount_cents, status, leads_json, created_at)
+                   VALUES (?, ?, ?, ?, ?, 'pending', ?, ?)""",
+                (order_id, str(user_id), _normalize_email(email), str(stripe_session_id), int(amount_cents),
+                 json.dumps(leads, ensure_ascii=False), datetime.now(timezone.utc).isoformat()),
+            )
+            row = conn.execute("SELECT id FROM account_orders WHERE stripe_session_id = ?", (str(stripe_session_id),)).fetchone()
+        return row["id"] if row else None
     if _use_appwrite():
         init_db()
         doc_id = _safe_doc_id(stripe_session_id)
@@ -511,6 +633,14 @@ def mark_order_paid(stripe_session_id):
 def set_order_status(stripe_session_id, status):
     if status not in {"paid", "refunded"}:
         raise ValueError("Unsupported order status")
+    if _use_sqlite():
+        init_db()
+        with closing(_sqlite_conn()) as conn, conn:
+            cur = conn.execute(
+                "UPDATE account_orders SET status = ? WHERE stripe_session_id = ?",
+                (status, str(stripe_session_id)),
+            )
+        return cur.rowcount > 0
     if _use_appwrite():
         doc_id = _safe_doc_id(stripe_session_id)
         try:
@@ -547,6 +677,16 @@ def get_order_leads(stripe_session_id):
 
 def get_order_by_session(stripe_session_id):
     """Return the complete order row for fulfillment work."""
+    if _use_sqlite():
+        init_db()
+        with closing(_sqlite_conn()) as conn, conn:
+            row = conn.execute(
+                """SELECT id, user_id, email, stripe_session_id, amount_cents,
+                          status, leads_json, created_at
+                   FROM account_orders WHERE stripe_session_id = ?""",
+                (str(stripe_session_id),),
+            ).fetchone()
+        return _sqlite_order_to_row(row)
     if _use_appwrite():
         doc_id = _safe_doc_id(stripe_session_id)
         try:
@@ -577,6 +717,15 @@ def get_order_by_session(stripe_session_id):
 
 
 def get_paid_orders_for_user(user_id):
+    if _use_sqlite():
+        init_db()
+        with closing(_sqlite_conn()) as conn, conn:
+            rows = conn.execute(
+                """SELECT id, user_id, email, stripe_session_id, amount_cents, status, leads_json, created_at
+                   FROM account_orders WHERE user_id = ? AND status = 'paid' ORDER BY created_at DESC""",
+                (str(user_id),),
+            ).fetchall()
+        return [_sqlite_order_to_row(row) for row in rows]
     if _use_appwrite():
         data = _list_order_docs()
         rows = [
@@ -598,6 +747,14 @@ def get_paid_orders_for_user(user_id):
 
 
 def get_paid_orders():
+    if _use_sqlite():
+        init_db()
+        with closing(_sqlite_conn()) as conn, conn:
+            rows = conn.execute(
+                """SELECT id, user_id, email, stripe_session_id, amount_cents, status, leads_json, created_at
+                   FROM account_orders WHERE status = 'paid' ORDER BY created_at DESC"""
+            ).fetchall()
+        return [_sqlite_order_to_row(row) for row in rows]
     if _use_appwrite():
         data = _list_order_docs()
         rows = [_order_doc_to_row(doc) for doc in data.get("documents", []) if doc.get("status") == "paid"]
@@ -616,6 +773,26 @@ def get_paid_orders():
 
 @_serialize_lead_update
 def update_order_lead_contacts(order_id, lead_id, contact_fields):
+    if _use_sqlite():
+        init_db()
+        with closing(_sqlite_conn()) as conn, conn:
+            conn.execute("BEGIN IMMEDIATE")
+            row = conn.execute(
+                "SELECT leads_json FROM account_orders WHERE id = ? AND status = 'paid'", (str(order_id),)
+            ).fetchone()
+            if not row:
+                return False
+            try:
+                leads = json.loads(row["leads_json"] or "[]")
+            except (TypeError, ValueError):
+                leads = []
+            lead = next((item for item in leads if str(item.get("id")) == str(lead_id)), None)
+            if not lead:
+                return False
+            lead.update(contact_fields)
+            conn.execute("UPDATE account_orders SET leads_json = ? WHERE id = ?",
+                         (json.dumps(leads, ensure_ascii=False), str(order_id)))
+        return True
     if _use_appwrite():
         doc = _appwrite_request("GET", f"/databases/{_appwrite_database_id()}/collections/{_appwrite_orders_collection_id()}/documents/{order_id}")
         row = _order_doc_to_row(doc)
@@ -670,6 +847,29 @@ def update_order_lead_tracking(order_id, user_id, lead_id, tracking_fields):
     updates = {key: value for key, value in tracking_fields.items() if key in allowed}
     if not updates:
         return False
+
+    if _use_sqlite():
+        init_db()
+        with closing(_sqlite_conn()) as conn, conn:
+            conn.execute("BEGIN IMMEDIATE")
+            row = conn.execute(
+                "SELECT leads_json FROM account_orders WHERE id = ? AND user_id = ? AND status = 'paid'",
+                (str(order_id), str(user_id)),
+            ).fetchone()
+            if not row:
+                return False
+            try:
+                leads = json.loads(row["leads_json"] or "[]")
+            except (TypeError, ValueError):
+                leads = []
+            lead = next((item for item in leads if str(item.get("id")) == str(lead_id)), None)
+            if not lead:
+                return False
+            _apply_tracking_history(lead, updates)
+            lead.update(updates)
+            conn.execute("UPDATE account_orders SET leads_json = ? WHERE id = ? AND user_id = ?",
+                         (json.dumps(leads, ensure_ascii=False), str(order_id), str(user_id)))
+        return True
 
     if _use_appwrite():
         doc = _appwrite_request("GET", f"/databases/{_appwrite_database_id()}/collections/{_appwrite_orders_collection_id()}/documents/{order_id}")
