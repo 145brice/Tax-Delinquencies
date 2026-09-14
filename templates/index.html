@@ -84,6 +84,8 @@
         .cart-actions { display: flex; gap: 8px; align-items: center; }
         .btn-cart-detail { background: #334155; }
         .btn-cart-detail:hover { background: #475569; }
+        .btn-bulk-mode { background: #0f766e; padding-left: 14px; padding-right: 14px; }
+        .btn-bulk-mode:hover { background: #0d9488; }
         .wallet-chip {
             display: inline-flex; align-items: center; gap: 4px;
             background: #14321f; color: #86efac; border: 1px solid #166534;
@@ -377,6 +379,9 @@
         <span class="wallet-chip" id="wallet-chip" style="display:none;">&#128179; Credits: <strong>$<span id="wallet-balance">0</span></strong></span>
     </div>
     <div class="cart-actions">
+        <button class="btn-checkout btn-bulk-mode" id="bulk-mode-btn" onclick="toggleAllSelectedModes()" style="display:none;">
+            All &rarr; Skip traced
+        </button>
         <button class="btn-checkout btn-cart-detail" id="cart-detail-btn" onclick="toggleCartDetail()" style="display:none;" aria-expanded="false">
             Review selected
         </button>
@@ -863,6 +868,18 @@
         return Number(mode === 'skip' ? l.skip_price : l.raw_price) || 0;
     }
 
+    function allSelectedAreSkipTraced() {
+        return selectedIds.size > 0 && [...selectedIds].every(id => selectedModes.get(id) === 'skip');
+    }
+
+    function toggleAllSelectedModes() {
+        if (!selectedIds.size) return;
+        const mode = allSelectedAreSkipTraced() ? 'raw' : 'skip';
+        selectedIds.forEach(id => selectedModes.set(id, mode));
+        renderPage();
+        updateCart();
+    }
+
     function removeFromCart(id) {
         selectedIds.delete(String(id));
         renderPage();
@@ -893,11 +910,16 @@
         const detail = document.getElementById('cart-detail');
         const lines = document.getElementById('cart-lines');
         const detailBtn = document.getElementById('cart-detail-btn');
+        const bulkModeBtn = document.getElementById('bulk-mode-btn');
         if (!count) cartDetailOpen = false;
         detail.classList.toggle('visible', count > 0 && cartDetailOpen);
         detailBtn.style.display = count ? 'inline-block' : 'none';
         detailBtn.textContent = `${cartDetailOpen ? 'Hide' : 'Review'} selected (${count})`;
         detailBtn.setAttribute('aria-expanded', String(cartDetailOpen));
+        const allSkipTraced = allSelectedAreSkipTraced();
+        bulkModeBtn.style.display = count ? 'inline-block' : 'none';
+        bulkModeBtn.textContent = allSkipTraced ? 'All → Raw' : 'All → Skip traced';
+        bulkModeBtn.title = allSkipTraced ? 'Change every selected lead to raw' : 'Change every selected lead to skip traced';
         lines.innerHTML = [...selectedIds].map(id => {
             const l = byId[id];
             if (!l) return '';
