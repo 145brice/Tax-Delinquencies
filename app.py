@@ -3834,6 +3834,7 @@ def ingest_scrape_results():
     try:
         batch_number = int(payload.get("batch_number") or 1)
         batch_total = int(payload.get("batch_total") or 1)
+        attempts_used = max(1, min(int(payload.get("attempts_used") or 1), 3))
     except (TypeError, ValueError):
         return jsonify({"error": "invalid batch numbering"}), 400
     if batch_number < 1 or batch_total < 1 or batch_number > batch_total:
@@ -3885,6 +3886,9 @@ def ingest_scrape_results():
             "batches": {}, "county_date_min": "", "county_date_max": "",
             "run_status": str(payload.get("run_status") or "success")[:20],
             "error": str(payload.get("error") or "")[:500],
+            "schedule_reason": str(payload.get("schedule_reason") or "legacy")[:30],
+            "scheduled_local_time": str(payload.get("scheduled_local_time") or "")[:80],
+            "attempts_used": attempts_used,
         }
         entry["last_received_at"] = received_at
         entry["completed_at"] = str(payload.get("completed_at") or entry.get("completed_at") or "")[:80]

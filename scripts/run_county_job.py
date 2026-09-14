@@ -60,6 +60,7 @@ def main() -> int:
     parser.add_argument("--batch-size", type=int, default=250)
     args = parser.parse_args()
     attempts = max(1, min(args.attempts, 3))
+    empty_retry_seconds = max(30, min(int(os.environ.get("EMPTY_RETRY_SECONDS", "180")), 300))
 
     base_url = os.environ.get("SCRAPE_TARGET_URL", "").strip()
     token = os.environ.get("ADMIN_TOKEN", "").strip()
@@ -82,7 +83,11 @@ def main() -> int:
             try:
                 print(f"[{args.county}/{source}] scrape attempt {attempt}/{attempts}", flush=True)
                 records = run_scrapers([source], args.lookback_days, raise_errors=True)
-                break
+                if records or attempt == attempts:
+                    break
+                print(f"[{args.county}/{source}] no records; rechecking in {empty_retry_seconds}s",
+                      flush=True)
+                time.sleep(empty_retry_seconds)
             except Exception as exc:
                 last_error = exc
                 print(f"[{args.county}/{source}] attempt {attempt} failed: {exc}", file=sys.stderr, flush=True)
@@ -103,6 +108,9 @@ def main() -> int:
                     "completed_at": completed_at,
                     "run_status": "failed",
                     "error": str(last_error or "unknown scraper failure")[:500],
+                    "schedule_reason": os.environ.get("SCHEDULE_REASON", "manual"),
+                    "scheduled_local_time": os.environ.get("SCHEDULED_LOCAL_TIME", ""),
+                    "attempts_used": attempt,
                 })
             except Exception as receipt_error:
                 print(f"[{args.county}/{source}] could not deliver failure receipt: {receipt_error}",
@@ -119,6 +127,9 @@ def main() -> int:
             "started_at": started_at,
             "completed_at": completed_at,
             "run_status": "success",
+            "schedule_reason": os.environ.get("SCHEDULE_REASON", "manual"),
+            "scheduled_local_time": os.environ.get("SCHEDULED_LOCAL_TIME", ""),
+            "attempts_used": attempt,
         }
         batches = [records[i:i + args.batch_size] for i in range(0, len(records), args.batch_size)] or [[]]
         for number, batch in enumerate(batches, 1):

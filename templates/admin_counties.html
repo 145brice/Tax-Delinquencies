@@ -259,7 +259,7 @@
     <div class="table-wrap">
         <table id="run-inventory-table">
             <thead>
-                <tr><th>Received (UTC)</th><th>County</th><th>Source</th><th>Started (UTC)</th><th>Returned</th><th>Kept</th><th>Added</th><th>County-date range</th><th>Status</th></tr>
+                <tr><th>Received (UTC)</th><th>County</th><th>Source</th><th>Reason</th><th>Started (UTC)</th><th>Attempts</th><th>Returned</th><th>Kept</th><th>Added</th><th>County-date range</th><th>Status</th></tr>
             </thead>
             <tbody>
             {% for run in scrape_runs %}
@@ -267,7 +267,9 @@
                     <td>{{ run.last_received_at }}</td>
                     <td><strong>{{ run.county }}</strong></td>
                     <td><span class="source-pill">{{ run.source }}</span></td>
+                    <td>{{ run.schedule_reason or 'legacy' }}</td>
                     <td>{{ run.started_at or 'unknown' }}</td>
+                    <td>{{ run.attempts_used or 1 }}</td>
                     <td>{{ run.raw }}</td>
                     <td>{{ run.kept }}</td>
                     <td class="{{ 'result-positive' if run.added else 'result-empty' }}">{{ run.added }}</td>
@@ -275,7 +277,7 @@
                     <td>{{ run.status }}</td>
                 </tr>
             {% else %}
-                <tr><td colspan="9" class="date-never">No durable run receipts yet. The next scheduled scrape will start this inventory.</td></tr>
+                <tr><td colspan="11" class="date-never">No durable run receipts yet. The next scheduled scrape will start this inventory.</td></tr>
             {% endfor %}
             </tbody>
         </table>

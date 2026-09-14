@@ -2,9 +2,9 @@ name: Scheduled county scrape
 
 on:
   schedule:
-    # The planner converts this hourly UTC tick into each county's local
-    # posting window, including daylight-saving time.
-    - cron: "17 * * * *"
+    # Aim five minutes after each learned/local posting hour. GitHub may start
+    # scheduled jobs a few minutes late; the run ledger records the real time.
+    - cron: "5 * * * *"
   workflow_dispatch:
     inputs:
       county:
@@ -30,6 +30,8 @@ jobs:
       - id: plan
         env:
           REQUESTED_COUNTY: ${{ github.event.inputs.county }}
+          SCRAPE_TARGET_URL: ${{ secrets.SCRAPE_TARGET_URL }}
+          ADMIN_TOKEN: ${{ secrets.ADMIN_TOKEN }}
         run: |
           args=()
           if [ -n "$REQUESTED_COUNTY" ]; then args=(--county "$REQUESTED_COUNTY"); fi
@@ -58,4 +60,6 @@ jobs:
         env:
           SCRAPE_TARGET_URL: ${{ secrets.SCRAPE_TARGET_URL }}
           ADMIN_TOKEN: ${{ secrets.ADMIN_TOKEN }}
+          SCHEDULE_REASON: ${{ matrix.schedule_reason }}
+          SCHEDULED_LOCAL_TIME: ${{ matrix.scheduled_local_time }}
         run: python scripts/run_county_job.py --county "${{ matrix.county }}" --attempts 2
