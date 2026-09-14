@@ -220,11 +220,17 @@
     <h2 class="section-title">Prices decrease as leads age</h2>
     <p class="section-sub">Current phase: {{ 'Beta' if pricing_phase == 'beta' else 'Post-beta' }}. Age is measured from the earliest recorded discovery or scrape date.</p>
     <table style="width:100%;text-align:left;line-height:2">
-        <thead><tr><th>Age</th><th>Base price multiplier</th></tr></thead>
-        <tbody><tr><td>0&ndash;3 days</td><td>100%</td></tr><tr><td>4&ndash;7 days</td><td>85%</td></tr><tr><td>8&ndash;14 days</td><td>65%</td></tr><tr><td>15&ndash;30 days</td><td>45%</td></tr><tr><td>31&ndash;60 days</td><td>25%</td></tr><tr><td>Over 60 days</td><td>10%, subject to floors</td></tr></tbody>
+        <thead><tr><th>Age</th><th>Beta raw</th><th>Beta skip-traced</th><th>Post-beta raw</th><th>Post-beta skip-traced</th></tr></thead>
+        <tbody>
+            <tr><td>0&ndash;3 days</td><td>$6</td><td>$15</td><td>$18</td><td>$30</td></tr>
+            <tr><td>4&ndash;7 days</td><td>$5</td><td>$13</td><td>$15</td><td>$26</td></tr>
+            <tr><td>8&ndash;14 days</td><td>$4</td><td>$10</td><td>$12</td><td>$20</td></tr>
+            <tr><td>15&ndash;30 days</td><td>$3</td><td>$7</td><td>$8</td><td>$14</td></tr>
+            <tr><td>31&ndash;60 days</td><td>$2</td><td>$4</td><td>$5</td><td>$8</td></tr>
+            <tr><td>Over 60 days</td><td>$2</td><td>$4</td><td>$3</td><td>$5</td></tr>
+        </tbody>
     </table>
-    <p>Beta base prices: $6 raw / $15 skip-traced. Post-beta: $18 raw / $30 skip-traced.</p>
-    <p>Minimum prices: $2 raw / $3.50 skip-traced in beta; $3 raw / $5 skip-traced after beta. Floors also apply to earlier tiers so an older lead never costs more. Leads without a valid discovery date use the lower-middle 45% tier.</p>
+    <p>Every lead price is a whole dollar. Leads without a valid discovery date use the 15&ndash;30 day price.</p>
     <p>Get up to 3 free aged leads when you join, when available. This separate signup offer uses inventory older than 60 days, with raw leads selected first.</p>
 </div>
 <!-- WAYS TO BUY -->

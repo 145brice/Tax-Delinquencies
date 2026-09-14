@@ -4,29 +4,27 @@
 the app to switch phases. Legacy `LEAD_PRICE_RAW`, `LEAD_PRICE_TRACED`, and
 `SIGNUP_GRANT_CENTS` overrides no longer control this pricing or signup offer.
 
-Prices in dollars, rounded to cents:
+All prices are whole dollars:
 
-| Age in days | Multiplier | Beta raw | Beta skip-traced | Post-beta raw | Post-beta skip-traced |
-|---|---:|---:|---:|---:|---:|
-| 0–3 | 100% | 6.00 | 15.00 | 18.00 | 30.00 |
-| 4–7 | 85% | 5.10 | 12.75 | 15.30 | 25.50 |
-| 8–14 | 65% | 3.90 | 9.75 | 11.70 | 19.50 |
-| 15–30 | 45% | 2.70 | 6.75 | 8.10 | 13.50 |
-| 31–60 | 25% | 2.00 | 3.75 | 4.50 | 7.50 |
-| 61+ | 10% | 2.00 | 3.50 | 3.00 | 5.00 |
-
-Floors apply throughout the ladder to preserve both the hard minimum and
-non-increasing prices. In particular, beta raw leads remain $2 at 31–60 days
-instead of dropping to $1.50 and then rising to $2 at day 61.
+| Age in days | Beta raw | Beta skip-traced | Post-beta raw | Post-beta skip-traced |
+|---|---:|---:|---:|---:|
+| 0–3 | $6 | $15 | $18 | $30 |
+| 4–7 | $5 | $13 | $15 | $26 |
+| 8–14 | $4 | $10 | $12 | $20 |
+| 15–30 | $3 | $7 | $8 | $14 |
+| 31–60 | $2 | $4 | $5 | $8 |
+| 61+ | $2 | $4 | $3 | $5 |
 
 Age uses UTC calendar days since the earliest valid `first_seen`,
 `first_seen_at`, or `scraped_date`. Re-scrape merges preserve that earliest
 date. Sale dates are not discovery dates. Missing or invalid discovery dates
-use the lower-middle 45% tier and remain ineligible for the promo; future dates
-count as age 0.
+use the 15–30 day price and remain ineligible for the signup offer; future
+dates count as age 0.
 
 Storefront prices, Stripe checkout totals, and wallet unlocks share the same
-engine. The static marketing page lists beta and post-beta pricing explicitly.
+engine. When wallet credit does not cover an order, the buyer can apply the
+available balance and pay the remainder by card. The wallet reservation is
+restored exactly once if Stripe definitively rejects or expires the checkout.
 
 ## Signup offer
 
@@ -36,7 +34,6 @@ New registrations receive an allowance of three leads, not wallet money.
 The storefront claim button chooses available inventory older than 60 days,
 raw leads first and oldest first within each contact category. No younger
 inventory is substituted. A partial claim preserves the unused allowance.
-Leads reserved for other county subscribers are excluded.
 
 Claims create zero-dollar orders visible in the account page. Durable
 reservations and a stable order ID allow failed claims to resume. Reserved

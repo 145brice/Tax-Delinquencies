@@ -866,6 +866,14 @@
         return Number(mode === 'skip' ? l.skip_price : l.raw_price) || 0;
     }
 
+    function formatDollars(value) {
+        const amount = Number(value) || 0;
+        return amount.toLocaleString(undefined, {
+            minimumFractionDigits: Number.isInteger(amount) ? 0 : 2,
+            maximumFractionDigits: 2
+        });
+    }
+
     function allSelectedAreSkipTraced() {
         return selectedIds.size > 0 && [...selectedIds].every(id => selectedModes.get(id) === 'skip');
     }
@@ -902,9 +910,9 @@
         selectedIds.forEach(id => { const l = byId[id]; if (l) total += selectedLeadPrice(l); });
         const count = selectedIds.size;
         document.getElementById('cart-count').innerText = count;
-        document.getElementById('cart-total').innerText = total.toFixed(2);
+        document.getElementById('cart-total').innerText = formatDollars(total);
         document.getElementById('selected-metric').innerText = count.toLocaleString();
-        document.getElementById('selected-total-metric').innerText = total.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2});
+        document.getElementById('selected-total-metric').innerText = formatDollars(total);
         const detail = document.getElementById('cart-detail');
         const lines = document.getElementById('cart-lines');
         const detailBtn = document.getElementById('cart-detail-btn');
@@ -927,7 +935,7 @@
             const name = l.address || `${l.county || 'Lead'} · ${l.id}`;
             return `<div class="cart-line"><span class="cart-line-name" title="${esc(name)}">${esc(name)}</span>`
                 + `<span class="cart-line-mode">${mode === 'skip' ? 'Skip traced' : 'Raw'}</span>`
-                + `<span class="cart-line-price">$${selectedLeadPrice(l).toFixed(2)}</span>`
+                + `<span class="cart-line-price">$${formatDollars(selectedLeadPrice(l))}</span>`
                 + `<button class="cart-remove" onclick="removeFromCart('${esc(id)}')" title="Remove">&times;</button></div>`;
         }).join('');
 
@@ -937,10 +945,10 @@
             const costCents = Math.round(total * 100);
             btn.style.display = 'inline-block';
             if (costCents <= WALLET_CENTS) {
-                btn.textContent = `Unlock ${count} (−$${total.toFixed(2)})`;
+                btn.textContent = `Unlock ${count} (−$${formatDollars(total)})`;
                 btn.disabled = false;
             } else {
-                const short = ((costCents - WALLET_CENTS) / 100).toFixed(2);
+                const short = formatDollars((costCents - WALLET_CENTS) / 100);
                 btn.textContent = `Add $${short} to unlock`;
                 btn.disabled = false;   // click routes to card checkout for the rest
             }
@@ -958,7 +966,7 @@
             const promo = document.getElementById('aged-promo-btn');
             promo.style.display = d.aged_promo_remaining || d.aged_promo_pending ? 'inline-block' : 'none';
             promo.textContent = d.aged_promo_pending ? 'Resume free aged-lead claim' : 'Claim up to ' + d.aged_promo_remaining + ' free aged leads';
-            document.getElementById('wallet-balance').innerText = (WALLET_CENTS / 100).toFixed(2);
+            document.getElementById('wallet-balance').innerText = formatDollars(WALLET_CENTS / 100);
             document.getElementById('wallet-chip').style.display = 'inline-flex';
             document.getElementById('pack-wrap').style.display = 'inline-block';
             updateCart();
@@ -1049,7 +1057,13 @@
             const quote = await quoteResponse.json();
             if (quoteResponse.status === 401) { window.location.href = '/login?next=/'; return; }
             if (!quoteResponse.ok) return alert(quote.error || 'Could not price this order.');
-            if (!quote.resume && !confirm(`Unlock ${lead_ids.length} exclusive lead(s) for $${(quote.amount_cents / 100).toFixed(2)} in wallet credit?`)) return;
+            if (!quote.resume && quote.amount_cents > WALLET_CENTS) {
+                const applied = formatDollars(WALLET_CENTS / 100);
+                const short = formatDollars((quote.amount_cents - WALLET_CENTS) / 100);
+                if (confirm(`Apply $${applied} in credits and pay the remaining $${short} by card?`)) checkout(true);
+                return;
+            }
+            if (!quote.resume && !confirm(`Unlock ${lead_ids.length} exclusive lead(s) for $${formatDollars(quote.amount_cents / 100)} in wallet credit?`)) return;
             purchase.max_charge_cents = quote.amount_cents;
             const resp = await fetch('/api/unlock', {
                 method: 'POST',
@@ -1062,9 +1076,10 @@
                 return;
             }
             if (resp.status === 402) {
-                const short = (Math.max(0, quote.amount_cents - (data.balance_cents || 0)) / 100).toFixed(2);
-                if (confirm(`You're $${short} short on credits. Pay the full amount by card instead?`)) {
-                    checkout();
+                const available = data.balance_cents || 0;
+                const short = formatDollars(Math.max(0, quote.amount_cents - available) / 100);
+                if (confirm(`Apply $${formatDollars(available / 100)} in credits and pay the remaining $${short} by card?`)) {
+                    checkout(true);
                 }
                 return;
             }
@@ -1076,7 +1091,7 @@
             alert('Could not reach the server. Please try again.');
         }
     }
-    async function checkout() {
+    async function checkout(applyWallet = false) {
         if (!selectedIds.size) return alert('Select at least one lead first.');
         const counties = selectedCounties();
         if (counties.length > 1) return alert('Please select leads from one county at a time.');
@@ -1088,7 +1103,7 @@
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': CSRF_TOKEN },
                 body: JSON.stringify({
-                    lead_ids, selected_county,
+                    lead_ids, selected_county, apply_wallet: applyWallet,
                     lead_modes: Object.fromEntries(lead_ids.map(id => [id, selectedModes.get(id) || 'raw']))
                 })
             });

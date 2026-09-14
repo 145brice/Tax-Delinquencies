@@ -2617,21 +2617,44 @@ def create_checkout_session():
         payload, selected, modes, county = _purchase_selection(user)
         key = "checkout_" + secrets.token_hex(16)
         amount = sum(_purchase_price_cents(it, modes[str(it["id"])]) for it in selected)
+        apply_wallet = payload.get("apply_wallet") is True
         origin = request.host_url.rstrip("/")
         checkout_args = {
             "mode": "payment", "payment_method_types": ["card"], "customer_email": user["email"],
             "line_items": [{"price_data": {"currency": "usd", "product_data": {
                 "name": f"{county.title()} exclusive lead order"}, "unit_amount": amount}, "quantity": 1}],
-            "metadata": {"user_id": str(user["id"]), "purchase_id": key, "county": county},
+            "metadata": {"user_id": str(user["id"]), "purchase_id": key, "county": county,
+                         "order_total_cents": str(amount)},
             "expires_at": int(time.time()) + 3600,
             "success_url": f"{origin}/checkout/success?session_id={{CHECKOUT_SESSION_ID}}",
             "cancel_url": f"{origin}/checkout/cancel",
         }
+        def reserve_wallet_credit(conn, data):
+            if not apply_wallet:
+                return
+            wallet = purchase_store.read(conn, "credit_wallets", {}).get(str(user["id"]), {})
+            available = max(0, int(wallet.get("balance_cents") or 0))
+            if available >= amount:
+                raise commerce.Unavailable("Your credit balance covers this order. Use Unlock with credits.")
+            # Stripe requires a non-zero card payment. Fifty cents is its USD
+            # minimum; whole-dollar balances normally leave at least $1.
+            applied = min(available, max(0, amount - 50))
+            if not applied:
+                return
+            data["order_total_cents"] = amount
+            data["wallet_applied_cents"] = applied
+            data["amount_cents"] = amount - applied
+            data["checkout_args"]["line_items"][0]["price_data"]["unit_amount"] = amount - applied
+            data["checkout_args"]["metadata"]["wallet_applied_cents"] = str(applied)
+            purchase_store.wallet_change(conn, user["id"], -applied, "split-purchase:" + key)
+
         order = purchase_store.reserve(key, {"kind": "stripe", "user_id": str(user["id"]),
             "email": user["email"], "amount_cents": amount,
-            "leads": _prepare_purchased_leads(selected, modes), "checkout_args": checkout_args})
+            "leads": _prepare_purchased_leads(selected, modes), "checkout_args": checkout_args},
+            prepare=reserve_wallet_credit)
         cs = _create_reserved_checkout(order)
-        return jsonify({"url": cs.url})
+        return jsonify({"url": cs.url, "wallet_applied_cents": order.get("wallet_applied_cents", 0),
+                        "card_amount_cents": order["amount_cents"]})
     except commerce.Unavailable as exc:
         return jsonify({"error": str(exc)}), 409
     except ValueError as exc:

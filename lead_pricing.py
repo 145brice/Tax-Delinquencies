@@ -1,11 +1,16 @@
 """Age-based lead prices, independent of account promotions."""
 from datetime import datetime, timezone
-from decimal import Decimal, ROUND_HALF_UP
 
 BASE_CENTS = {"beta": (600, 1500), "post_beta": (1800, 3000)}
-FLOOR_CENTS = {"beta": (200, 350), "post_beta": (300, 500)}
-TIERS = ((3, 100), (7, 85), (14, 65), (30, 45), (60, 25), (None, 10))
-UNKNOWN_AGE_PERCENT = 45
+FLOOR_CENTS = {"beta": (200, 400), "post_beta": (300, 500)}
+TIERS = (3, 7, 14, 30, 60, None)
+PRICE_TIERS_CENTS = {
+    "beta": ((600, 500, 400, 300, 200, 200),
+             (1500, 1300, 1000, 700, 400, 400)),
+    "post_beta": ((1800, 1500, 1200, 800, 500, 300),
+                  (3000, 2600, 2000, 1400, 800, 500)),
+}
+UNKNOWN_AGE_TIER = 3
 
 
 def discovery_date(item):
@@ -50,16 +55,8 @@ def normalize_listing_dates(item):
 
 def price_cents(item, traced=False, phase="beta", today=None):
     age = age_days(item, today)
-    base = BASE_CENTS[phase][bool(traced)]
-    floor = FLOOR_CENTS[phase][bool(traced)]
     if age is None:
-        amount = int((Decimal(base) * UNKNOWN_AGE_PERCENT / 100).quantize(
-            Decimal("1"), rounding=ROUND_HALF_UP))
-        return max(amount, floor)
-    # Applying the final floor throughout prevents an increase at day 61.
-    previous = base
-    for limit, percent in TIERS:
-        amount = int((Decimal(base) * percent / 100).quantize(Decimal("1"), rounding=ROUND_HALF_UP))
-        previous = min(previous, max(amount, floor))
-        if limit is None or age <= limit:
-            return previous
+        tier = UNKNOWN_AGE_TIER
+    else:
+        tier = next(i for i, limit in enumerate(TIERS) if limit is None or age <= limit)
+    return PRICE_TIERS_CENTS[phase][bool(traced)][tier]

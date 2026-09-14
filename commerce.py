@@ -174,8 +174,12 @@ class Store:
     def expire(self, key):
         """Only call after Stripe confirms expiration, never merely on a timer."""
         with self.transaction() as conn:
-            row = conn.execute("SELECT state FROM purchase_journal WHERE id=?", (key,)).fetchone()
+            row = conn.execute("SELECT state, payload FROM purchase_journal WHERE id=?", (key,)).fetchone()
             if row and row[0] == "awaiting":
+                payload = json.loads(row[1])
+                applied = int(payload.get("wallet_applied_cents") or 0)
+                if applied:
+                    self.wallet_change(conn, payload["user_id"], applied, "split-refund:" + key)
                 conn.execute("DELETE FROM lead_claims WHERE order_id=?", (key,))
                 conn.execute("DELETE FROM property_claims WHERE order_id=?", (key,))
                 conn.execute("UPDATE purchase_journal SET state='expired' WHERE id=?", (key,))
@@ -184,8 +188,13 @@ class Store:
     def reject_creation(self, key):
         """Release a checkout only after a definitive pre-execution rejection."""
         with self.transaction() as conn:
-            changed = conn.execute("UPDATE purchase_journal SET state='rejected' WHERE id=? AND state='creating'", (key,)).rowcount
-            if changed:
+            row = conn.execute("SELECT state, payload FROM purchase_journal WHERE id=?", (key,)).fetchone()
+            if row and row[0] == "creating":
+                payload = json.loads(row[1])
+                applied = int(payload.get("wallet_applied_cents") or 0)
+                if applied:
+                    self.wallet_change(conn, payload["user_id"], applied, "split-refund:" + key)
+                conn.execute("UPDATE purchase_journal SET state='rejected' WHERE id=?", (key,))
                 conn.execute("DELETE FROM lead_claims WHERE order_id=?", (key,))
                 conn.execute("DELETE FROM property_claims WHERE order_id=?", (key,))
                 conn.execute("DELETE FROM fulfillment_jobs WHERE id=?", (key,))

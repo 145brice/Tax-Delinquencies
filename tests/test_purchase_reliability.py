@@ -1,5 +1,6 @@
 import copy
 from concurrent.futures import ThreadPoolExecutor
+from datetime import date
 import json
 import os
 from pathlib import Path
@@ -125,6 +126,35 @@ class PurchaseTests(unittest.TestCase):
         self.assertTrue(purchase_runtime.process_job(self.a, {"id": order["id"], "kind": "purchase"}))
         self.assertNotIn("11", self.a.purchase_store.claimed_ids())
 
+    def test_split_checkout_applies_wallet_and_expiration_restores_it_once(self):
+        self.a._sqlite_set("credit_wallets", {"buyer": {"balance_cents": 100, "ledger": []}})
+        response = self.client.post("/api/create-checkout-session", json={"lead_ids": ["10"], "apply_wallet": True})
+        self.assertEqual(response.status_code, 200, response.get_data(as_text=True))
+        self.assertEqual(response.json["wallet_applied_cents"], 100)
+        self.assertEqual(response.json["card_amount_cents"], 100)
+        self.assertEqual(self.a._wallet_balance_cents("buyer"), 0)
+        session = next(iter(self.sessions.values()))
+        self.assertEqual(session["amount_total"], 100)
+        order = self.a.purchase_store.get(session_id=session.id)
+        self.assertEqual(order["order_total_cents"], 200)
+        session["status"] = "expired"
+        self.assertTrue(purchase_runtime.process_job(self.a, {"id": order["id"], "kind": "purchase"}))
+        self.a.purchase_store.expire(order["id"])
+        self.assertEqual(self.a._wallet_balance_cents("buyer"), 100)
+        self.assertNotIn("10", self.a.purchase_store.claimed_ids())
+
+    def test_paid_split_checkout_keeps_wallet_applied_and_records_full_total(self):
+        self.leads[0]["scraped_date"] = date.today().isoformat()
+        self.a._sqlite_set("listings", self.leads)
+        self.a._sqlite_set("credit_wallets", {"buyer": {"balance_cents": 100, "ledger": []}})
+        response = self.client.post("/api/create-checkout-session", json={"lead_ids": ["10"], "apply_wallet": True})
+        self.assertEqual(response.json["card_amount_cents"], 500)
+        session = next(iter(self.sessions.values()))
+        session["payment_status"] = "paid"
+        self.assertTrue(self.a._fulfill_session(session.id))
+        self.assertEqual(self.a._wallet_balance_cents("buyer"), 0)
+        self.assertEqual(self.orders[session.id]["amount_cents"], 600)
+
     def test_webhook_retries_false_and_exception(self):
         os.environ["STRIPE_WEBHOOK_SECRET"] = "test"
         self.a.stripe.Webhook.construct_event.return_value = {"type": "checkout.session.completed", "data": {"object": {"id": "cs_test", "mode": "payment"}}}
@@ -179,7 +209,7 @@ class PurchaseTests(unittest.TestCase):
             "stripe_subscription_id": "sub", "period_start": "period", "traces_used": 7}])
         result = self.client.post("/api/unlock", json={"lead_ids": ["10", "11"], "lead_modes": {"10": "skip", "11": "skip"}})
         self.assertEqual(result.status_code, 200)
-        self.assertEqual(result.json["charged_cents"], 150)
+        self.assertEqual(result.json["charged_cents"], 200)
         self.assertEqual(self.a._load_subs()[0]["traces_used"], 8)
         sid = next(iter(self.orders))
         with patch("scrapers.skiptrace_search.lookup", return_value={"phones": [], "emails": []}):

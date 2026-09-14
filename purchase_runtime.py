@@ -98,7 +98,7 @@ def create_checkout(a, order):
     # The local journal already contains the full snapshot if this service fails.
     a.db.init_db()
     a.db.create_pending_order(user_id=order["user_id"], email=order["email"], stripe_session_id=cs.id,
-                              amount_cents=order["amount_cents"], leads=order["leads"])
+                              amount_cents=order.get("order_total_cents", order["amount_cents"]), leads=order["leads"])
     return cs
 
 
@@ -109,7 +109,8 @@ def deliver(a, order):
         return False
     a.db.init_db()
     oid = a.db.create_pending_order(user_id=order["user_id"], email=order["email"],
-        stripe_session_id=order["session_id"], amount_cents=order["amount_cents"], leads=order["leads"])
+        stripe_session_id=order["session_id"],
+        amount_cents=order.get("order_total_cents", order["amount_cents"]), leads=order["leads"])
     if not oid or not a.db.mark_order_paid(order["session_id"]):
         raise RuntimeError("Account backend did not confirm order delivery")
     a._mark_leads_sold([it["id"] for it in order["leads"]])

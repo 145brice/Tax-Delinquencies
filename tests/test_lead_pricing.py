@@ -33,24 +33,25 @@ class PricingTests(unittest.TestCase):
     def test_all_tier_boundaries_and_floors(self):
         today = date(2026, 9, 11)
         expected = {
-            ("beta", False): [600, 510, 390, 270, 200, 200],
-            ("beta", True): [1500, 1275, 975, 675, 375, 350],
-            ("post_beta", False): [1800, 1530, 1170, 810, 450, 300],
-            ("post_beta", True): [3000, 2550, 1950, 1350, 750, 500],
+            ("beta", False): [600, 500, 400, 300, 200, 200],
+            ("beta", True): [1500, 1300, 1000, 700, 400, 400],
+            ("post_beta", False): [1800, 1500, 1200, 800, 500, 300],
+            ("post_beta", True): [3000, 2600, 2000, 1400, 800, 500],
         }
         for (phase, traced), amounts in expected.items():
             for tier, days in enumerate(((0, 3), (4, 7), (8, 14), (15, 30), (31, 60), (61, 365))):
                 for day in days:
                     item = {"scraped_date": (today - timedelta(days=day)).isoformat()}
                     self.assertEqual(price_cents(item, traced, phase, today), amounts[tier])
+                    self.assertEqual(price_cents(item, traced, phase, today) % 100, 0)
             self.assertEqual(amounts, sorted(amounts, reverse=True))
 
     def test_age_uses_discovery_not_sale_date(self):
         self.assertIsNone(age_days({"scraped_date": "bad", "sale_date": "2000-01-01"}))
-        self.assertEqual(price_cents({}), 270)
-        self.assertEqual(price_cents({}, traced=True), 675)
-        self.assertEqual(price_cents({}, phase="post_beta"), 810)
-        self.assertEqual(price_cents({}, traced=True, phase="post_beta"), 1350)
+        self.assertEqual(price_cents({}), 300)
+        self.assertEqual(price_cents({}, traced=True), 700)
+        self.assertEqual(price_cents({}, phase="post_beta"), 800)
+        self.assertEqual(price_cents({}, traced=True, phase="post_beta"), 1400)
         self.assertEqual(age_days({"scraped_date": "2099-01-01"}), 0)
         self.assertEqual(discovery_date({"first_seen": "2025-01-01", "scraped_date": "2026-01-01"}), date(2025, 1, 1))
 
