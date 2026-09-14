@@ -194,7 +194,7 @@
 <!-- HERO -->
 <div class="hero">
     <h1>Start free.<br><span>Pay only for what you need.</span></h1>
-    <p>Fresh tax-delinquent and pre-foreclosure records pulled from public records — owner names and mailing addresses on every lead, with skip-traced phone &amp; email on contact leads. Grab a few, buy a credit pack, or lock down a whole county.</p>
+    <p>Fresh tax-delinquent and pre-foreclosure records pulled from public records — owner names and mailing addresses on every lead, with skip-traced phone &amp; email on contact leads. Grab a few, buy a credit pack, or choose a monthly plan for the county you work.</p>
 
     <div class="price-chips">
         <div class="price-chip featured">
@@ -207,7 +207,7 @@
         </div>
         <div class="price-chip">
             <div class="amount"><sup>$</sup>99<sub>/mo</sub></div>
-            <div class="label">Whole-county plans</div>
+            <div class="label">County lead plans</div>
         </div>
     </div>
 
@@ -234,7 +234,7 @@
 <!-- WAYS TO BUY -->
 <div class="section">
     <h2 class="section-title">Three ways to buy</h2>
-    <p class="section-sub">Start with a free taste, pay as you go, or go all-in on a county. Mix and match.</p>
+    <p class="section-sub">Start with a free taste, pay as you go, or choose a monthly lead allowance for one county. Mix and match.</p>
     <div class="tier-grid">
         <div class="tier-card">
             <div class="tier-name">Free start</div>
@@ -269,12 +269,12 @@
         <div class="tier-card">
             <div class="tier-name">County subscription</div>
             <div class="tier-price"><sup>$</sup>99<sub>+/mo</sub></div>
-            <div class="tier-leads">unlimited in your county</div>
-            <div class="tier-desc">Working a market seriously? Claim a county and unlock its leads without spending credit — the cheapest path at volume.</div>
+            <div class="tier-leads">monthly leads in one county</div>
+            <div class="tier-desc">Working one market seriously? Choose a county plan for included skip-traced leads and access to its available raw inventory.</div>
             <ul class="tier-features">
-                <li><span class="ck">&#10003;</span> Unlock every lead in your county</li>
-                <li><span class="ck">&#10003;</span> Weekly data refresh</li>
-                <li><span class="ck">&#10003;</span> Limited slots — reserves the county</li>
+                <li><span class="ck">&#10003;</span> Every lead you unlock is exclusive to you</li>
+                <li><span class="ck">&#10003;</span> New county records added as available</li>
+                <li><span class="ck">&#10003;</span> Inventory is first-come, first-served</li>
             </ul>
             <a href="#subscribe" class="tier-btn" style="text-align:center;text-decoration:none;">See plans</a>
         </div>
@@ -311,7 +311,7 @@
 <!-- PLANS -->
 <div class="section" id="subscribe">
     <h2 class="section-title">Choose your plan</h2>
-    <p class="section-sub">Pick a county, pick a tier. Cancel any time.</p>
+    <p class="section-sub">Pick a county and a monthly lead allowance. Leads are sold once and removed from available inventory. Cancel any time.</p>
 
     {% if subscriptions_ready %}
     <div class="county-row">
@@ -340,9 +340,9 @@
             <ul class="tier-features">
                 <li><span class="ck">&#10003;</span> 8 skip-traced leads included</li>
                 <li><span class="ck">&#10003;</span> Extra traces: displayed wallet upgrade price</li>
-                <li><span class="ck">&#10003;</span> Weekly data refresh</li>
+                <li><span class="ck">&#10003;</span> New records added as available</li>
                 <li><span class="ck">&#10003;</span> Browse full county filing list</li>
-                <li><span class="ck">&#10003;</span> Limited slots per county</li>
+                <li><span class="ck">&#10003;</span> Each unlocked lead is exclusive</li>
             </ul>
             <button class="tier-btn" onclick="doSubscribe('starter', this)">Get Starter</button>
         </div>
@@ -356,9 +356,9 @@
             <ul class="tier-features">
                 <li><span class="ck">&#10003;</span> 25 skip-traced leads included</li>
                 <li><span class="ck">&#10003;</span> Extra traces: displayed wallet upgrade price</li>
-                <li><span class="ck">&#10003;</span> Weekly data refresh</li>
+                <li><span class="ck">&#10003;</span> New records added as available</li>
                 <li><span class="ck">&#10003;</span> Browse full county filing list</li>
-                <li><span class="ck">&#10003;</span> Limited slots per county</li>
+                <li><span class="ck">&#10003;</span> Each unlocked lead is exclusive</li>
             </ul>
             <button class="tier-btn primary" onclick="doSubscribe('professional', this)">Get Professional</button>
         </div>
@@ -370,10 +370,10 @@
             <div class="tier-desc">High volume. Built for investors running multi-offer campaigns every week.</div>
             <ul class="tier-features">
                 <li><span class="ck">&#10003;</span> 80 skip-traced leads included</li>
-                <li><span class="ck">&#10003;</span> Extra traces: displayed wallet upgrade price0</li>
-                <li><span class="ck">&#10003;</span> Weekly data refresh</li>
+                <li><span class="ck">&#10003;</span> Extra traces: displayed wallet upgrade price</li>
+                <li><span class="ck">&#10003;</span> New records added as available</li>
                 <li><span class="ck">&#10003;</span> Browse full county filing list</li>
-                <li><span class="ck">&#10003;</span> Limited slots per county</li>
+                <li><span class="ck">&#10003;</span> Each unlocked lead is exclusive</li>
             </ul>
             <button class="tier-btn" onclick="doSubscribe('power', this)">Get Power</button>
         </div>
@@ -382,7 +382,7 @@
 
     {% else %}
     <div style="background:#13151c;border:1px solid #1e2130;border-radius:12px;padding:28px;text-align:center;">
-        <p style="color:#6b7280;">County subscriptions coming soon. Individual leads available from the <a href="/" style="color:#3b82f6;">storefront</a> &mdash; $10 for contact leads, $3 for non-contact leads.</p>
+        <p style="color:#6b7280;">County lead plans are coming soon. Individual leads are available now from the <a href="/" style="color:#3b82f6;">storefront</a> &mdash; fresh raw leads are ${{ lead_price_raw | int }} and fresh skip-traced leads are ${{ lead_price_traced | int }}, with lower prices as they age.</p>
     </div>
     {% endif %}
 
@@ -432,11 +432,11 @@
 
         <div class="faq-item">
             <div class="faq-q" onclick="toggleFaq(this)">
-                How do the county slots work?
+                Does a county plan make the whole county mine?
                 <span class="chevron">&#9660;</span>
             </div>
             <div class="faq-a">
-                Each county has a fixed number of subscriber slots based on how many skip-traceable leads are available — roughly one slot per 40 leads. Smaller counties may have just one slot (exclusive). Larger counties like Duval or Wayne can support dozens. When a county fills up it shows as "full" in the picker and is closed to new subscribers until a slot opens.
+                No. A county plan gives you a monthly allowance and access to available inventory in that county. Other buyers may work the same county, but a specific lead can be unlocked only once. After you unlock it, that lead is removed from the storefront and remains exclusive to your account.
             </div>
         </div>
 
@@ -446,7 +446,7 @@
                 <span class="chevron">&#9660;</span>
             </div>
             <div class="faq-a">
-                All tiers get access to the same county data and weekly refresh. The only difference is how many skip-traced leads are included each month — 8 (Starter), 25 (Professional), or 80 (Power). Additional skip traces cost the displayed difference between the raw and skip-traced price, paid from wallet credit. Raw leads in your subscribed county are included. Every purchased lead is exclusive to its buyer.
+                All tiers get access to the same available county inventory. The difference is how many skip-traced leads are included each month — 8 (Starter), 25 (Professional), or 80 (Power). Additional skip traces cost the displayed difference between the raw and skip-traced price, paid from wallet credit. Raw leads in your subscribed county are included. Every unlocked lead is exclusive to its buyer.
             </div>
         </div>
 
@@ -486,7 +486,7 @@
                 <span class="chevron">&#9660;</span>
             </div>
             <div class="faq-a">
-                We currently cover <strong>{{ county_count }}</strong> counties across Michigan, California, Florida, and Tennessee. Michigan coverage is the deepest: Wayne, Macomb, Oakland, Genesee, Ingham, Kent, Jackson, Muskegon, Kalamazoo, Calhoun, Berrien, Washtenaw, Livingston, and more. Check the county picker above for real-time slot availability.
+                We currently cover <strong>{{ county_count }}</strong> counties across multiple states. Check the county picker above for current plan availability, or browse the storefront to see live inventory.
             </div>
         </div>
 
@@ -496,7 +496,7 @@
                 <span class="chevron">&#9660;</span>
             </div>
             <div class="faq-a">
-                No setup fee, no contracts. All plans are month-to-month and cancel any time through your account. Register free to browse the storefront — contact data stays blurred until you subscribe to that county.
+                No setup fee, no contracts. All plans are month-to-month and cancel any time through your account. Register free to browse the storefront; full lead details unlock when you buy a lead or use a county-plan allowance.
             </div>
         </div>
 
@@ -505,8 +505,8 @@
 
 <!-- BOTTOM CTA -->
 <div class="cta-bottom">
-    <h2>Ready to lock in your county?</h2>
-    <p>Month-to-month. No contracts. Register free to browse — subscribe to unlock.</p>
+    <h2>Ready to work your county?</h2>
+    <p>Month-to-month. No contracts. Register free to browse and choose the leads you want.</p>
     {% if accounts_ready %}
     <a href="#subscribe" class="btn-primary">Pick your county</a>
     {% else %}

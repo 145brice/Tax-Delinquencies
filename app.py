@@ -2631,7 +2631,7 @@ def create_checkout_session():
 
 
 def _user_active_sub_counties(user_id):
-    """Counties this user has an active subscription for (unlimited unlocks)."""
+    """Counties where this user has an active monthly lead plan."""
     return {
         str(s.get("county") or "").strip().lower()
         for s in _load_subs()
