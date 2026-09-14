@@ -62,6 +62,31 @@
         .metric-value { color: #fff; font-size: 1.5rem; font-weight: 800; margin-top: 6px; }
         .metric-sub { color: #93c5fd; font-size: 0.78rem; margin-top: 2px; }
 
+        .county-request {
+            padding: 16px 24px; background: #111827; border-bottom: 1px solid #26334a;
+            scroll-margin-top: 70px;
+        }
+        .county-request-head { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; margin-bottom: 10px; }
+        .county-request h2 { color: #fff; font-size: 1rem; }
+        .county-request-copy { color: #aeb9ca; line-height: 1.45; }
+        .county-request-form { display: grid; grid-template-columns: minmax(170px, 1.2fr) 80px minmax(210px, 1fr) minmax(175px, .8fr) auto; gap: 8px; align-items: center; }
+        .county-request-form input {
+            min-width: 0; background: #1e293b; border: 1px solid #36445c; color: #fff;
+            padding: 9px 11px; border-radius: 7px; font: inherit;
+        }
+        .county-request-form input:focus { outline: none; border-color: #3b82f6; }
+        .county-request-form button {
+            border: 0; border-radius: 7px; padding: 9px 15px; background: #2563eb;
+            color: #fff; font-weight: 700; cursor: pointer; white-space: nowrap;
+        }
+        .county-request-form button:disabled { opacity: .55; cursor: wait; }
+        .county-consent { display: flex; grid-column: 1 / -1; gap: 8px; align-items: flex-start; margin-top: 1px; color: #8f9bad; font-size: .74rem; line-height: 1.4; }
+        .county-consent input { margin-top: 2px; accent-color: #2563eb; }
+        .county-request-result { display: none; margin-top: 10px; padding: 9px 11px; border-radius: 7px; background: #132a1d; border: 1px solid #21733c; color: #bbf7d0; }
+        .county-request-result.error { background: #351719; border-color: #8b2b32; color: #fecaca; }
+        .county-request-result a { color: #93c5fd; font-weight: 700; margin-left: 8px; }
+        .county-hp { position: absolute !important; left: -10000px !important; }
+
         .cart-bar {
             background: linear-gradient(90deg, #1e3a5f, #1a3a6b);
             border-bottom: 1px solid #2563eb;
@@ -296,6 +321,8 @@
             .overview-panel:first-child { grid-column: 1 / -1; }
             .toolbar input[type=text] { width: 100%; }
             .toolbar > div { margin-left: 0 !important; width: 100%; flex-wrap: wrap; }
+            .county-request-form { grid-template-columns: 1fr 80px; }
+            .county-request-form input:nth-of-type(3), .county-request-form input:nth-of-type(4), .county-request-form button { grid-column: 1 / -1; }
         }
     </style>
 </head>
@@ -306,6 +333,7 @@
     <div class="nav-right">
         <a href="/" class="nav-tab active">Storefront</a>
         <a href="/pricing" class="nav-tab">Pricing</a>
+        <a href="#request-county" class="nav-tab">Request a county</a>
         {% if admin_allowed %}
         <a href="/admin/data" class="nav-tab">Data Explorer</a>
         <a href="/admin" class="nav-tab">Admin</a>
@@ -367,6 +395,26 @@
         <div class="metric-value" id="selected-metric">0</div>
         <div class="metric-sub">$<span id="selected-total-metric">0</span> cart</div>
     </div>
+</section>
+
+<section class="county-request" id="request-county" aria-labelledby="county-request-title">
+    <div class="county-request-head">
+        <h2 id="county-request-title">Enter/type your county</h2>
+        <p class="county-request-copy">See if we have it. If we don’t, we will add the county you enter. Stay tuned over the next day or so—we’ll email and text you as soon as it’s ready.</p>
+    </div>
+    <form class="county-request-form" id="county-request-form">
+        <input id="request-county-name" name="county" type="text" maxlength="90" autocomplete="address-level2" placeholder="County name" aria-label="County name" required>
+        <input id="request-county-state" name="state" type="text" maxlength="2" autocomplete="address-level1" placeholder="State" aria-label="Two-letter state" required>
+        <input id="request-county-email" name="email" type="email" maxlength="254" autocomplete="email" placeholder="Email address" aria-label="Email address" value="{{ current_user_email }}" required>
+        <input id="request-county-phone" name="phone" type="tel" maxlength="24" autocomplete="tel" placeholder="Mobile phone" aria-label="Mobile phone" required>
+        <input class="county-hp" name="website" type="text" tabindex="-1" autocomplete="off" aria-hidden="true">
+        <button id="county-request-submit" type="submit">Check county &amp; request it</button>
+        <label class="county-consent">
+            <input id="county-request-consent" type="checkbox" required>
+            <span>I agree to receive one email and one text alert about this county’s availability. Message and data rates may apply. Reply STOP to opt out.</span>
+        </label>
+    </form>
+    <div class="county-request-result" id="county-request-result" role="status" aria-live="polite"></div>
 </section>
 
 <div class="cart-bar">
@@ -505,6 +553,48 @@
     const CSRF_TOKEN = document.querySelector('meta[name="csrf-token"]').content;
     const SAVED_COL_ORDER = {{ column_order|tojson }};
     const USER_AUTHED = {{ 'true' if user_authed else 'false' }};
+
+    document.getElementById('county-request-form').addEventListener('submit', async event => {
+        event.preventDefault();
+        const form = event.currentTarget;
+        const button = document.getElementById('county-request-submit');
+        const result = document.getElementById('county-request-result');
+        const payload = {
+            county: form.elements.county.value,
+            state: form.elements.state.value,
+            email: form.elements.email.value,
+            phone: form.elements.phone.value,
+            website: form.elements.website.value,
+            consent: document.getElementById('county-request-consent').checked,
+        };
+        button.disabled = true;
+        button.textContent = 'Checking…';
+        result.style.display = 'none';
+        try {
+            const response = await fetch('/api/county-interest', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json', 'X-CSRF-Token': CSRF_TOKEN},
+                body: JSON.stringify(payload),
+            });
+            const data = await response.json();
+            result.textContent = data.message || data.error || 'We could not save your request. Please try again.';
+            result.classList.toggle('error', !response.ok);
+            if (response.ok && data.url) {
+                const link = document.createElement('a');
+                link.href = data.url;
+                link.textContent = 'View leads →';
+                result.appendChild(link);
+            }
+            result.style.display = 'block';
+        } catch (error) {
+            result.textContent = 'We could not save your request. Please try again.';
+            result.classList.add('error');
+            result.style.display = 'block';
+        } finally {
+            button.disabled = false;
+            button.textContent = 'Check county & request it';
+        }
+    });
 
     // All leads as data, rendered to DOM only one page at a time. Sending 15k+
     // pre-rendered <tr> ballooned the page to ~30 MB and stalled the browser;
@@ -664,6 +754,16 @@
         opt.value = s; opt.innerText = s;
         stateSel.appendChild(opt);
     });
+    const requestedFilters = new URLSearchParams(window.location.search);
+    const requestedCounty = (requestedFilters.get('county') || '').replace(/\+/g, ' ').toLowerCase();
+    const requestedState = (requestedFilters.get('state') || '').toUpperCase();
+    if (requestedCounty) {
+        const countyOption = [...countySel.options].find(option => option.value.toLowerCase() === requestedCounty);
+        if (countyOption) countySel.value = countyOption.value;
+    }
+    if (requestedState && [...stateSel.options].some(option => option.value === requestedState)) {
+        stateSel.value = requestedState;
+    }
 
     // Sorting
     function moneyValue(value) {
@@ -1121,8 +1221,9 @@
         }
     }
 
-    // Initial paginated render
-    renderPage();
+    // Initial paginated render, including a county link from an availability alert.
+    if (requestedCounty || requestedState) applyFilters();
+    else renderPage();
     loadWallet();   // shows the credit chip + unlock button when logged in
 
     const SUB_COUNTIES = new Set({{ sub_counties | tojson }});

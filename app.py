@@ -10,6 +10,11 @@ import io
 import copy
 import shutil
 import sqlite3
+import base64
+import smtplib
+import urllib.request
+from email.message import EmailMessage
+from urllib.parse import urlencode
 from datetime import datetime, timezone
 from functools import wraps
 from contextlib import closing
@@ -466,6 +471,7 @@ SETTINGS_FILE = _runtime_data_file('settings.json')
 # Per-source progress of the last scrape run, so an interrupted run can resume.
 SCRAPE_PROGRESS_FILE = _runtime_data_file('scrape_progress.json')
 SCRAPE_RUN_INVENTORY_KEY = "scrape_run_inventory"
+COUNTY_REQUESTS_KEY = "county_interest_requests"
 DEFAULT_SOURCES = {
     "include_tax_records": True,
     "include_hud": True,
@@ -1641,6 +1647,7 @@ def index():
                            sub_counties=list(sub_counties),
                            column_order=column_order,
                            user_authed=bool(user),
+                           current_user_email=(user.get("email", "") if user else ""),
                            admin_reveal=reveal)
 
 @app.route('/admin')
@@ -3305,6 +3312,241 @@ _COUNTY_SCHEDULE = [
 ]
 
 
+_COUNTY_REQUEST_RATE = {}
+_COUNTY_REQUEST_RATE_LOCK = threading.Lock()
+_US_STATES = {
+    "AL", "AK", "AZ", "AR", "CA", "CO", "CT", "DE", "FL", "GA", "HI", "ID",
+    "IL", "IN", "IA", "KS", "KY", "LA", "ME", "MD", "MA", "MI", "MN", "MS",
+    "MO", "MT", "NE", "NV", "NH", "NJ", "NM", "NY", "NC", "ND", "OH", "OK",
+    "OR", "PA", "RI", "SC", "SD", "TN", "TX", "UT", "VT", "VA", "WA", "WV",
+    "WI", "WY", "DC",
+}
+
+
+def _normalize_county_name(value):
+    text = re.sub(r"\([^)]*\)", " ", str(value or "")).lower()
+    text = re.sub(r"\b(county|parish|borough|census area|municipality)\b", " ", text)
+    return re.sub(r"[^a-z0-9]+", " ", text).strip()
+
+
+def _county_display_name(value):
+    cleaned = re.sub(r"\s+", " ", str(value or "").strip())
+    cleaned = re.sub(r"\s+(county|parish|borough)\s*$", "", cleaned, flags=re.I)
+    return cleaned.title()
+
+
+def _normalize_mobile(value):
+    digits = re.sub(r"\D", "", str(value or ""))
+    if len(digits) == 11 and digits.startswith("1"):
+        digits = digits[1:]
+    return "+1" + digits if len(digits) == 10 else ""
+
+
+def _valid_email(value):
+    return bool(re.fullmatch(r"[^\s@]+@[^\s@]+\.[^\s@]+", str(value or "").strip()))
+
+
+def _county_request_is_covered(county_key, state):
+    for row in _COUNTY_SCHEDULE:
+        if str(row.get("state") or "").upper() != state:
+            continue
+        if any(_normalize_county_name(name) == county_key for name in row.get("listing_names") or []):
+            return True
+    return False
+
+
+def _county_live_count(county_key, state, listings=None):
+    rows = listings if listings is not None else publishable_storefront_listings(current_listings())
+    return sum(
+        1 for item in rows
+        if str(item.get("state") or "").upper() == state
+        and _normalize_county_name(item.get("county")) == county_key
+    )
+
+
+def _county_alerts_configured():
+    email_ready = bool(os.getenv("SMTP_HOST") and os.getenv("SMTP_FROM"))
+    sms_ready = bool(os.getenv("TWILIO_ACCOUNT_SID") and os.getenv("TWILIO_AUTH_TOKEN")
+                     and os.getenv("TWILIO_FROM_NUMBER"))
+    return email_ready and sms_ready
+
+
+def _send_county_email(entry):
+    host = os.environ["SMTP_HOST"]
+    port = int(os.getenv("SMTP_PORT", "587"))
+    security = os.getenv("SMTP_SECURITY", "starttls").strip().lower()
+    message = EmailMessage()
+    message["From"] = os.environ["SMTP_FROM"]
+    message["To"] = entry["email"]
+    message["Subject"] = f"{entry['county']} County, {entry['state']} leads are ready"
+    base_url = os.getenv("PUBLIC_BASE_URL", "https://tax-delinquencies-production.up.railway.app").rstrip("/")
+    link = f"{base_url}/?county={entry['county_key'].replace(' ', '+')}&state={entry['state']}"
+    message.set_content(
+        f"{entry['county']} County, {entry['state']} is ready on ForeclosureLeads Pro.\n\n"
+        f"View the available leads: {link}\n\n"
+        "You received this one-time notice because you requested an availability alert."
+    )
+    client_type = smtplib.SMTP_SSL if security == "ssl" else smtplib.SMTP
+    with client_type(host, port, timeout=20) as client:
+        if security == "starttls":
+            client.starttls()
+        username = os.getenv("SMTP_USERNAME")
+        if username:
+            client.login(username, os.getenv("SMTP_PASSWORD", ""))
+        client.send_message(message)
+
+
+def _send_county_sms(entry):
+    sid = os.environ["TWILIO_ACCOUNT_SID"]
+    token = os.environ["TWILIO_AUTH_TOKEN"]
+    base_url = os.getenv("PUBLIC_BASE_URL", "https://tax-delinquencies-production.up.railway.app").rstrip("/")
+    body = urlencode({
+        "From": os.environ["TWILIO_FROM_NUMBER"],
+        "To": entry["phone"],
+        "Body": (f"ForeclosureLeads Pro: {entry['county']} County, {entry['state']} is ready. "
+                 f"View leads: {base_url}/?county={entry['county_key'].replace(' ', '+')}&state={entry['state']} "
+                 "Reply STOP to opt out."),
+    }).encode("utf-8")
+    req = urllib.request.Request(
+        f"https://api.twilio.com/2010-04-01/Accounts/{sid}/Messages.json",
+        data=body,
+        headers={"Authorization": "Basic " + base64.b64encode(f"{sid}:{token}".encode()).decode()},
+        method="POST",
+    )
+    with urllib.request.urlopen(req, timeout=20) as response:
+        if not 200 <= response.status < 300:
+            raise RuntimeError(f"Twilio returned HTTP {response.status}")
+
+
+def _deliver_county_alert(request_id):
+    with purchase_store.transaction() as conn:
+        entries = purchase_store.read(conn, COUNTY_REQUESTS_KEY, {})
+        entry = entries.get(request_id)
+    if not entry or entry.get("status") == "notified":
+        return True
+    if entry.get("status") != "ready" or not _county_alerts_configured():
+        return False
+
+    if entry.get("email_status") != "sent":
+        _send_county_email(entry)
+        with purchase_store.transaction() as conn:
+            entries = purchase_store.read(conn, COUNTY_REQUESTS_KEY, {})
+            entries[request_id]["email_status"] = "sent"
+            entries[request_id]["email_sent_at"] = datetime.now(timezone.utc).isoformat()
+            purchase_store.write(conn, COUNTY_REQUESTS_KEY, entries)
+    if entry.get("sms_status") != "sent":
+        _send_county_sms(entry)
+        with purchase_store.transaction() as conn:
+            entries = purchase_store.read(conn, COUNTY_REQUESTS_KEY, {})
+            entries[request_id]["sms_status"] = "sent"
+            entries[request_id]["sms_sent_at"] = datetime.now(timezone.utc).isoformat()
+            entries[request_id]["status"] = "notified"
+            entries[request_id]["notified_at"] = datetime.now(timezone.utc).isoformat()
+            purchase_store.write(conn, COUNTY_REQUESTS_KEY, entries)
+    return True
+
+
+def _mark_county_requests_ready(listings):
+    available = {
+        (_normalize_county_name(item.get("county")), str(item.get("state") or "").upper())
+        for item in listings if item.get("county") and item.get("state")
+    }
+    if not available:
+        return 0
+    ready_ids = []
+    now = datetime.now(timezone.utc).isoformat()
+    with purchase_store.transaction() as conn:
+        entries = purchase_store.read(conn, COUNTY_REQUESTS_KEY, {})
+        for request_id, entry in entries.items():
+            if entry.get("status") == "waiting" and (entry.get("county_key"), entry.get("state")) in available:
+                entry.update({"status": "ready", "ready_at": now,
+                              "email_status": "pending", "sms_status": "pending"})
+                ready_ids.append(request_id)
+        if ready_ids:
+            purchase_store.write(conn, COUNTY_REQUESTS_KEY, entries)
+            if _county_alerts_configured():
+                for request_id in ready_ids:
+                    purchase_store.enqueue(conn, "county-alert:" + request_id, "county_alert")
+    return len(ready_ids)
+
+
+def _enqueue_ready_county_alerts():
+    if not _county_alerts_configured():
+        return 0
+    queued = 0
+    with purchase_store.transaction() as conn:
+        entries = purchase_store.read(conn, COUNTY_REQUESTS_KEY, {})
+        for request_id, entry in entries.items():
+            if entry.get("status") == "ready":
+                purchase_store.enqueue(conn, "county-alert:" + request_id, "county_alert")
+                queued += 1
+    return queued
+
+
+@app.route('/api/county-interest', methods=['POST'])
+def county_interest():
+    payload = request.get_json(silent=True) or {}
+    if payload.get("website"):
+        return jsonify({"ok": True})
+    county = _county_display_name(payload.get("county"))
+    county_key = _normalize_county_name(county)
+    state = str(payload.get("state") or "").strip().upper()
+    email = str(payload.get("email") or "").strip().lower()
+    phone = _normalize_mobile(payload.get("phone"))
+    if not 2 <= len(county_key) <= 80:
+        return jsonify({"error": "Enter a valid county name."}), 400
+    if state not in _US_STATES:
+        return jsonify({"error": "Choose a valid state."}), 400
+    if not _valid_email(email):
+        return jsonify({"error": "Enter a valid email address."}), 400
+    if not phone:
+        return jsonify({"error": "Enter a valid 10-digit mobile number."}), 400
+    if payload.get("consent") is not True:
+        return jsonify({"error": "Agree to the one-time email and text alert to continue."}), 400
+
+    ip = request.headers.get("X-Forwarded-For", request.remote_addr or "").split(",")[0].strip()
+    cutoff = time.time() - 3600
+    with _COUNTY_REQUEST_RATE_LOCK:
+        attempts = [stamp for stamp in _COUNTY_REQUEST_RATE.get(ip, []) if stamp >= cutoff]
+        if len(attempts) >= 10:
+            return jsonify({"error": "Too many requests. Please try again later."}), 429
+        attempts.append(time.time())
+        _COUNTY_REQUEST_RATE[ip] = attempts
+
+    live_count = _county_live_count(county_key, state)
+    covered = _county_request_is_covered(county_key, state)
+    request_id = hashlib.sha256(f"{county_key}|{state}|{email}|{phone}".encode()).hexdigest()[:32]
+    now = datetime.now(timezone.utc).isoformat()
+    consent_text = ("One email and one text alert about this county's availability; "
+                    "message and data rates may apply; reply STOP to opt out.")
+    with purchase_store.transaction() as conn:
+        entries = purchase_store.read(conn, COUNTY_REQUESTS_KEY, {})
+        prior = entries.get(request_id, {})
+        entries[request_id] = {
+            **prior, "id": request_id, "county": county, "county_key": county_key,
+            "state": state, "email": email, "phone": phone,
+            "first_requested_at": prior.get("first_requested_at") or now,
+            "last_requested_at": now, "request_count": int(prior.get("request_count") or 0) + 1,
+            "consent_at": now, "consent_version": "county-alert-v1", "consent_text": consent_text,
+            "covered_at_request": covered, "live_count_at_request": live_count,
+            "status": ("available" if live_count else
+                       ("notified" if prior.get("status") == "notified" else "waiting")),
+        }
+        purchase_store.write(conn, COUNTY_REQUESTS_KEY, entries)
+
+    if live_count:
+        return jsonify({"ok": True, "availability": "available", "count": live_count,
+                        "message": f"Yes—we have {live_count:,} live leads in {county} County, {state}.",
+                        "url": f"/?county={county_key.replace(' ', '+')}&state={state}"})
+    if covered:
+        message = (f"We cover {county} County, {state}, but there are no current leads. "
+                   "We saved your request and will email and text you when fresh inventory is ready.")
+    else:
+        message = (f"We saved {county} County, {state}. We will add the county you entered. "
+                   "Stay tuned over the next day or so—we will email and text you when it is ready.")
+    return jsonify({"ok": True, "availability": "waiting", "message": message})
+
+
 def _build_county_schedule():
     """Attach live stats (lead count, last scraped) from listings.json to each schedule row."""
     from datetime import date as _date
@@ -3357,6 +3599,10 @@ def admin_counties():
     weekly_count  = sum(1 for r in schedule if r["frequency"].startswith("Weekly"))
     monthly_count = sum(1 for r in schedule if r["frequency"].startswith("Monthly"))
     scrape_runs = list(reversed(_sqlite_get(SCRAPE_RUN_INVENTORY_KEY, [])[-250:]))
+    county_requests = sorted(
+        _sqlite_get(COUNTY_REQUESTS_KEY, {}).values(),
+        key=lambda item: item.get("last_requested_at", ""), reverse=True,
+    )
     return render_template(
         'admin_counties.html',
         schedule=schedule,
@@ -3367,6 +3613,7 @@ def admin_counties():
         weekly_count=weekly_count,
         monthly_count=monthly_count,
         scrape_runs=scrape_runs,
+        county_requests=county_requests,
     )
 
 
@@ -3909,6 +4156,9 @@ def ingest_scrape_results():
             inventory.remove(prior)
         inventory.append(entry)
         _sqlite_set(SCRAPE_RUN_INVENTORY_KEY, inventory[-5000:])
+
+        if added:
+            _mark_county_requests_ready(incoming)
 
     return jsonify(result)
 

@@ -254,6 +254,34 @@
         </table>
     </div>
 
+    <h2 class="inventory-title">Customer county requests</h2>
+    <p class="inventory-note">Demand is deduplicated by county and contact. Repeated checks increase the request count. Contact details are shown only on this protected admin page.</p>
+    <div class="table-wrap">
+        <table id="county-request-table">
+            <thead>
+                <tr><th>County</th><th>State</th><th>Demand</th><th>Email</th><th>Mobile</th><th>First requested (UTC)</th><th>Last requested (UTC)</th><th>Status</th><th>Email alert</th><th>Text alert</th></tr>
+            </thead>
+            <tbody>
+            {% for item in county_requests %}
+                <tr>
+                    <td><strong>{{ item.county }}</strong></td>
+                    <td>{{ item.state }}</td>
+                    <td>{{ item.request_count or 1 }}</td>
+                    <td>{{ item.email }}</td>
+                    <td>{{ item.phone }}</td>
+                    <td>{{ item.first_requested_at }}</td>
+                    <td>{{ item.last_requested_at }}</td>
+                    <td>{{ item.status }}</td>
+                    <td>{{ item.email_status or 'not queued' }}</td>
+                    <td>{{ item.sms_status or 'not queued' }}</td>
+                </tr>
+            {% else %}
+                <tr><td colspan="10" class="date-never">No customer county requests yet.</td></tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
+
     <h2 class="inventory-title">Observed scrape-run inventory</h2>
     <p class="inventory-note">Durable run receipts from scheduled county jobs. “Added” shows when a run actually discovered new inventory; county dates may be sale, record, bill, or publication dates depending on the source.</p>
     <div class="table-wrap">

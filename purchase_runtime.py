@@ -165,6 +165,8 @@ def safe_csv_path(a, filename):
 def process_job(a, job):
     if job["kind"] == "trace":
         return a._fulfill_order_skiptraces(job["id"][6:])
+    if job["kind"] == "county_alert":
+        return a._deliver_county_alert(job["id"].removeprefix("county-alert:"))
     order = a.purchase_store.get(key=job["id"])
     if not order or order["state"] in {"complete", "expired", "rejected"}:
         return True
@@ -207,6 +209,10 @@ def install(a):
     a._ensure_purchase_history = ensure_history
 
     def worker():
+        try:
+            a._enqueue_ready_county_alerts()
+        except Exception:
+            a.app.logger.exception("Could not enqueue pending county alerts")
         while True:
             try:
                 if a.db.is_configured():
