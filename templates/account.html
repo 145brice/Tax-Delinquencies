@@ -191,7 +191,7 @@
 
 <div class="page">
     <h1>My Account</h1>
-    <div class="subtitle">Manage your credits, county subscriptions, and purchased leads.</div>
+    <div class="subtitle">Manage your credits and purchased leads.</div>
 
     <div class="credits-card">
         <div class="credits-top">
@@ -248,7 +248,6 @@
                         <span class="sub-used">{{ sub.traces_used or 0 }} used this cycle</span>
                     </div>
                 </div>
-                <button class="btn-change-tier" onclick="toggleTierPicker({{ card_idx }})">Change Plan</button>
             </div>
             {% if sub.pending_tier_label %}
             <div class="pending-downgrade">
@@ -257,28 +256,6 @@
                 You keep {{ tier_labels[tier] }} benefits until then.
             </div>
             {% endif %}
-            <div class="tier-picker" id="picker-{{ card_idx }}" style="display:none;">
-                <div class="tier-picker-cards">
-                    {% for t, label in tier_labels.items() %}
-                    <div class="tp-card {% if t == tier %}tp-current{% endif %}" id="tp-{{ card_idx }}-{{ t }}">
-                        <div class="tp-name">{{ label }}</div>
-                        <div class="tp-price">${{ tier_amounts[t] }}/mo</div>
-                        <div class="tp-leads">{{ tier_included[t] }} leads</div>
-                        {% if t == tier %}
-                            <div class="tp-current-label">Current plan</div>
-                        {% elif t == sub.pending_tier %}
-                            <div class="tp-current-label" style="color:#facc15;">Scheduled</div>
-                        {% else %}
-                            <button class="tp-select-btn" onclick="changeTier('{{ sub.county }}', '{{ t }}', {{ card_idx }})">
-                                {% if tier_amounts[t] > tier_amounts[tier] %}Upgrade{% else %}Downgrade{% endif %} to {{ label }}
-                            </button>
-                        {% endif %}
-                    </div>
-                    {% endfor %}
-                </div>
-                <p class="tp-note">Upgrades take effect immediately (prorated charge now). Downgrades take effect at your next billing date &mdash; you keep your current allowance until then.</p>
-                <button class="tp-cancel" onclick="toggleTierPicker({{ card_idx }})">Cancel</button>
-            </div>
         </div>
         {% endfor %}
     </div>

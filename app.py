@@ -3001,100 +3001,7 @@ def subscriber_reveal():
 @app.route('/api/subscriber/change-tier', methods=['POST'])
 @login_required
 def subscriber_change_tier():
-    """Change a county subscription's tier.
-    Upgrades apply immediately (prorated charge now). Downgrades are scheduled
-    at the next renewal so the buyer keeps the higher lead allowance for the
-    cycle they already paid for."""
-    user = current_user()
-    payload = request.get_json(silent=True) or {}
-    county = str(payload.get("county") or "").strip().lower()
-    new_tier = str(payload.get("tier") or "").strip().lower()
-
-    if not county:
-        return jsonify({"error": "county required"}), 400
-    if new_tier not in TIER_PRICES:
-        return jsonify({"error": "Invalid tier"}), 400
-
-    user_subs = _user_subs(user["id"])
-    sub = next((s for s in user_subs
-                if str(s.get("county") or "").lower() == county
-                and s.get("status") == "active"), None)
-    if not sub:
-        return jsonify({"error": "No active subscription found for this county."}), 404
-
-    current_tier = str(sub.get("tier") or "professional").lower()
-    if current_tier == new_tier:
-        return jsonify({"error": f"You're already on the {TIER_LABELS[new_tier]} plan."}), 400
-
-    stripe_sub_id = sub.get("stripe_subscription_id")
-    if not stripe_sub_id:
-        return jsonify({"error": "Subscription record missing Stripe ID."}), 500
-
-    is_upgrade = TIER_AMOUNTS.get(new_tier, 0) > TIER_AMOUNTS.get(current_tier, 0)
-    period_end = None
-
-    try:
-        stripe_sub = stripe.Subscription.retrieve(stripe_sub_id)
-        existing_schedule = stripe_sub.get("schedule")
-        period_end = stripe_sub.get("current_period_end")
-
-        if is_upgrade:
-            # Cancel any pending downgrade, then switch now with prorated charge.
-            if existing_schedule:
-                try:
-                    stripe.SubscriptionSchedule.release(existing_schedule)
-                except stripe.error.StripeError:
-                    pass
-                stripe_sub = stripe.Subscription.retrieve(stripe_sub_id)
-            item_id = stripe_sub["items"]["data"][0]["id"]
-            stripe.Subscription.modify(
-                stripe_sub_id,
-                items=[{"id": item_id, "price": TIER_PRICES[new_tier]}],
-                proration_behavior="always_invoice",
-            )
-        else:
-            # Downgrade: schedule the new price to start at the next renewal.
-            # Rebuild the schedule fresh so the current phase mirrors reality.
-            if existing_schedule:
-                try:
-                    stripe.SubscriptionSchedule.release(existing_schedule)
-                except stripe.error.StripeError:
-                    pass
-            schedule = stripe.SubscriptionSchedule.create(from_subscription=stripe_sub_id)
-            phase = schedule["phases"][0]
-            stripe.SubscriptionSchedule.modify(
-                schedule["id"],
-                end_behavior="release",
-                phases=[
-                    {
-                        "items": [{"price": phase["items"][0]["price"], "quantity": 1}],
-                        "start_date": phase["start_date"],
-                        "end_date": phase["end_date"],
-                    },
-                    {
-                        "items": [{"price": TIER_PRICES[new_tier], "quantity": 1}],
-                    },
-                ],
-            )
-    except stripe.error.StripeError as exc:
-        return jsonify({"error": str(exc)}), 502
-
-    # Persist local record. Upgrade flips tier now; downgrade keeps the current
-    # tier and records the pending change (webhook clears it at renewal).
-    if is_upgrade:
-        _patch_subscription(stripe_sub_id, {"tier": new_tier}, remove=("pending_tier", "pending_tier_at"))
-    else:
-        _patch_subscription(stripe_sub_id, {"pending_tier": new_tier, "pending_tier_at": period_end})
-
-    return jsonify({
-        "ok": True,
-        "scheduled": (not is_upgrade),
-        "tier": new_tier if is_upgrade else current_tier,
-        "pending_tier": (None if is_upgrade else new_tier),
-        "label": TIER_LABELS[new_tier],
-        "amount": TIER_AMOUNTS[new_tier],
-        "included": TIER_INCLUDED[new_tier],
-    })
+    return jsonify({"error": "County plans are retired. Plan changes are no longer available."}), 410
 
 
 @app.route('/api/prefs/columns', methods=['POST'])
@@ -3119,48 +3026,7 @@ def save_column_prefs():
 
 @app.route('/subscribe', methods=['POST'])
 def subscribe():
-    if not _subscriptions_ready():
-        return jsonify({"error": "Subscriptions are not enabled yet."}), 503
-    if not _accounts_ready():
-        return jsonify({"error": "Accounts are not configured yet."}), 503
-    user = current_user()
-    if not user:
-        return jsonify({"login_required": True, "error": "Please log in to subscribe."}), 401
-    payload = request.get_json(silent=True) or request.form
-    county = str(payload.get("county") or "").strip().lower()
-    tier   = str(payload.get("tier") or "professional").strip().lower()
-    if tier not in TIER_PRICES:
-        tier = "professional"
-    if not county:
-        return jsonify({"error": "Choose a county to subscribe to."}), 400
-    if any(str(s.get("county") or "").lower() == county for s in _user_subs(user["id"])):
-        return jsonify({"error": "You already have an active subscription for this county."}), 409
-    untapped = _county_untapped_counts()
-    county_untapped = untapped.get(county, 0)
-    if county_untapped < SUB_MIN_UNTAPPED:
-        return jsonify({"error": "This county doesn't have enough available leads for a subscription right now."}), 409
-    cap = _county_capacity(county_untapped)
-    current_count = _county_sub_counts().get(county, 0)
-    if current_count >= cap:
-        return jsonify({"error": f"This county is full ({current_count}/{cap} slots taken). Try another county."}), 409
-
-    price_id = _sub_price_for(tier)
-    meta = {"kind": "county_subscription", "user_id": str(user["id"]), "county": county, "tier": tier}
-    origin = request.host_url.rstrip("/")
-    try:
-        session = stripe.checkout.Session.create(
-            mode="subscription",
-            payment_method_types=["card"],
-            customer_email=user["email"],
-            line_items=[{"price": price_id, "quantity": 1}],
-            metadata=meta,
-            subscription_data={"metadata": meta},
-            success_url=f"{origin}/subscribe/success?session_id={{CHECKOUT_SESSION_ID}}",
-            cancel_url=f"{origin}/checkout/cancel",
-        )
-    except stripe.error.StripeError as exc:
-        return jsonify({"error": str(exc)}), 502
-    return jsonify({"url": session.url})
+    return jsonify({"error": "County plans are no longer offered. Buy individual leads or credit packs."}), 410
 
 
 @app.route('/subscribe/success')
@@ -3326,36 +3192,7 @@ def pricing():
         county_count = len({str(item.get("county") or "").strip() for item in current_listings() if item.get("county")})
     else:
         county_count = len(county_scraper_map())
-    # Subscribable counties (only computed when subscriptions are live)
-    sub_counties = []
-    is_first_county = True
-    if _subscriptions_ready():
-        user = current_user()
-        user_sub_counties = set()
-        if user:
-            is_first_county = not _user_subs(user["id"])
-            user_sub_counties = {str(s.get("county") or "").lower() for s in _user_subs(user["id"])}
-        untapped_map = _county_untapped_counts()
-        sub_counts_map = _county_sub_counts()
-        counties = sorted({str(r.get("county") or "").strip().lower()
-                           for r in current_listings() if r.get("county")})
-        for c in counties:
-            untapped = untapped_map.get(c, 0)
-            if untapped < SUB_MIN_UNTAPPED:
-                continue  # too few leads — not worth a subscription
-            cap = _county_capacity(untapped)
-            current_subs = sub_counts_map.get(c, 0)
-            # Full if at capacity, but don't show as full to a user who already holds this county
-            full = (current_subs >= cap) and (c not in user_sub_counties)
-            sub_counties.append({
-                "key": c,
-                "label": c.title(),
-                "taken": full,
-                "subs": current_subs,
-                "capacity": cap,
-            })
     return render_template('pricing.html', county_count=county_count,
-                           sub_counties=sub_counties, is_first_county=is_first_county,
                            credit_packs=_load_credit_packs())
 
 
