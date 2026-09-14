@@ -1861,7 +1861,7 @@ def google_login():
     nonce = secrets.token_urlsafe(24)
     session['google_oauth_nonce'] = nonce
     redirect_uri = os.getenv("GOOGLE_OAUTH_REDIRECT_URI", "").strip() or url_for('google_callback', _external=True)
-    return google_oauth.authorize_redirect(redirect_uri, nonce=nonce)
+    return google_oauth.authorize_redirect(redirect_uri, nonce=nonce, prompt="select_account")
 
 
 @app.route('/auth/google/callback')

@@ -199,6 +199,7 @@ class ReviewTests(unittest.TestCase):
         redirect_uri = authorize.call_args.args[0]
         self.assertEqual(redirect_uri, "http://localhost/auth/google/callback")
         self.assertTrue(authorize.call_args.kwargs["nonce"])
+        self.assertEqual(authorize.call_args.kwargs["prompt"], "select_account")
         with self.client.session_transaction() as sess:
             self.assertEqual(sess["oauth_next"], "/account")
 
