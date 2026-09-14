@@ -933,9 +933,20 @@ def _fulfill_credit_pack(session_id):
         return False
     cs = stripe.checkout.Session.retrieve(session_id)
     meta = cs.get("metadata") or {}
-    if meta.get("kind") != "credit_pack" or cs.get("payment_status") != "paid":
+    pack = next((p for p in _load_credit_packs()
+                 if str(p.get("id")) == str(meta.get("pack_id"))), None)
+    try:
+        paid_cents = int(cs.get("amount_total"))
+        credited_cents = int(meta.get("credit_cents"))
+        expected_price = int(pack["price_cents"])
+        expected_credit = int(pack["credit_cents"])
+    except (TypeError, ValueError, KeyError):
         return False
-    uid, cents = meta.get("user_id"), int(meta.get("credit_cents") or 0)
+    if (meta.get("kind") != "credit_pack" or cs.get("mode") != "payment"
+            or cs.get("payment_status") != "paid" or cs.get("currency") != "usd"
+            or paid_cents != expected_price or credited_cents != expected_credit):
+        return False
+    uid, cents = meta.get("user_id"), expected_credit
     if not uid or cents <= 0:
         return False
     # Preserve the old fulfillment marker while moving to an atomic ledger.
@@ -2734,6 +2745,7 @@ def buy_credits():
                 "kind": "credit_pack",
                 "user_id": str(user["id"]),
                 "credit_cents": str(int(pack["credit_cents"])),
+                "price_cents": str(int(pack["price_cents"])),
                 "pack_id": pack["id"],
             },
             success_url=f"{origin}/checkout/success?session_id={{CHECKOUT_SESSION_ID}}",
@@ -4011,4 +4023,3 @@ if __name__ == '__main__':
     port = int(os.getenv("PORT", "8095"))
     print(f"Foreclosure app running at http://{host}:{port}")
     app.run(host=host, port=port, debug=False, use_reloader=False)
-

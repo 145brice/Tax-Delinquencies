@@ -133,7 +133,9 @@ class PurchaseTests(unittest.TestCase):
             self.assertEqual(self.client.post("/webhook/stripe").status_code, expected)
 
     def test_credit_pack_is_atomic_and_idempotent(self):
-        self.sessions["pack"] = StripeObject(payment_status="paid", metadata={"kind": "credit_pack", "user_id": "buyer", "credit_cents": "2500"})
+        self.sessions["pack"] = StripeObject(mode="payment", payment_status="paid", currency="usd",
+            amount_total=2500, metadata={"kind": "credit_pack", "pack_id": "p25",
+            "user_id": "buyer", "credit_cents": "2500"})
         self.assertTrue(self.a._fulfill_credit_pack("pack"))
         self.assertTrue(self.a._fulfill_credit_pack("pack"))
         self.assertEqual(self.a._wallet_balance_cents("buyer"), 12500)
@@ -142,6 +144,21 @@ class PurchaseTests(unittest.TestCase):
                 self.a.purchase_store.wallet_change(conn, "buyer", 100, "broken-pack")
                 raise RuntimeError("crash before commit")
         self.assertEqual(self.a.purchase_store.credit("buyer", 100, "broken-pack"), (12600, True))
+
+    def test_credit_pack_rejects_payment_or_credit_mismatch(self):
+        valid = {"mode": "payment", "payment_status": "paid", "currency": "usd",
+                 "amount_total": 6000, "metadata": {"kind": "credit_pack", "pack_id": "p60",
+                 "user_id": "buyer", "credit_cents": "7000"}}
+        for key, bad_value in (("amount_total", 5999), ("currency", "eur"), ("mode", "subscription")):
+            session = StripeObject(**valid)
+            session[key] = bad_value
+            self.sessions["bad-" + key] = session
+            self.assertFalse(self.a._fulfill_credit_pack("bad-" + key))
+        tampered = StripeObject(**valid)
+        tampered["metadata"] = {**valid["metadata"], "credit_cents": "15000"}
+        self.sessions["bad-credit"] = tampered
+        self.assertFalse(self.a._fulfill_credit_pack("bad-credit"))
+        self.assertEqual(self.a._wallet_balance_cents("buyer"), 10000)
 
     def test_trace_job_survives_restart_and_failed_refund_is_once(self):
         self.client.post("/api/unlock", json={"lead_ids": ["10"], "lead_modes": {"10": "skip"}})
