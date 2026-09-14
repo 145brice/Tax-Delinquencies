@@ -1,6 +1,7 @@
 import csv
 import importlib.util
 import json
+import os
 from pathlib import Path
 import re
 import shutil
@@ -15,6 +16,39 @@ from app_fixture import isolated_app
 
 
 class RuntimeTests(unittest.TestCase):
+    def test_scrape_ingest_records_idempotent_run_inventory(self):
+        a = isolated_app(self)
+        client = a.app.test_client()
+        os.environ["ADMIN_TOKEN"] = "inventory-test-token"
+        a._COUNTY_SCRAPER_MAP = {"test-county": ["source-a"]}
+        payload = {
+            "county": "test-county", "source": "source-a",
+            "run_id": "workflow-1:1:test-county:source-a",
+            "workflow_run_id": "workflow-1", "workflow_run_attempt": "1",
+            "started_at": "2026-09-14T12:00:00+00:00",
+            "completed_at": "2026-09-14T12:01:00+00:00",
+            "batch_number": 1, "batch_total": 1,
+            "records": [{"county": "Test County", "state": "TX",
+                         "record_type": "Auction", "owner_name": "Test Owner",
+                         "property_address": "123 Main Street", "parcel_id": "P-1",
+                         "sale_date": "October 6, 2026", "scraped_date": "2026-09-14",
+                         "source_url": "https://county.example/notice"}],
+        }
+        headers = {"X-Admin-Token": "inventory-test-token"}
+        first = client.post("/api/scrape/ingest", json=payload, headers=headers)
+        replay = client.post("/api/scrape/ingest", json=payload, headers=headers)
+        self.assertEqual(first.status_code, 200, first.get_data(as_text=True))
+        self.assertEqual(first.json["added"], 1)
+        self.assertTrue(replay.json["replayed"])
+        self.assertEqual(replay.json["added"], 1)
+        inventory = client.get("/api/admin/scrape-runs", headers=headers).json
+        self.assertEqual(inventory["count"], 1)
+        run = inventory["runs"][0]
+        self.assertEqual((run["raw"], run["kept"], run["added"]), (1, 1, 1))
+        self.assertEqual(run["county_date_min"], "2026-10-06")
+        self.assertEqual(run["county_date_max"], "2026-10-06")
+        self.assertEqual(run["status"], "complete")
+
     def test_sqlite_account_can_start_and_fulfill_card_checkout(self):
         a = isolated_app(self)
         a.app.before_request_funcs[None] = []

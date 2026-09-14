@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+from datetime import datetime, timezone
 import json
 import os
 import sys
@@ -28,13 +29,18 @@ def post_batch(
     source: str,
     records: list[dict],
     attempts: int,
+    run_meta: dict | None = None,
+    batch_number: int = 1,
+    batch_total: int = 1,
 ) -> dict:
     for attempt in range(1, attempts + 1):
         try:
             response = requests.post(
                 f"{base_url.rstrip('/')}/api/scrape/ingest",
                 headers={"X-Admin-Token": token},
-                json={"county": county, "source": source, "records": records},
+                json={"county": county, "source": source, "records": records,
+                      "batch_number": batch_number, "batch_total": batch_total,
+                      **(run_meta or {})},
                 timeout=60,
             )
             response.raise_for_status()
@@ -69,24 +75,55 @@ def main() -> int:
 
     failed: list[str] = []
     for source in county["sources"]:
+        started_at = datetime.now(timezone.utc).isoformat()
         records = None
+        last_error = None
         for attempt in range(1, attempts + 1):
             try:
                 print(f"[{args.county}/{source}] scrape attempt {attempt}/{attempts}", flush=True)
                 records = run_scrapers([source], args.lookback_days, raise_errors=True)
                 break
             except Exception as exc:
+                last_error = exc
                 print(f"[{args.county}/{source}] attempt {attempt} failed: {exc}", file=sys.stderr, flush=True)
                 if attempt < attempts:
                     time.sleep(min(60, 10 * attempt))
 
         if records is None:
             failed.append(source)
+            completed_at = datetime.now(timezone.utc).isoformat()
+            workflow_run = os.environ.get("GITHUB_RUN_ID") or f"manual-{int(time.time())}"
+            workflow_attempt = os.environ.get("GITHUB_RUN_ATTEMPT") or "1"
+            try:
+                post_batch(base_url, token, args.county, source, [], attempts, {
+                    "run_id": f"{workflow_run}:{workflow_attempt}:{args.county}:{source}",
+                    "workflow_run_id": workflow_run,
+                    "workflow_run_attempt": workflow_attempt,
+                    "started_at": started_at,
+                    "completed_at": completed_at,
+                    "run_status": "failed",
+                    "error": str(last_error or "unknown scraper failure")[:500],
+                })
+            except Exception as receipt_error:
+                print(f"[{args.county}/{source}] could not deliver failure receipt: {receipt_error}",
+                      file=sys.stderr, flush=True)
             continue
 
+        completed_at = datetime.now(timezone.utc).isoformat()
+        workflow_run = os.environ.get("GITHUB_RUN_ID") or f"manual-{int(time.time())}"
+        workflow_attempt = os.environ.get("GITHUB_RUN_ATTEMPT") or "1"
+        run_meta = {
+            "run_id": f"{workflow_run}:{workflow_attempt}:{args.county}:{source}",
+            "workflow_run_id": workflow_run,
+            "workflow_run_attempt": workflow_attempt,
+            "started_at": started_at,
+            "completed_at": completed_at,
+            "run_status": "success",
+        }
         batches = [records[i:i + args.batch_size] for i in range(0, len(records), args.batch_size)] or [[]]
         for number, batch in enumerate(batches, 1):
-            result = post_batch(base_url, token, args.county, source, batch, attempts)
+            result = post_batch(base_url, token, args.county, source, batch, attempts,
+                                run_meta, number, len(batches))
             print(f"[{args.county}/{source}] delivered batch {number}/{len(batches)}: {result}", flush=True)
 
     if failed:

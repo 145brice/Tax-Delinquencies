@@ -465,6 +465,7 @@ DATA_FILE = _runtime_data_file('listings.json')
 SETTINGS_FILE = _runtime_data_file('settings.json')
 # Per-source progress of the last scrape run, so an interrupted run can resume.
 SCRAPE_PROGRESS_FILE = _runtime_data_file('scrape_progress.json')
+SCRAPE_RUN_INVENTORY_KEY = "scrape_run_inventory"
 DEFAULT_SOURCES = {
     "include_tax_records": True,
     "include_hud": True,
@@ -3355,6 +3356,7 @@ def admin_counties():
     daily_count   = sum(1 for r in schedule if r["frequency"].startswith("Daily"))
     weekly_count  = sum(1 for r in schedule if r["frequency"].startswith("Weekly"))
     monthly_count = sum(1 for r in schedule if r["frequency"].startswith("Monthly"))
+    scrape_runs = list(reversed(_sqlite_get(SCRAPE_RUN_INVENTORY_KEY, [])[-250:]))
     return render_template(
         'admin_counties.html',
         schedule=schedule,
@@ -3364,6 +3366,7 @@ def admin_counties():
         daily_count=daily_count,
         weekly_count=weekly_count,
         monthly_count=monthly_count,
+        scrape_runs=scrape_runs,
     )
 
 
@@ -3827,22 +3830,96 @@ def ingest_scrape_results():
     if any(not isinstance(record, dict) for record in records):
         return jsonify({"error": "every record must be an object"}), 400
 
+    run_id = str(payload.get("run_id") or "").strip()[:240]
+    try:
+        batch_number = int(payload.get("batch_number") or 1)
+        batch_total = int(payload.get("batch_total") or 1)
+    except (TypeError, ValueError):
+        return jsonify({"error": "invalid batch numbering"}), 400
+    if batch_number < 1 or batch_total < 1 or batch_number > batch_total:
+        return jsonify({"error": "invalid batch numbering"}), 400
+    # Older/manual publishers do not send a run ID. Give those deliveries a
+    # unique receipt while scheduled jobs use their stable workflow run ID.
+    if not run_id:
+        run_id = f"legacy:{county_key}:{source_key}:{time.time_ns()}"
+    inventory_id = f"{run_id}:{source_key}"
+    received_at = datetime.now(timezone.utc).isoformat()
+
     incoming = property_records_to_listings(records)
     with listing_lock:
+        inventory = _sqlite_get(SCRAPE_RUN_INVENTORY_KEY, [])
+        prior = next((item for item in inventory if item.get("id") == inventory_id), None)
+        prior_batch = (prior or {}).get("batches", {}).get(str(batch_number))
+        if prior_batch:
+            return jsonify({**prior_batch, "replayed": True})
+
         current = load_json(DATA_FILE, [])
         merged, added = merge_listings(current, incoming)
         if incoming:
             save_json(DATA_FILE, merged)
 
-    return jsonify({
-        "status": "success",
-        "county": county_key,
-        "source": source_key,
-        "raw": len(records),
-        "kept": len(incoming),
-        "added": added,
-        "total": len(merged),
-    })
+        observed_dates = []
+        for record in records:
+            fallback_year = str(record.get("scraped_date") or "")[:4] or None
+            normalized = _parse_sale_date(
+                record.get("posted_date") or record.get("sale_date") or record.get("date"),
+                fallback_year=fallback_year,
+            )
+            if normalized:
+                observed_dates.append(normalized)
+
+        result = {
+            "status": "success", "county": county_key, "source": source_key,
+            "raw": len(records), "kept": len(incoming), "added": added,
+            "total": len(merged), "batch_number": batch_number,
+            "batch_total": batch_total,
+        }
+        entry = prior or {
+            "id": inventory_id, "run_id": run_id, "county": county_key,
+            "source": source_key, "workflow_run_id": str(payload.get("workflow_run_id") or "")[:80],
+            "workflow_run_attempt": str(payload.get("workflow_run_attempt") or "")[:20],
+            "started_at": str(payload.get("started_at") or "")[:80],
+            "completed_at": str(payload.get("completed_at") or "")[:80],
+            "first_received_at": received_at, "last_received_at": received_at,
+            "raw": 0, "kept": 0, "added": 0, "batch_total": batch_total,
+            "batches": {}, "county_date_min": "", "county_date_max": "",
+            "run_status": str(payload.get("run_status") or "success")[:20],
+            "error": str(payload.get("error") or "")[:500],
+        }
+        entry["last_received_at"] = received_at
+        entry["completed_at"] = str(payload.get("completed_at") or entry.get("completed_at") or "")[:80]
+        entry["batch_total"] = max(int(entry.get("batch_total") or 1), batch_total)
+        entry["raw"] = int(entry.get("raw") or 0) + len(records)
+        entry["kept"] = int(entry.get("kept") or 0) + len(incoming)
+        entry["added"] = int(entry.get("added") or 0) + added
+        entry["batches"][str(batch_number)] = result
+        if observed_dates:
+            candidates = observed_dates + [entry.get("county_date_min"), entry.get("county_date_max")]
+            candidates = [value for value in candidates if value]
+            entry["county_date_min"], entry["county_date_max"] = min(candidates), max(candidates)
+        if entry.get("run_status") == "failed":
+            entry["status"] = "failed"
+        else:
+            entry["status"] = ("complete" if len(entry["batches"]) >= entry["batch_total"] else "receiving")
+        if prior:
+            inventory.remove(prior)
+        inventory.append(entry)
+        _sqlite_set(SCRAPE_RUN_INVENTORY_KEY, inventory[-5000:])
+
+    return jsonify(result)
+
+
+@app.route('/api/admin/scrape-runs')
+@admin_required
+def scrape_run_inventory():
+    """Return the durable source-run ledger, newest first."""
+    try:
+        limit = max(1, min(int(request.args.get("limit", 500)), 5000))
+    except ValueError:
+        return jsonify({"error": "invalid limit"}), 400
+    runs = list(reversed(_sqlite_get(SCRAPE_RUN_INVENTORY_KEY, [])[-limit:]))
+    public_runs = [{key: value for key, value in item.items() if key != "batches"} for item in runs]
+    return jsonify({"count": len(public_runs), "runs": public_runs})
 
 
 @app.route('/api/scrape/stop', methods=['POST'])

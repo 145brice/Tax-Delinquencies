@@ -108,6 +108,10 @@
             background: #1e2130; color: #9ca3af; border: 1px solid #2a2d3a;
             border-radius: 4px; padding: 2px 7px; font-size: 0.7rem; white-space: nowrap;
         }
+        .inventory-title { margin: 34px 0 6px; font-size: 1.25rem; }
+        .inventory-note { color: #6b7280; font-size: 0.82rem; margin-bottom: 14px; }
+        .result-positive { color: #86efac; font-weight: 700; }
+        .result-empty { color: #6b7280; }
     </style>
 </head>
 <body>
@@ -245,6 +249,33 @@
                     </button>
                 </td>
             </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
+
+    <h2 class="inventory-title">Observed scrape-run inventory</h2>
+    <p class="inventory-note">Durable run receipts from scheduled county jobs. “Added” shows when a run actually discovered new inventory; county dates may be sale, record, bill, or publication dates depending on the source.</p>
+    <div class="table-wrap">
+        <table id="run-inventory-table">
+            <thead>
+                <tr><th>Received (UTC)</th><th>County</th><th>Source</th><th>Started (UTC)</th><th>Returned</th><th>Kept</th><th>Added</th><th>County-date range</th><th>Status</th></tr>
+            </thead>
+            <tbody>
+            {% for run in scrape_runs %}
+                <tr>
+                    <td>{{ run.last_received_at }}</td>
+                    <td><strong>{{ run.county }}</strong></td>
+                    <td><span class="source-pill">{{ run.source }}</span></td>
+                    <td>{{ run.started_at or 'unknown' }}</td>
+                    <td>{{ run.raw }}</td>
+                    <td>{{ run.kept }}</td>
+                    <td class="{{ 'result-positive' if run.added else 'result-empty' }}">{{ run.added }}</td>
+                    <td>{% if run.county_date_min %}{{ run.county_date_min }}{% if run.county_date_max != run.county_date_min %} → {{ run.county_date_max }}{% endif %}{% else %}not supplied{% endif %}</td>
+                    <td>{{ run.status }}</td>
+                </tr>
+            {% else %}
+                <tr><td colspan="9" class="date-never">No durable run receipts yet. The next scheduled scrape will start this inventory.</td></tr>
             {% endfor %}
             </tbody>
         </table>
