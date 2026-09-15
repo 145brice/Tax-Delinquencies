@@ -69,7 +69,7 @@
         .county-request-head { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; margin-bottom: 10px; }
         .county-request h2 { color: #fff; font-size: 1rem; }
         .county-request-copy { color: #aeb9ca; line-height: 1.45; }
-        .county-request-form { display: grid; grid-template-columns: minmax(170px, 1.2fr) 80px minmax(210px, 1fr) minmax(175px, .8fr) auto; gap: 8px; align-items: center; }
+        .county-request-form { display: grid; grid-template-columns: minmax(170px, 1.2fr) 80px minmax(210px, 1fr) auto; gap: 8px; align-items: center; }
         .county-request-form input {
             min-width: 0; background: #1e293b; border: 1px solid #36445c; color: #fff;
             padding: 9px 11px; border-radius: 7px; font: inherit;
@@ -322,7 +322,7 @@
             .toolbar input[type=text] { width: 100%; }
             .toolbar > div { margin-left: 0 !important; width: 100%; flex-wrap: wrap; }
             .county-request-form { grid-template-columns: 1fr 80px; }
-            .county-request-form input:nth-of-type(3), .county-request-form input:nth-of-type(4), .county-request-form button { grid-column: 1 / -1; }
+            .county-request-form input:nth-of-type(3), .county-request-form button { grid-column: 1 / -1; }
         }
     </style>
 </head>
@@ -400,18 +400,17 @@
 <section class="county-request" id="request-county" aria-labelledby="county-request-title">
     <div class="county-request-head">
         <h2 id="county-request-title">Enter/type your county</h2>
-        <p class="county-request-copy">See if we have it. If we don’t, we will add the county you enter. Stay tuned over the next day or so—we’ll email and text you as soon as it’s ready.</p>
+        <p class="county-request-copy">See if we have it. If we don’t, we will add the county you enter. Stay tuned over the next day or so—we’ll email you as soon as it’s ready.</p>
     </div>
     <form class="county-request-form" id="county-request-form">
         <input id="request-county-name" name="county" type="text" maxlength="90" autocomplete="address-level2" placeholder="County name" aria-label="County name" required>
         <input id="request-county-state" name="state" type="text" maxlength="2" autocomplete="address-level1" placeholder="State" aria-label="Two-letter state" required>
         <input id="request-county-email" name="email" type="email" maxlength="254" autocomplete="email" placeholder="Email address" aria-label="Email address" value="{{ current_user_email }}" required>
-        <input id="request-county-phone" name="phone" type="tel" maxlength="24" autocomplete="tel" placeholder="Mobile phone" aria-label="Mobile phone" required>
         <input class="county-hp" name="website" type="text" tabindex="-1" autocomplete="off" aria-hidden="true">
         <button id="county-request-submit" type="submit">Check county &amp; request it</button>
         <label class="county-consent">
             <input id="county-request-consent" type="checkbox" required>
-            <span>I agree to receive one email and one text alert about this county’s availability. Message and data rates may apply. Reply STOP to opt out.</span>
+            <span>I agree to receive one email alert about this county’s availability.</span>
         </label>
     </form>
     <div class="county-request-result" id="county-request-result" role="status" aria-live="polite"></div>
@@ -563,7 +562,6 @@
             county: form.elements.county.value,
             state: form.elements.state.value,
             email: form.elements.email.value,
-            phone: form.elements.phone.value,
             website: form.elements.website.value,
             consent: document.getElementById('county-request-consent').checked,
         };

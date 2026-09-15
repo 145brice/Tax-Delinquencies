@@ -259,7 +259,7 @@
     <div class="table-wrap">
         <table id="county-request-table">
             <thead>
-                <tr><th>County</th><th>State</th><th>Demand</th><th>Email</th><th>Mobile</th><th>First requested (UTC)</th><th>Last requested (UTC)</th><th>Status</th><th>Email alert</th><th>Text alert</th></tr>
+                <tr><th>County</th><th>State</th><th>Demand</th><th>Email</th><th>First requested (UTC)</th><th>Last requested (UTC)</th><th>Status</th><th>Email alert</th></tr>
             </thead>
             <tbody>
             {% for item in county_requests %}
@@ -268,15 +268,13 @@
                     <td>{{ item.state }}</td>
                     <td>{{ item.request_count or 1 }}</td>
                     <td>{{ item.email }}</td>
-                    <td>{{ item.phone }}</td>
                     <td>{{ item.first_requested_at }}</td>
                     <td>{{ item.last_requested_at }}</td>
                     <td>{{ item.status }}</td>
                     <td>{{ item.email_status or 'not queued' }}</td>
-                    <td>{{ item.sms_status or 'not queued' }}</td>
                 </tr>
             {% else %}
-                <tr><td colspan="10" class="date-never">No customer county requests yet.</td></tr>
+                <tr><td colspan="8" class="date-never">No customer county requests yet.</td></tr>
             {% endfor %}
             </tbody>
         </table>

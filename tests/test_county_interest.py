@@ -16,7 +16,7 @@ class CountyInterestTests(unittest.TestCase):
     def request(self, **changes):
         payload = {
             "county": "Travis County", "state": "TX",
-            "email": "buyer@example.com", "phone": "512-555-0187",
+            "email": "buyer@example.com",
             "consent": True,
         }
         payload.update(changes)
@@ -28,19 +28,17 @@ class CountyInterestTests(unittest.TestCase):
         self.assertEqual(first.status_code, 200, first.get_data(as_text=True))
         self.assertEqual(first.json["availability"], "waiting")
         self.assertIn("will add the county", first.json["message"])
-        self.assertIn("email and text", first.json["message"])
+        self.assertIn("email you", first.json["message"])
         self.assertEqual(second.status_code, 200)
         entries = self.a._sqlite_get(self.a.COUNTY_REQUESTS_KEY, {})
         self.assertEqual(len(entries), 1)
         entry = next(iter(entries.values()))
         self.assertEqual(entry["request_count"], 2)
         self.assertEqual(entry["county"], "Travis")
-        self.assertEqual(entry["phone"], "+15125550187")
         self.assertTrue(entry["consent_at"])
 
-    def test_requires_valid_contact_and_explicit_consent(self):
+    def test_requires_valid_email_and_explicit_consent(self):
         self.assertEqual(self.request(email="bad").status_code, 400)
-        self.assertEqual(self.request(phone="123").status_code, 400)
         self.assertEqual(self.request(consent=False).status_code, 400)
         self.assertEqual(self.a._sqlite_get(self.a.COUNTY_REQUESTS_KEY, {}), {})
 
@@ -61,8 +59,6 @@ class CountyInterestTests(unittest.TestCase):
         request_id = next(iter(self.a._sqlite_get(self.a.COUNTY_REQUESTS_KEY, {})))
         configured = {
             "SMTP_HOST": "smtp.example", "SMTP_FROM": "alerts@example.com",
-            "TWILIO_ACCOUNT_SID": "ACtest", "TWILIO_AUTH_TOKEN": "token",
-            "TWILIO_FROM_NUMBER": "+15555550100",
         }
         with patch.dict(os.environ, configured):
             changed = self.a._mark_county_requests_ready([{"county": "Travis", "state": "TX"}])
@@ -73,25 +69,20 @@ class CountyInterestTests(unittest.TestCase):
             job = conn.execute("SELECT id, kind FROM fulfillment_jobs").fetchone()
         self.assertEqual((job["id"], job["kind"]), ("county-alert:" + request_id, "county_alert"))
 
-    def test_delivery_records_each_channel(self):
+    def test_delivery_records_email(self):
         self.request()
         request_id = next(iter(self.a._sqlite_get(self.a.COUNTY_REQUESTS_KEY, {})))
         configured = {
             "SMTP_HOST": "smtp.example", "SMTP_FROM": "alerts@example.com",
-            "TWILIO_ACCOUNT_SID": "ACtest", "TWILIO_AUTH_TOKEN": "token",
-            "TWILIO_FROM_NUMBER": "+15555550100",
         }
         with patch.dict(os.environ, configured):
             self.a._mark_county_requests_ready([{"county": "Travis", "state": "TX"}])
-            with patch.object(self.a, "_send_county_email") as email_send, \
-                 patch.object(self.a, "_send_county_sms") as sms_send:
+            with patch.object(self.a, "_send_county_email") as email_send:
                 self.assertTrue(self.a._deliver_county_alert(request_id))
         email_send.assert_called_once()
-        sms_send.assert_called_once()
         entry = self.a._sqlite_get(self.a.COUNTY_REQUESTS_KEY, {})[request_id]
         self.assertEqual(entry["status"], "notified")
         self.assertEqual(entry["email_status"], "sent")
-        self.assertEqual(entry["sms_status"], "sent")
 
 
 if __name__ == "__main__":
