@@ -3399,15 +3399,41 @@ def _county_live_count(county_key, state, listings=None):
 
 
 def _county_alerts_configured():
+    brevo_ready = bool(os.getenv("BREVO_API_KEY") and os.getenv("BREVO_FROM"))
     resend_ready = bool(os.getenv("RESEND_API_KEY") and os.getenv("RESEND_FROM"))
     smtp_ready = bool(os.getenv("SMTP_HOST") and os.getenv("SMTP_FROM"))
-    return resend_ready or smtp_ready
+    return brevo_ready or resend_ready or smtp_ready
 
 
 def _send_email(to, subject, text_body, idempotency_key, attachment=None):
     attachment = attachment or None
     filename = attachment[0] if attachment else ""
     attachment_bytes = attachment[1].encode("utf-8-sig") if attachment else b""
+    if os.getenv("BREVO_API_KEY") and os.getenv("BREVO_FROM"):
+        payload = {
+            "sender": {"email": os.environ["BREVO_FROM"],
+                       "name": os.getenv("BREVO_FROM_NAME", "ForeclosureLeads Pro")},
+            "to": [{"email": to}], "subject": subject, "textContent": text_body,
+        }
+        if attachment:
+            payload["attachment"] = [{
+                "name": filename,
+                "content": base64.b64encode(attachment_bytes).decode("ascii"),
+            }]
+        req = urllib.request.Request(
+            "https://api.brevo.com/v3/smtp/email",
+            data=json.dumps(payload).encode("utf-8"), method="POST",
+            headers={
+                "api-key": os.environ["BREVO_API_KEY"],
+                "Accept": "application/json", "Content-Type": "application/json",
+                "Idempotency-Key": idempotency_key,
+            },
+        )
+        with urllib.request.urlopen(req, timeout=20) as response:
+            if not 200 <= response.status < 300:
+                raise RuntimeError(f"Email provider returned HTTP {response.status}")
+        return
+
     if os.getenv("RESEND_API_KEY") and os.getenv("RESEND_FROM"):
         payload = {
             "from": os.environ["RESEND_FROM"], "to": [to],

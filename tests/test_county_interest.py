@@ -102,6 +102,21 @@ class CountyInterestTests(unittest.TestCase):
         self.assertEqual(payload["attachments"][0]["filename"], "leads.csv")
         self.assertTrue(payload["attachments"][0]["content"])
 
+    def test_brevo_adapter_supports_personal_sender_and_csv(self):
+        response = MagicMock()
+        response.__enter__.return_value.status = 201
+        configured = {"BREVO_API_KEY": "brevo-test", "BREVO_FROM": "personal@example.com"}
+        with patch.dict(os.environ, configured), \
+             patch.object(self.a.urllib.request, "urlopen", return_value=response) as send:
+            self.a._send_email("buyer@example.com", "Your order", "Attached", "order-key",
+                               attachment=("leads.csv", "address\n123 Main"))
+        request = send.call_args.args[0]
+        self.assertEqual(request.full_url, "https://api.brevo.com/v3/smtp/email")
+        payload = json.loads(request.data)
+        self.assertEqual(payload["sender"]["email"], "personal@example.com")
+        self.assertEqual(payload["to"][0]["email"], "buyer@example.com")
+        self.assertEqual(payload["attachment"][0]["name"], "leads.csv")
+
     def paid_order(self, session_id="cs_delivery"):
         user = self.a.db.create_user("owner@example.com", "password-hash")
         lead = {
