@@ -1,6 +1,7 @@
 import os
+import json
 import unittest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from app_fixture import isolated_app
 
@@ -83,6 +84,20 @@ class CountyInterestTests(unittest.TestCase):
         entry = self.a._sqlite_get(self.a.COUNTY_REQUESTS_KEY, {})[request_id]
         self.assertEqual(entry["status"], "notified")
         self.assertEqual(entry["email_status"], "sent")
+
+    def test_resend_adapter_uses_https_and_idempotency(self):
+        entry = {"id": "request-1", "county": "Travis", "county_key": "travis",
+                 "state": "TX", "email": "buyer@example.com"}
+        response = MagicMock()
+        response.__enter__.return_value.status = 200
+        with patch.dict(os.environ, {"RESEND_API_KEY": "re_test", "RESEND_FROM": "Alerts <alerts@example.com>"}), \
+             patch.object(self.a.urllib.request, "urlopen", return_value=response) as send:
+            self.a._send_county_email(entry)
+        request = send.call_args.args[0]
+        self.assertEqual(request.full_url, "https://api.resend.com/emails")
+        self.assertEqual(request.headers["Idempotency-key"], "county-alert-request-1")
+        payload = json.loads(request.data)
+        self.assertEqual(payload["to"], ["buyer@example.com"])
 
 
 if __name__ == "__main__":

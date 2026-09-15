@@ -11,6 +11,7 @@ import copy
 import shutil
 import sqlite3
 import smtplib
+import urllib.request
 from email.message import EmailMessage
 from datetime import datetime, timezone
 from functools import wraps
@@ -3355,24 +3356,46 @@ def _county_live_count(county_key, state, listings=None):
 
 
 def _county_alerts_configured():
-    return bool(os.getenv("SMTP_HOST") and os.getenv("SMTP_FROM"))
+    resend_ready = bool(os.getenv("RESEND_API_KEY") and os.getenv("RESEND_FROM"))
+    smtp_ready = bool(os.getenv("SMTP_HOST") and os.getenv("SMTP_FROM"))
+    return resend_ready or smtp_ready
 
 
 def _send_county_email(entry):
+    base_url = os.getenv("PUBLIC_BASE_URL", "https://tax-delinquencies-production.up.railway.app").rstrip("/")
+    link = f"{base_url}/?county={entry['county_key'].replace(' ', '+')}&state={entry['state']}"
+    subject = f"{entry['county']} County, {entry['state']} leads are ready"
+    text_body = (
+        f"{entry['county']} County, {entry['state']} is ready on ForeclosureLeads Pro.\n\n"
+        f"View the available leads: {link}\n\n"
+        "You received this one-time notice because you requested an availability alert."
+    )
+    if os.getenv("RESEND_API_KEY") and os.getenv("RESEND_FROM"):
+        body = json.dumps({
+            "from": os.environ["RESEND_FROM"], "to": [entry["email"]],
+            "subject": subject, "text": text_body,
+        }).encode("utf-8")
+        req = urllib.request.Request(
+            "https://api.resend.com/emails", data=body, method="POST",
+            headers={
+                "Authorization": "Bearer " + os.environ["RESEND_API_KEY"],
+                "Content-Type": "application/json",
+                "Idempotency-Key": "county-alert-" + entry["id"],
+            },
+        )
+        with urllib.request.urlopen(req, timeout=20) as response:
+            if not 200 <= response.status < 300:
+                raise RuntimeError(f"Email provider returned HTTP {response.status}")
+        return
+
     host = os.environ["SMTP_HOST"]
     port = int(os.getenv("SMTP_PORT", "587"))
     security = os.getenv("SMTP_SECURITY", "starttls").strip().lower()
     message = EmailMessage()
     message["From"] = os.environ["SMTP_FROM"]
     message["To"] = entry["email"]
-    message["Subject"] = f"{entry['county']} County, {entry['state']} leads are ready"
-    base_url = os.getenv("PUBLIC_BASE_URL", "https://tax-delinquencies-production.up.railway.app").rstrip("/")
-    link = f"{base_url}/?county={entry['county_key'].replace(' ', '+')}&state={entry['state']}"
-    message.set_content(
-        f"{entry['county']} County, {entry['state']} is ready on ForeclosureLeads Pro.\n\n"
-        f"View the available leads: {link}\n\n"
-        "You received this one-time notice because you requested an availability alert."
-    )
+    message["Subject"] = subject
+    message.set_content(text_body)
     client_type = smtplib.SMTP_SSL if security == "ssl" else smtplib.SMTP
     with client_type(host, port, timeout=20) as client:
         if security == "starttls":
