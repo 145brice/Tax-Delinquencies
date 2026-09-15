@@ -92,12 +92,55 @@ class CountyInterestTests(unittest.TestCase):
         response.__enter__.return_value.status = 200
         with patch.dict(os.environ, {"RESEND_API_KEY": "re_test", "RESEND_FROM": "Alerts <alerts@example.com>"}), \
              patch.object(self.a.urllib.request, "urlopen", return_value=response) as send:
-            self.a._send_county_email(entry)
+            self.a._send_email(entry["email"], "Ready", "Body", "county-alert-request-1",
+                               attachment=("leads.csv", "address\n123 Main"))
         request = send.call_args.args[0]
         self.assertEqual(request.full_url, "https://api.resend.com/emails")
         self.assertEqual(request.headers["Idempotency-key"], "county-alert-request-1")
         payload = json.loads(request.data)
         self.assertEqual(payload["to"], ["buyer@example.com"])
+        self.assertEqual(payload["attachments"][0]["filename"], "leads.csv")
+        self.assertTrue(payload["attachments"][0]["content"])
+
+    def paid_order(self, session_id="cs_delivery"):
+        user = self.a.db.create_user("owner@example.com", "password-hash")
+        lead = {
+            "id": "lead-1", "status": "Auction", "purchase_mode": "skip",
+            "county": "Travis", "state": "TX", "address": "123 Main Street",
+            "owner": "Owner Name", "primary_phone": "5125550187",
+            "email_1": "owner@lead.example", "buyer_notes": "=unsafe formula",
+        }
+        order_id = self.a.db.create_pending_order(user["id"], user["email"], session_id, 1500, [lead])
+        self.a.db.mark_order_paid(session_id)
+        return user, order_id
+
+    def test_buyer_can_download_only_their_order_csv(self):
+        user, order_id = self.paid_order()
+        with self.client.session_transaction() as session:
+            session["user_id"] = user["id"]
+        response = self.client.get(f"/account/orders/{order_id}/leads.csv")
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("attachment", response.headers["Content-Disposition"])
+        csv_text = response.get_data(as_text=True)
+        self.assertIn("123 Main Street", csv_text)
+        self.assertIn("'=unsafe formula", csv_text)
+        self.assertEqual(self.client.get("/account/orders/not-their-order/leads.csv").status_code, 404)
+
+    def test_order_email_has_csv_attachment_and_dashboard_link(self):
+        user, order_id = self.paid_order("cs_email")
+        configured = {"RESEND_API_KEY": "re_test", "RESEND_FROM": "Alerts <alerts@example.com>"}
+        with patch.dict(os.environ, configured):
+            self.assertTrue(self.a._schedule_order_delivery_email("cs_email"))
+            with patch.object(self.a, "_send_email") as send:
+                self.assertTrue(self.a._deliver_order_email("cs_email"))
+        args = send.call_args.args
+        self.assertEqual(args[0], user["email"])
+        self.assertIn("/account", args[2])
+        attachment = send.call_args.kwargs["attachment"]
+        self.assertTrue(attachment[0].endswith(".csv"))
+        self.assertIn("123 Main Street", attachment[1])
+        delivery = self.a._sqlite_get(self.a.ORDER_DELIVERY_EMAILS_KEY, {})["cs_email"]
+        self.assertEqual(delivery["status"], "sent")
 
 
 if __name__ == "__main__":

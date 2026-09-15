@@ -10,6 +10,7 @@ import io
 import copy
 import shutil
 import sqlite3
+import base64
 import smtplib
 import urllib.request
 from email.message import EmailMessage
@@ -470,6 +471,7 @@ SETTINGS_FILE = _runtime_data_file('settings.json')
 SCRAPE_PROGRESS_FILE = _runtime_data_file('scrape_progress.json')
 SCRAPE_RUN_INVENTORY_KEY = "scrape_run_inventory"
 COUNTY_REQUESTS_KEY = "county_interest_requests"
+ORDER_DELIVERY_EMAILS_KEY = "order_delivery_emails"
 DEFAULT_SOURCES = {
     "include_tax_records": True,
     "include_hud": True,
@@ -1974,6 +1976,47 @@ def account():
                            payments_ready=bool(stripe.api_key))
 
 
+def _order_csv_data(order):
+    fields = [
+        "record_type", "purchase_mode", "county", "state", "city", "zip",
+        "address", "owner", "primary_phone", "phone_2", "email_1", "email_2",
+        "mailing_address", "parcel_id", "case_number", "sale_date", "source_url",
+        "buyer_folder", "buyer_status", "buyer_priority", "buyer_notes",
+    ]
+
+    def safe_cell(value):
+        text = str(value or "")
+        return "'" + text if text.lstrip().startswith(("=", "+", "-", "@")) else text
+
+    output = io.StringIO()
+    writer = csv.DictWriter(output, fieldnames=fields)
+    writer.writeheader()
+    for lead in order.get("leads_json") or []:
+        row = dict(lead)
+        row["record_type"] = row.get("status") or row.get("record_type") or "Lead"
+        row["source_url"] = row.get("source_url") or row.get("link") or ""
+        writer.writerow({field: safe_cell(row.get(field)) for field in fields})
+    return output.getvalue()
+
+
+@app.route('/account/orders/<order_id>/leads.csv')
+@login_required
+def account_order_csv(order_id):
+    user = current_user()
+    order = next(
+        (item for item in db.get_paid_orders_for_user(user["id"])
+         if str(item.get("id")) == str(order_id)),
+        None,
+    )
+    if not order:
+        return "Order not found", 404
+    filename = f"foreclosure-leads-order-{re.sub(r'[^A-Za-z0-9_-]', '', str(order_id)) or 'download'}.csv"
+    return Response(
+        _order_csv_data(order), mimetype="text/csv",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
 @app.route('/account/debug')
 @login_required
 def account_debug():
@@ -3361,26 +3404,27 @@ def _county_alerts_configured():
     return resend_ready or smtp_ready
 
 
-def _send_county_email(entry):
-    base_url = os.getenv("PUBLIC_BASE_URL", "https://tax-delinquencies-production.up.railway.app").rstrip("/")
-    link = f"{base_url}/?county={entry['county_key'].replace(' ', '+')}&state={entry['state']}"
-    subject = f"{entry['county']} County, {entry['state']} leads are ready"
-    text_body = (
-        f"{entry['county']} County, {entry['state']} is ready on ForeclosureLeads Pro.\n\n"
-        f"View the available leads: {link}\n\n"
-        "You received this one-time notice because you requested an availability alert."
-    )
+def _send_email(to, subject, text_body, idempotency_key, attachment=None):
+    attachment = attachment or None
+    filename = attachment[0] if attachment else ""
+    attachment_bytes = attachment[1].encode("utf-8-sig") if attachment else b""
     if os.getenv("RESEND_API_KEY") and os.getenv("RESEND_FROM"):
-        body = json.dumps({
-            "from": os.environ["RESEND_FROM"], "to": [entry["email"]],
+        payload = {
+            "from": os.environ["RESEND_FROM"], "to": [to],
             "subject": subject, "text": text_body,
-        }).encode("utf-8")
+        }
+        if attachment:
+            payload["attachments"] = [{
+                "filename": filename,
+                "content": base64.b64encode(attachment_bytes).decode("ascii"),
+            }]
+        body = json.dumps(payload).encode("utf-8")
         req = urllib.request.Request(
             "https://api.resend.com/emails", data=body, method="POST",
             headers={
                 "Authorization": "Bearer " + os.environ["RESEND_API_KEY"],
                 "Content-Type": "application/json",
-                "Idempotency-Key": "county-alert-" + entry["id"],
+                "Idempotency-Key": idempotency_key,
             },
         )
         with urllib.request.urlopen(req, timeout=20) as response:
@@ -3393,9 +3437,11 @@ def _send_county_email(entry):
     security = os.getenv("SMTP_SECURITY", "starttls").strip().lower()
     message = EmailMessage()
     message["From"] = os.environ["SMTP_FROM"]
-    message["To"] = entry["email"]
+    message["To"] = to
     message["Subject"] = subject
     message.set_content(text_body)
+    if attachment:
+        message.add_attachment(attachment_bytes, maintype="text", subtype="csv", filename=filename)
     client_type = smtplib.SMTP_SSL if security == "ssl" else smtplib.SMTP
     with client_type(host, port, timeout=20) as client:
         if security == "starttls":
@@ -3404,6 +3450,75 @@ def _send_county_email(entry):
         if username:
             client.login(username, os.getenv("SMTP_PASSWORD", ""))
         client.send_message(message)
+
+
+def _send_county_email(entry):
+    base_url = os.getenv("PUBLIC_BASE_URL", "https://tax-delinquencies-production.up.railway.app").rstrip("/")
+    link = f"{base_url}/?county={entry['county_key'].replace(' ', '+')}&state={entry['state']}"
+    subject = f"{entry['county']} County, {entry['state']} leads are ready"
+    text_body = (
+        f"{entry['county']} County, {entry['state']} is ready on ForeclosureLeads Pro.\n\n"
+        f"View the available leads: {link}\n\n"
+        "You received this one-time notice because you requested an availability alert."
+    )
+    _send_email(entry["email"], subject, text_body, "county-alert-" + entry["id"])
+
+
+def _schedule_order_delivery_email(session_id):
+    # Some offline/test account adapters intentionally implement only writes.
+    # Email scheduling must never turn a completed lead delivery into a failure.
+    if not hasattr(db, "get_order_by_session"):
+        return True
+    order = db.get_order_by_session(session_id)
+    if not order or order.get("status") != "paid":
+        return False
+    now = datetime.now(timezone.utc).isoformat()
+    with purchase_store.transaction() as conn:
+        deliveries = purchase_store.read(conn, ORDER_DELIVERY_EMAILS_KEY, {})
+        entry = deliveries.get(str(session_id), {})
+        if entry.get("status") == "sent":
+            return True
+        deliveries[str(session_id)] = {
+            **entry, "session_id": str(session_id), "order_id": str(order.get("id") or ""),
+            "email": order.get("email") or "", "status": "pending",
+            "created_at": entry.get("created_at") or now,
+        }
+        purchase_store.write(conn, ORDER_DELIVERY_EMAILS_KEY, deliveries)
+        if _county_alerts_configured():
+            purchase_store.enqueue(conn, "order-email:" + str(session_id), "order_email")
+    return True
+
+
+def _deliver_order_email(session_id):
+    with purchase_store.transaction() as conn:
+        delivery = purchase_store.read(conn, ORDER_DELIVERY_EMAILS_KEY, {}).get(str(session_id))
+    if not delivery or delivery.get("status") == "sent":
+        return True
+    if not _county_alerts_configured():
+        return False
+    order = db.get_order_by_session(session_id)
+    if not order or order.get("status") != "paid":
+        return False
+    lead_count = len(order.get("leads_json") or [])
+    base_url = os.getenv("PUBLIC_BASE_URL", "https://tax-delinquencies-production.up.railway.app").rstrip("/")
+    filename = f"foreclosure-leads-order-{re.sub(r'[^A-Za-z0-9_-]', '', str(order.get('id') or session_id))}.csv"
+    text_body = (
+        f"Your ForeclosureLeads Pro order is ready. This email includes {lead_count} lead"
+        f"{'s' if lead_count != 1 else ''} as a CSV attachment.\n\n"
+        f"Your private dashboard keeps every purchase and any completed skip-trace details: {base_url}/account\n\n"
+        "Keep the attached lead information secure and use it only for lawful business purposes."
+    )
+    _send_email(
+        delivery["email"], f"Your {lead_count}-lead ForeclosureLeads Pro order",
+        text_body, "order-delivery-" + hashlib.sha256(str(session_id).encode()).hexdigest()[:32],
+        attachment=(filename, _order_csv_data(order)),
+    )
+    with purchase_store.transaction() as conn:
+        deliveries = purchase_store.read(conn, ORDER_DELIVERY_EMAILS_KEY, {})
+        deliveries[str(session_id)]["status"] = "sent"
+        deliveries[str(session_id)]["sent_at"] = datetime.now(timezone.utc).isoformat()
+        purchase_store.write(conn, ORDER_DELIVERY_EMAILS_KEY, deliveries)
+    return True
 
 
 def _deliver_county_alert(request_id):
@@ -3459,6 +3574,11 @@ def _enqueue_ready_county_alerts():
         for request_id, entry in entries.items():
             if entry.get("status") == "ready":
                 purchase_store.enqueue(conn, "county-alert:" + request_id, "county_alert")
+                queued += 1
+        deliveries = purchase_store.read(conn, ORDER_DELIVERY_EMAILS_KEY, {})
+        for session_id, entry in deliveries.items():
+            if entry.get("status") == "pending":
+                purchase_store.enqueue(conn, "order-email:" + session_id, "order_email")
                 queued += 1
     return queued
 

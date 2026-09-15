@@ -104,6 +104,7 @@ def create_checkout(a, order):
 
 def deliver(a, order):
     if order["state"] == "complete":
+        a._schedule_order_delivery_email(order["session_id"])
         return True
     if order["state"] != "ready":
         return False
@@ -115,6 +116,7 @@ def deliver(a, order):
         raise RuntimeError("Account backend did not confirm order delivery")
     a._mark_leads_sold([it["id"] for it in order["leads"]])
     a.purchase_store.complete(order["id"])
+    a._schedule_order_delivery_email(order["session_id"])
     return True
 
 
@@ -167,6 +169,8 @@ def process_job(a, job):
         return a._fulfill_order_skiptraces(job["id"][6:])
     if job["kind"] == "county_alert":
         return a._deliver_county_alert(job["id"].removeprefix("county-alert:"))
+    if job["kind"] == "order_email":
+        return a._deliver_order_email(job["id"].removeprefix("order-email:"))
     order = a.purchase_store.get(key=job["id"])
     if not order or order["state"] in {"complete", "expired", "rejected"}:
         return True
