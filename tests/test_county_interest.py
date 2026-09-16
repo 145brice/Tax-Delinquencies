@@ -118,6 +118,7 @@ class CountyInterestTests(unittest.TestCase):
         request = send.call_args.args[0]
         self.assertEqual(request.full_url, "https://api.resend.com/emails")
         self.assertEqual(request.headers["Idempotency-key"], "county-alert-request-1")
+        self.assertEqual(request.headers["User-agent"], "ForeclosureLeadsPro/1.0")
         payload = json.loads(request.data)
         self.assertEqual(payload["to"], ["buyer@example.com"])
         self.assertEqual(payload["attachments"][0]["filename"], "leads.csv")

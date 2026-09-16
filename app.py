@@ -3456,6 +3456,7 @@ def _send_email(to, subject, text_body, idempotency_key, attachment=None):
             headers={
                 "api-key": os.environ["BREVO_API_KEY"],
                 "Accept": "application/json", "Content-Type": "application/json",
+                "User-Agent": "ForeclosureLeadsPro/1.0",
                 "Idempotency-Key": idempotency_key,
             },
         )
@@ -3478,6 +3479,7 @@ def _send_email(to, subject, text_body, idempotency_key, attachment=None):
             headers={
                 "Authorization": "Bearer " + os.environ["RESEND_API_KEY"],
                 "Content-Type": "application/json",
+                "User-Agent": "ForeclosureLeadsPro/1.0",
                 "Idempotency-Key": idempotency_key,
             },
         )
