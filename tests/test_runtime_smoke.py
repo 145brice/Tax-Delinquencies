@@ -69,6 +69,7 @@ class RuntimeTests(unittest.TestCase):
         self.assertEqual(checkout.status_code, 200, checkout.get_data(as_text=True))
 
         order = a.purchase_store.get(session_id="cs_sqlite_checkout")
+        session["amount_total"] = order["amount_cents"]
         session["metadata"] = {"purchase_id": order["id"], "user_id": order["user_id"]}
         import os
         os.environ["STRIPE_WEBHOOK_SECRET"] = "whsec_test"
