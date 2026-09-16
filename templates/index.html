@@ -46,14 +46,32 @@
             background: #10131a; padding: 18px 24px; min-height: 92px;
             display: flex; flex-direction: column; justify-content: center;
         }
+        .overview-panel.beta-offer {
+            position: relative; overflow: hidden;
+            background: linear-gradient(120deg, #321b08 0%, #18213b 58%, #10233a 100%);
+            border-left: 4px solid #f59e0b;
+        }
+        .overview-panel.beta-offer::after {
+            content: ''; position: absolute; width: 180px; height: 180px; right: -72px; top: -94px;
+            border-radius: 50%; background: #f59e0b1c; pointer-events: none;
+        }
         .overview-title { color: #fff; font-size: 1.25rem; font-weight: 800; margin-bottom: 4px; }
         .beta-pricing-badge {
             display: inline-flex; align-items: center; width: fit-content;
-            margin-bottom: 8px; padding: 4px 9px; border-radius: 999px;
-            border: 1px solid #d97706; background: #3a2408; color: #fde68a;
-            font-size: 0.7rem; font-weight: 800; letter-spacing: 0.06em;
+            margin-bottom: 7px; padding: 5px 10px; border-radius: 999px;
+            border: 1px solid #f59e0b; background: #f59e0b; color: #1f1300;
+            font-size: 0.72rem; font-weight: 900; letter-spacing: 0.07em;
             text-transform: uppercase;
         }
+        .beta-price-row { display: flex; align-items: center; gap: 7px; flex-wrap: wrap; margin: 8px 0 7px; }
+        .beta-price-pill {
+            display: inline-flex; align-items: baseline; gap: 4px; padding: 5px 8px;
+            border: 1px solid #ffffff24; border-radius: 7px; background: #080b1199;
+            color: #cbd5e1; font-size: .68rem; white-space: nowrap;
+        }
+        .beta-price-pill strong { color: #fff; font-size: 1rem; }
+        .beta-price-pill.featured { border-color: #f59e0b88; color: #fde68a; }
+        .beta-cta { color: #fde68a !important; }
         .overview-copy { color: #9ca3af; max-width: 720px; line-height: 1.45; }
         .overview-copy strong { color: #fff; }
         .overview-copy a { color: #93c5fd; font-weight: 700; text-decoration: none; }
@@ -370,11 +388,16 @@
 {% endif %}
 
 <section class="overview">
-    <div class="overview-panel">
+    <div class="overview-panel{% if pricing_phase == 'beta' %} beta-offer{% endif %}">
         {% if pricing_phase == 'beta' %}
-        <div class="beta-pricing-badge">&#10022; Limited-time beta pricing</div>
-        <div class="overview-title">Get in early. Find your next opportunity.</div>
-        <div class="overview-copy"><strong>Fresh raw leads are just $6, with aged leads starting at $2.</strong> Explore live inventory and secure the leads that fit your market while launch pricing lasts. <a href="/pricing">See beta pricing &rarr;</a></div>
+        <div class="beta-pricing-badge">&#10022; Beta launch sale &middot; limited time</div>
+        <div class="overview-title">Exclusive leads at launch pricing</div>
+        <div class="beta-price-row" aria-label="Beta lead prices">
+            <span class="beta-price-pill featured"><strong>${{ lead_floor_raw | int }}+</strong> aged raw</span>
+            <span class="beta-price-pill"><strong>${{ lead_price_raw | int }}</strong> fresh raw</span>
+            <span class="beta-price-pill"><strong>${{ lead_price_traced | int }}</strong> fresh skip-traced</span>
+        </div>
+        <div class="overview-copy">No subscription. Buy only what you need before beta pricing ends. <a class="beta-cta" href="/pricing">See the full launch offer &rarr;</a></div>
         {% else %}
         <div class="overview-title">Live foreclosure lead desk</div>
         <div class="overview-copy">Browse masked public records, filter by county or lead type, then unlock the full contact package.</div>

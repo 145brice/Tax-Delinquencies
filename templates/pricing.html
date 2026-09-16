@@ -23,6 +23,17 @@
             color: #fbbf24; border: 1px solid #5f4318; background: #221b0f;
             border-radius: 999px; padding: 6px 10px; font-size: 0.8rem; font-weight: 700;
         }
+        .beta-sale-banner {
+            display: flex; align-items: center; justify-content: center; gap: 14px; flex-wrap: wrap;
+            padding: 12px 24px; text-align: center; color: #fff7d6;
+            background: linear-gradient(90deg, #8a3f05, #b45309 45%, #1d4ed8);
+            border-bottom: 1px solid #f59e0b; font-weight: 800;
+        }
+        .beta-sale-banner strong {
+            padding: 4px 10px; border-radius: 999px; background: #fff; color: #7c2d12;
+            font-size: .75rem; letter-spacing: .07em; text-transform: uppercase;
+        }
+        .beta-sale-banner a { color: #fff; text-decoration: underline; text-underline-offset: 3px; }
 
         .hero {
             text-align: center; padding: 80px 24px 56px;
@@ -45,6 +56,8 @@
         .price-chip .label { font-size: 0.78rem; color: #6b7280; text-transform: uppercase; letter-spacing: .07em; }
         .price-chip.featured { border-color: #2563eb; background: linear-gradient(160deg, #16181f 50%, #1e3a5f33); }
         .price-chip.featured .amount { color: #3b82f6; }
+        .price-chip.sale { border-color: #f59e0b; background: linear-gradient(160deg, #251806, #16181f); }
+        .price-chip.sale .amount { color: #fbbf24; }
 
         .btn-primary {
             background: #2563eb; color: #fff; border: none; border-radius: 10px;
@@ -191,9 +204,21 @@
     </div>
 </nav>
 
+{% if pricing_phase == 'beta' %}
+<div class="beta-sale-banner">
+    <strong>Beta launch sale</strong>
+    <span>Exclusive leads from ${{ lead_floor_raw | int }} &middot; Fresh raw ${{ lead_price_raw | int }} &middot; Fresh skip-traced ${{ lead_price_traced | int }}</span>
+    <a href="/#leads-table">Shop live inventory &rarr;</a>
+</div>
+{% endif %}
+
 <!-- HERO -->
 <div class="hero">
+    {% if pricing_phase == 'beta' %}
+    <h1>Get in during beta.<br><span>Lock in launch pricing.</span></h1>
+    {% else %}
     <h1>Start free.<br><span>Pay only for what you need.</span></h1>
+    {% endif %}
     <p>Fresh tax-delinquent and pre-foreclosure records pulled from public records — owner names and mailing addresses on every lead, with skip-traced phone &amp; email on contact leads. Choose individual exclusive leads and pay by card or prepaid credit. No monthly subscription.</p>
 
     <div class="price-chips">
@@ -201,9 +226,17 @@
             <div class="amount">Free</div>
             <div class="label">Up to 3 aged leads, when available</div>
         </div>
-        <div class="price-chip">
+        <div class="price-chip sale">
             <div class="amount"><sup>$</sup>{{ lead_floor_raw | int }}<sub>+</sub></div>
-            <div class="label">Per lead, no commitment</div>
+            <div class="label">Aged raw leads</div>
+        </div>
+        <div class="price-chip">
+            <div class="amount"><sup>$</sup>{{ lead_price_raw | int }}</div>
+            <div class="label">Fresh raw leads</div>
+        </div>
+        <div class="price-chip">
+            <div class="amount"><sup>$</sup>{{ lead_price_traced | int }}</div>
+            <div class="label">Fresh skip-traced</div>
         </div>
     </div>
 
