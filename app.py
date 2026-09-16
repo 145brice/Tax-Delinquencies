@@ -204,6 +204,19 @@ google_oauth = oauth.register(
 )
 stripe.api_key = os.getenv("STRIPE_SECRET_KEY", "")
 
+
+def _stripe_mapping(value):
+    """Normalize Stripe SDK resources before using ordinary dict methods."""
+    if isinstance(value, dict):
+        return value
+    converter = getattr(value, "to_dict", None)
+    if callable(converter):
+        return converter()
+    try:
+        return dict(value)
+    except (TypeError, ValueError):
+        return value
+
 # --- County subscriptions (tiered: Starter $99 / Professional $199 / Power $399) ----
 # FULLY GATED: with ENABLE_SUBSCRIPTIONS unset the app behaves exactly as before.
 # Flip the flag AND set the tier price IDs to activate.
@@ -938,7 +951,7 @@ def _mark_credit_pack_fulfilled(session_id):
 def _fulfill_credit_pack(session_id):
     if not session_id or not stripe.api_key or not _persistent_storage_ready():
         return False
-    cs = stripe.checkout.Session.retrieve(session_id)
+    cs = _stripe_mapping(stripe.checkout.Session.retrieve(session_id))
     meta = cs.get("metadata") or {}
     pack = next((p for p in _load_credit_packs()
                  if str(p.get("id")) == str(meta.get("pack_id"))), None)
@@ -1110,6 +1123,7 @@ def _subscription_access_status(stripe_status):
 
 
 def _sync_subscription_object(stripe_sub):
+    stripe_sub = _stripe_mapping(stripe_sub)
     sub_id = stripe_sub.get("id")
     if not sub_id:
         return False
@@ -2831,7 +2845,7 @@ def buy_credits():
 def _fulfill_session(session_id):
     if not session_id or not stripe.api_key or not _persistent_storage_ready():
         return False
-    cs = stripe.checkout.Session.retrieve(session_id)
+    cs = _stripe_mapping(stripe.checkout.Session.retrieve(session_id))
     if cs.get("mode") != "payment" or (cs.get("metadata") or {}).get("kind") == "credit_pack":
         return False
     if cs.get("payment_status") != "paid":
@@ -2877,7 +2891,7 @@ def checkout_success():
     success = False
     try:
         if sid and stripe.api_key:
-            cs = stripe.checkout.Session.retrieve(sid)
+            cs = _stripe_mapping(stripe.checkout.Session.retrieve(sid))
             success = (_fulfill_credit_pack(sid) if (cs.get("metadata") or {}).get("kind") == "credit_pack"
                        else _fulfill_session(sid))
     except Exception:
@@ -2930,13 +2944,13 @@ def stripe_webhook():
         elif etype == "checkout.session.expired":
             order = purchase_store.get(session_id=obj.get("id"))
             if order:
-                cs = stripe.checkout.Session.retrieve(obj["id"])
+                cs = _stripe_mapping(stripe.checkout.Session.retrieve(obj["id"]))
                 if cs.get("status") == "expired":
                     purchase_store.expire(order["id"])
         elif etype == "checkout.session.async_payment_failed":
             order = purchase_store.get(session_id=obj.get("id"))
             if order:
-                cs = stripe.checkout.Session.retrieve(obj["id"])
+                cs = _stripe_mapping(stripe.checkout.Session.retrieve(obj["id"]))
                 if cs.get("payment_status") == "unpaid":
                     purchase_store.expire(order["id"])
         elif etype in {"customer.subscription.created", "customer.subscription.paused",
@@ -2991,7 +3005,7 @@ def _activate_subscription(sub_id, customer_id, user_id, county, email="", tier=
     price_id = ""
     period_end = ""
     try:
-        s = stripe.Subscription.retrieve(sub_id)
+        s = _stripe_mapping(stripe.Subscription.retrieve(sub_id))
         period_end = _sub_period_end(s)
         items = (s.get("items") or {}).get("data") or []
         if items:
@@ -3032,7 +3046,7 @@ def _fulfill_subscription(session_id) -> bool:
     if not session_id or not stripe.api_key:
         return False
     try:
-        cs = stripe.checkout.Session.retrieve(session_id)
+        cs = _stripe_mapping(stripe.checkout.Session.retrieve(session_id))
     except stripe.error.StripeError:
         return False
     if cs.get("mode") != "subscription":
@@ -3490,6 +3504,53 @@ def _send_county_email(entry):
     _send_email(entry["email"], subject, text_body, "county-alert-" + entry["id"])
 
 
+def _send_county_confirmation_email(entry, request_count):
+    base_url = os.getenv("PUBLIC_BASE_URL", "https://tax-delinquencies-production.up.railway.app").rstrip("/")
+    if int(entry.get("live_count_at_request") or 0) > 0:
+        count = int(entry["live_count_at_request"])
+        link = f"{base_url}/?county={entry['county_key'].replace(' ', '+')}&state={entry['state']}"
+        subject = f"We found {entry['county']} County, {entry['state']} leads"
+        text_body = (
+            f"Your county check found {count:,} live lead{'s' if count != 1 else ''} in "
+            f"{entry['county']} County, {entry['state']}.\n\n"
+            f"View the available leads: {link}\n\n"
+            "This confirms the county request you submitted to ForeclosureLeads Pro."
+        )
+    else:
+        subject = f"County request received: {entry['county']} County, {entry['state']}"
+        coverage = ("We already cover this county and will alert you when fresh inventory is posted."
+                    if entry.get("covered_at_request") else
+                    "We added this county to our requested-market list and will work to add it.")
+        text_body = (
+            f"We received your request for {entry['county']} County, {entry['state']}.\n\n"
+            f"{coverage} Stay tuned over the next day or so—we will email you as soon as leads are ready.\n\n"
+            f"Browse current inventory: {base_url}/"
+        )
+    _send_email(entry["email"], subject, text_body,
+                f"county-confirmation-{entry['id']}-{int(request_count)}")
+
+
+def _deliver_county_confirmation(request_id, request_count):
+    with purchase_store.transaction() as conn:
+        entry = purchase_store.read(conn, COUNTY_REQUESTS_KEY, {}).get(request_id)
+    if not entry or not _county_alerts_configured():
+        return False
+    current_count = int(entry.get("request_count") or 0)
+    sent_count = int(entry.get("confirmation_sent_count") or 0)
+    if int(request_count) < current_count or sent_count >= int(request_count):
+        return True
+    _send_county_confirmation_email(entry, request_count)
+    with purchase_store.transaction() as conn:
+        entries = purchase_store.read(conn, COUNTY_REQUESTS_KEY, {})
+        current = entries.get(request_id)
+        if current:
+            current["confirmation_sent_count"] = max(
+                int(current.get("confirmation_sent_count") or 0), int(request_count))
+            current["confirmation_sent_at"] = datetime.now(timezone.utc).isoformat()
+            purchase_store.write(conn, COUNTY_REQUESTS_KEY, entries)
+    return True
+
+
 def _schedule_order_delivery_email(session_id):
     # Some offline/test account adapters intentionally implement only writes.
     # Email scheduling must never turn a completed lead delivery into a failure.
@@ -3598,6 +3659,12 @@ def _enqueue_ready_county_alerts():
     with purchase_store.transaction() as conn:
         entries = purchase_store.read(conn, COUNTY_REQUESTS_KEY, {})
         for request_id, entry in entries.items():
+            request_count = int(entry.get("request_count") or 0)
+            if request_count > int(entry.get("confirmation_sent_count") or 0):
+                purchase_store.enqueue(
+                    conn, f"county-confirmation:{request_id}:{request_count}",
+                    "county_confirmation")
+                queued += 1
             if entry.get("status") == "ready":
                 purchase_store.enqueue(conn, "county-alert:" + request_id, "county_alert")
                 queued += 1
@@ -3651,17 +3718,22 @@ def county_interest():
         )
         if prior_id != request_id:
             entries.pop(prior_id, None)
+        request_count = int(prior.get("request_count") or 0) + 1
         entries[request_id] = {
             **prior, "id": request_id, "county": county, "county_key": county_key,
             "state": state, "email": email,
             "first_requested_at": prior.get("first_requested_at") or now,
-            "last_requested_at": now, "request_count": int(prior.get("request_count") or 0) + 1,
+            "last_requested_at": now, "request_count": request_count,
             "consent_at": now, "consent_version": "county-alert-v1", "consent_text": consent_text,
             "covered_at_request": covered, "live_count_at_request": live_count,
             "status": ("available" if live_count else
                        ("notified" if prior.get("status") == "notified" else "waiting")),
         }
         purchase_store.write(conn, COUNTY_REQUESTS_KEY, entries)
+        if _county_alerts_configured():
+            purchase_store.enqueue(
+                conn, f"county-confirmation:{request_id}:{request_count}",
+                "county_confirmation")
 
     if live_count:
         return jsonify({"ok": True, "availability": "available", "count": live_count,

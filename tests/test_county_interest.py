@@ -55,6 +55,27 @@ class CountyInterestTests(unittest.TestCase):
         self.assertEqual(response.json["count"], 1)
         self.assertIn("county=travis", response.json["url"])
 
+    def test_county_check_queues_and_sends_immediate_confirmation(self):
+        configured = {
+            "RESEND_API_KEY": "re_test", "RESEND_FROM": "Alerts <alerts@example.com>",
+        }
+        with patch.dict(os.environ, configured):
+            response = self.request()
+            self.assertEqual(response.status_code, 200)
+            request_id = next(iter(self.a._sqlite_get(self.a.COUNTY_REQUESTS_KEY, {})))
+            with self.a.purchase_store.transaction() as conn:
+                job = conn.execute(
+                    "SELECT id, kind FROM fulfillment_jobs WHERE kind='county_confirmation'"
+                ).fetchone()
+            self.assertEqual(job["kind"], "county_confirmation")
+            self.assertEqual(job["id"], f"county-confirmation:{request_id}:1")
+            with patch.object(self.a, "_send_email") as send:
+                self.assertTrue(self.a._deliver_county_confirmation(request_id, 1))
+        send.assert_called_once()
+        self.assertIn("County request received", send.call_args.args[1])
+        entry = self.a._sqlite_get(self.a.COUNTY_REQUESTS_KEY, {})[request_id]
+        self.assertEqual(entry["confirmation_sent_count"], 1)
+
     def test_new_inventory_marks_waiting_request_ready_and_queues_alert(self):
         response = self.request()
         request_id = next(iter(self.a._sqlite_get(self.a.COUNTY_REQUESTS_KEY, {})))

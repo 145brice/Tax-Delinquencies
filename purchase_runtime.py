@@ -169,6 +169,9 @@ def process_job(a, job):
         return a._fulfill_order_skiptraces(job["id"][6:])
     if job["kind"] == "county_alert":
         return a._deliver_county_alert(job["id"].removeprefix("county-alert:"))
+    if job["kind"] == "county_confirmation":
+        request_id, request_count = job["id"].removeprefix("county-confirmation:").rsplit(":", 1)
+        return a._deliver_county_confirmation(request_id, int(request_count))
     if job["kind"] == "order_email":
         return a._deliver_order_email(job["id"].removeprefix("order-email:"))
     order = a.purchase_store.get(key=job["id"])
@@ -181,9 +184,9 @@ def process_job(a, job):
     if order["state"] == "creating":
         create_checkout(a, order)
         order = a.purchase_store.get(key=order["id"])
-    cs = a.stripe.checkout.Session.retrieve(order["session_id"])
+    cs = a._stripe_mapping(a.stripe.checkout.Session.retrieve(order["session_id"]))
     if cs.get("payment_status") == "paid":
-        return a._fulfill_session(cs.id)
+        return a._fulfill_session(cs["id"])
     if cs.get("status") == "expired":
         a.purchase_store.expire(order["id"])
         return True

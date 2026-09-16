@@ -64,7 +64,10 @@ class RuntimeTests(unittest.TestCase):
                    "amount_total": 600, "currency": "usd", "metadata": {}}
         a.stripe.api_key = "sk_test"
         a.stripe.checkout.Session.create = Mock(return_value=type("Checkout", (dict,), {"__getattr__": dict.__getitem__})(session))
-        a.stripe.checkout.Session.retrieve = Mock(return_value=session)
+        stripe_resource = type("StripeSession", (), {
+            "id": session["id"], "to_dict": lambda self: dict(session),
+        })()
+        a.stripe.checkout.Session.retrieve = Mock(return_value=stripe_resource)
         checkout = client.post("/api/create-checkout-session", json={"lead_ids": ["lead-1"]})
         self.assertEqual(checkout.status_code, 200, checkout.get_data(as_text=True))
 
