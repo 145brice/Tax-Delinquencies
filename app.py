@@ -12,6 +12,7 @@ import shutil
 import sqlite3
 import base64
 import smtplib
+import urllib.error
 import urllib.request
 from email.message import EmailMessage
 from datetime import datetime, timezone
@@ -3419,6 +3420,21 @@ def _county_alerts_configured():
     return brevo_ready or resend_ready or smtp_ready
 
 
+def _open_email_request(req):
+    try:
+        with urllib.request.urlopen(req, timeout=20) as response:
+            if not 200 <= response.status < 300:
+                raise RuntimeError(f"Email provider returned HTTP {response.status}")
+    except urllib.error.HTTPError as exc:
+        detail = exc.read(2048).decode("utf-8", errors="replace")
+        try:
+            parsed = json.loads(detail)
+            detail = str(parsed.get("message") or parsed.get("error") or detail)
+        except (json.JSONDecodeError, AttributeError):
+            pass
+        raise RuntimeError(f"Email provider returned HTTP {exc.code}: {detail[:500]}") from None
+
+
 def _send_email(to, subject, text_body, idempotency_key, attachment=None):
     attachment = attachment or None
     filename = attachment[0] if attachment else ""
@@ -3443,9 +3459,7 @@ def _send_email(to, subject, text_body, idempotency_key, attachment=None):
                 "Idempotency-Key": idempotency_key,
             },
         )
-        with urllib.request.urlopen(req, timeout=20) as response:
-            if not 200 <= response.status < 300:
-                raise RuntimeError(f"Email provider returned HTTP {response.status}")
+        _open_email_request(req)
         return
 
     if os.getenv("RESEND_API_KEY") and os.getenv("RESEND_FROM"):
@@ -3467,9 +3481,7 @@ def _send_email(to, subject, text_body, idempotency_key, attachment=None):
                 "Idempotency-Key": idempotency_key,
             },
         )
-        with urllib.request.urlopen(req, timeout=20) as response:
-            if not 200 <= response.status < 300:
-                raise RuntimeError(f"Email provider returned HTTP {response.status}")
+        _open_email_request(req)
         return
 
     host = os.environ["SMTP_HOST"]
