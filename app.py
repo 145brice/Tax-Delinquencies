@@ -4378,6 +4378,35 @@ def ingest_scrape_results():
     return jsonify(result)
 
 
+@app.route('/api/scrape-activity')
+def public_scrape_activity():
+    """Public counts only: no records, errors, or internal delivery metadata."""
+    cutoff = time.time() - 10 * 24 * 60 * 60
+    labels = {row['ui_key']: f"{row['label']}, {row['state']}" for row in _COUNTY_SCHEDULE}
+    runs = []
+    for entry in _sqlite_get(SCRAPE_RUN_INVENTORY_KEY, []):
+        stamp = entry.get('completed_at') or entry.get('last_received_at')
+        try:
+            observed = datetime.fromisoformat(str(stamp).replace('Z', '+00:00'))
+            if observed.tzinfo is None:
+                observed = observed.replace(tzinfo=timezone.utc)
+            if not cutoff <= observed.timestamp() <= time.time():
+                continue
+        except (ValueError, TypeError):
+            continue
+        status = entry.get('status')
+        runs.append({
+            'county': labels.get(entry.get('county'), entry.get('county') or 'Unknown county'),
+            'source': entry.get('source') or 'Unknown source',
+            'time': observed.astimezone(timezone.utc).isoformat(),
+            'found': int(entry.get('raw') or 0),
+            'added': int(entry.get('added') or 0),
+            'status': status if status in ('complete', 'failed', 'receiving') else 'unknown',
+        })
+    runs.sort(key=lambda row: row['time'], reverse=True)
+    return jsonify({'days': 10, 'runs': runs})
+
+
 @app.route('/api/admin/scrape-runs')
 @admin_required
 def scrape_run_inventory():

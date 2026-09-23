@@ -16,6 +16,26 @@ from app_fixture import isolated_app
 
 
 class RuntimeTests(unittest.TestCase):
+    def test_public_scrape_activity_filters_dates_and_exposes_only_counts(self):
+        from datetime import datetime, timedelta, timezone
+        a = isolated_app(self)
+        now = datetime.now(timezone.utc)
+        def run(days, **extra):
+            return {"completed_at": (now - timedelta(days=days)).isoformat(),
+                    "county": "clay-fl", "source": "county-source", "raw": 25,
+                    "added": 3, "status": "complete", "error": "private diagnostic",
+                    "batches": {"1": {"private": "data"}}, **extra}
+        a._sqlite_set(a.SCRAPE_RUN_INVENTORY_KEY, [run(11), run(2), run(1, status="failed"),
+                                                run(-1), run(0, completed_at="invalid")])
+        response = a.app.test_client().get('/api/scrape-activity')
+        self.assertEqual(response.status_code, 200)
+        runs = response.json['runs']
+        self.assertEqual(len(runs), 2)
+        self.assertEqual(runs[0]['status'], 'failed')
+        self.assertEqual(runs[1]['county'], 'Clay, FL')
+        self.assertEqual((runs[1]['found'], runs[1]['added']), (25, 3))
+        self.assertEqual(set(runs[0]), {'time', 'county', 'source', 'found', 'added', 'status'})
+
     def test_scrape_ingest_records_idempotent_run_inventory(self):
         a = isolated_app(self)
         client = a.app.test_client()
