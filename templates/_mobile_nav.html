@@ -1,0 +1,62 @@
+<style>
+    .nav-toggle { display: none; }
+    @media (max-width: 1000px), (max-height: 500px) and (pointer: coarse) {
+        .navbar {
+            position: sticky; top: 0; z-index: 100;
+            flex-direction: row; align-items: center; justify-content: space-between;
+            height: 56px; min-height: 56px; padding: 0 12px; gap: 8px;
+        }
+        .navbar .logo { font-size: 1.05rem; min-width: 0; }
+        .navbar .nav-toggle {
+            display: inline-flex; align-items: center; justify-content: center;
+            min-width: 80px; min-height: 44px; flex-shrink: 0;
+            border: 1px solid #475569; border-radius: 8px;
+            background: #1e293b; color: #fff; font: inherit; cursor: pointer;
+        }
+        .navbar .nav-right {
+            display: none; position: absolute; top: 100%; left: 0; right: 0;
+            margin: 0; padding: 8px 12px; background: #16181f;
+            border-bottom: 1px solid #475569; box-shadow: 0 8px 16px #0006;
+            max-height: calc(100vh - 64px); max-height: calc(100dvh - 64px);
+            overflow-y: auto; overscroll-behavior: contain;
+            flex-direction: column; align-items: stretch; gap: 4px;
+        }
+        .navbar.nav-open .nav-right { display: flex; }
+        .navbar .nav-right .nav-tab { display: block; min-height: 44px; padding: 12px; text-align: left; }
+        .navbar .nav-right form button { width: 100%; }
+    }
+</style>
+<script>
+(() => {
+    const nav = document.querySelector('.navbar');
+    const links = nav && nav.querySelector('.nav-right');
+    if (!links) return;
+    links.id = 'navigation-links';
+    const toggle = document.createElement('button');
+    toggle.type = 'button';
+    toggle.className = 'nav-toggle';
+    toggle.setAttribute('aria-controls', links.id);
+    const setOpen = open => {
+        nav.classList.toggle('nav-open', open);
+        toggle.setAttribute('aria-expanded', String(open));
+        toggle.setAttribute('aria-label', open ? 'Close navigation menu' : 'Open navigation menu');
+        toggle.textContent = open ? '\u00d7 Close' : '\u2630 Menu';
+    };
+    setOpen(false);
+    nav.insertBefore(toggle, links);
+    toggle.addEventListener('click', () => setOpen(!nav.classList.contains('nav-open')));
+    links.addEventListener('click', event => {
+        if (event.target.closest('a')) setOpen(false);
+    });
+    document.addEventListener('click', event => {
+        if (!nav.contains(event.target)) setOpen(false);
+    });
+    document.addEventListener('keydown', event => {
+        if (event.key === 'Escape' && nav.classList.contains('nav-open')) {
+            setOpen(false);
+            toggle.focus();
+        }
+    });
+    window.addEventListener('resize', () => setOpen(false));
+})();
+</script>
