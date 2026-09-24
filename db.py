@@ -143,6 +143,10 @@ def _appwrite_users_collection_id():
     return _env("APPWRITE_USERS_COLLECTION_ID", "users")
 
 
+def _appwrite_oauth_collection_id():
+    return _env("APPWRITE_OAUTH_COLLECTION_ID", "oauth_identities")
+
+
 def _appwrite_headers(api_key=True, session_secret=""):
     headers = {
         "Content-Type": "application/json",
@@ -246,6 +250,19 @@ def _appwrite_create_users_collection():
             raise
 
 
+def _appwrite_create_oauth_collection():
+    dbid = _appwrite_database_id()
+    coll = _appwrite_oauth_collection_id()
+    try:
+        _appwrite_request("POST", f"/databases/{dbid}/collections", data={
+            "collectionId": coll, "name": "OAuth Identities", "permissions": [],
+            "documentSecurity": False, "enabled": True,
+        })
+    except AppwriteError as exc:
+        if "409" not in str(exc):
+            raise
+
+
 def _appwrite_attribute(collection_id, kind, key, **kwargs):
     dbid = _appwrite_database_id()
     path = f"/databases/{dbid}/collections/{collection_id}/attributes/{kind}"
@@ -272,9 +289,11 @@ def _appwrite_wait_for_attributes(collection_id, keys, timeout=20):
 def _appwrite_init():
     users = _appwrite_users_collection_id()
     orders = _appwrite_orders_collection_id()
+    oauth = _appwrite_oauth_collection_id()
     _appwrite_create_database()
     _appwrite_create_users_collection()
     _appwrite_create_orders_collection()
+    _appwrite_create_oauth_collection()
 
     _appwrite_attribute(users, "string", "email", size=320)
     _appwrite_attribute(users, "string", "password_hash", size=255)
@@ -292,6 +311,12 @@ def _appwrite_init():
         "user_id", "email", "stripe_session_id", "amount_cents",
         "status", "leads_json", "created_at",
     ])
+
+    _appwrite_attribute(oauth, "string", "provider", size=40)
+    _appwrite_attribute(oauth, "string", "subject", size=255)
+    _appwrite_attribute(oauth, "string", "user_id", size=128)
+    _appwrite_attribute(oauth, "string", "created_at", size=64)
+    _appwrite_wait_for_attributes(oauth, ["provider", "subject", "user_id", "created_at"])
 
 
 def get_conn():
@@ -516,15 +541,57 @@ def get_user_by_id(user_id):
 
 def get_or_create_oauth_user(provider, subject, email):
     """Resolve an OAuth identity by immutable provider subject, linking only a
-    provider-verified email to an existing Railway SQLite account."""
-    if not _use_sqlite():
-        raise DatabaseNotConfigured("Google sign-in requires the Railway SQLite account backend.")
+    provider-verified email to an existing account."""
     provider = str(provider or "").strip().lower()
     subject = str(subject or "").strip()
     email = _normalize_email(email)
     if not provider or not subject or not email:
         raise ValueError("OAuth identity is incomplete.")
     init_db()
+    if _use_appwrite():
+        coll = _appwrite_oauth_collection_id()
+        dbid = _appwrite_database_id()
+        identity_id = _safe_doc_id(f"{provider}:{subject}")
+        try:
+            identity = _appwrite_request(
+                "GET", f"/databases/{dbid}/collections/{coll}/documents/{identity_id}"
+            )
+            user = get_user_by_id(identity.get("user_id"))
+            if not user:
+                raise AppwriteError("OAuth identity points to a missing user")
+            return user, False
+        except AppwriteError as exc:
+            if "404" not in str(exc):
+                raise
+
+        user = get_user_by_email(email)
+        created = False
+        if not user:
+            user = create_user(email, "")
+            created = True
+        identities = _appwrite_request(
+            "GET", f"/databases/{dbid}/collections/{coll}/documents",
+            params=[("queries[]", json.dumps({"method": "limit", "values": [100]}))],
+        ).get("documents", [])
+        linked = next((doc for doc in identities
+                       if doc.get("provider") == provider and str(doc.get("user_id")) == str(user["id"])), None)
+        if linked and linked.get("subject") != subject:
+            raise ValueError("This account is already linked to another Google identity.")
+        try:
+            _appwrite_request(
+                "POST", f"/databases/{dbid}/collections/{coll}/documents",
+                data={"documentId": identity_id, "data": {
+                    "provider": provider, "subject": subject, "user_id": str(user["id"]),
+                    "created_at": datetime.now(timezone.utc).isoformat(),
+                }, "permissions": []},
+            )
+        except AppwriteError as exc:
+            if "409" not in str(exc):
+                raise
+        return user, created
+
+    if not _use_sqlite():
+        raise DatabaseNotConfigured("OAuth identities require SQLite or Appwrite.")
     with closing(_sqlite_conn()) as conn, conn:
         conn.execute("BEGIN IMMEDIATE")
         row = conn.execute(

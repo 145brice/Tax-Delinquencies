@@ -164,6 +164,29 @@ class ReviewTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             db.get_or_create_oauth_user("google", "different-google-sub", "buyer@example.com")
 
+    def test_appwrite_google_identity_links_existing_user(self):
+        user = {"id": "buyer", "email": "buyer@example.com", "password_hash": "hash"}
+        documents = []
+        def request(method, path, **kwargs):
+            if method == "GET" and "/documents/" in path:
+                raise db.AppwriteError("GET failed (404): missing")
+            if method == "GET" and path.endswith("/documents"):
+                return {"documents": documents}
+            if method == "POST" and path.endswith("/documents"):
+                documents.append(kwargs["data"]["data"])
+                return {"$id": kwargs["data"]["documentId"], **kwargs["data"]["data"]}
+            raise AssertionError((method, path))
+        with patch.object(db, "_use_sqlite", return_value=False), \
+             patch.object(db, "_use_appwrite", return_value=True), \
+             patch.object(db, "init_db"), \
+             patch.object(db, "get_user_by_email", return_value=user), \
+             patch.object(db, "get_user_by_id", return_value=user), \
+             patch.object(db, "_appwrite_request", side_effect=request):
+            linked, created = db.get_or_create_oauth_user("google", "google-sub-1", user["email"])
+        self.assertFalse(created)
+        self.assertEqual(linked["id"], "buyer")
+        self.assertEqual(documents[0]["subject"], "google-sub-1")
+
     def test_google_callback_creates_session_and_rejects_unverified_email(self):
         os.environ["GOOGLE_OAUTH_CLIENT_ID"] = "client-id"
         os.environ["GOOGLE_OAUTH_CLIENT_SECRET"] = "client-secret"

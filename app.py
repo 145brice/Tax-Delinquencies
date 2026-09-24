@@ -1818,7 +1818,7 @@ def _safe_local_next(value, default=None):
 def _google_oauth_ready():
     return bool(os.getenv("GOOGLE_OAUTH_CLIENT_ID", "").strip()
                 and os.getenv("GOOGLE_OAUTH_CLIENT_SECRET", "").strip()
-                and _accounts_ready() and db.backend_name() == "sqlite")
+                and _accounts_ready() and db.backend_name() in {"sqlite", "appwrite"})
 
 
 @app.route('/register', methods=['GET', 'POST'])
