@@ -4420,6 +4420,18 @@ def scrape_run_inventory():
     return jsonify({"count": len(public_runs), "runs": public_runs})
 
 
+@app.route('/api/admin/migrate-appwrite', methods=['POST'])
+@admin_required
+def migrate_accounts_to_appwrite():
+    if db.backend_name() != "sqlite":
+        return jsonify({"error": "migration is available only from the SQLite backend"}), 409
+    try:
+        return jsonify({"ok": True, **db.migrate_sqlite_to_appwrite()})
+    except Exception as exc:
+        app.logger.exception("Appwrite account migration failed")
+        return jsonify({"ok": False, "error": type(exc).__name__}), 500
+
+
 @app.route('/api/scrape/stop', methods=['POST'])
 @admin_required
 def stop_scraper():

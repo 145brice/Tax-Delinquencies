@@ -15,6 +15,7 @@ import hashlib
 from contextlib import closing
 from functools import wraps
 from datetime import datetime, timezone
+from pathlib import Path
 
 import requests
 import psycopg
@@ -382,6 +383,61 @@ def _sqlite_init():
             )
         """)
         conn.execute("CREATE INDEX IF NOT EXISTS idx_account_orders_user_status ON account_orders(user_id, status)")
+
+
+def migrate_sqlite_to_appwrite():
+    """Snapshot and copy account data. The SQLite source remains untouched."""
+    if not _use_sqlite():
+        raise DatabaseNotConfigured("Migration is allowed only while SQLite is the active backend.")
+    source = Path(_sqlite_path())
+    if not source.is_file():
+        raise DatabaseNotConfigured(f"SQLite source does not exist: {source}")
+    backup = source.with_name(
+        f"{source.stem}-pre-appwrite-{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')}{source.suffix}"
+    )
+    with sqlite3.connect(source) as original, sqlite3.connect(backup) as snapshot:
+        original.backup(snapshot)
+    _appwrite_init()
+    counts = {"users_copied": 0, "users_existing": 0, "orders_copied": 0,
+              "orders_existing": 0, "identities_copied": 0, "identities_existing": 0,
+              "backup": str(backup)}
+
+    def copy_document(collection, document_id, data):
+        path = f"/databases/{_appwrite_database_id()}/collections/{collection}/documents"
+        try:
+            _appwrite_request("POST", path, data={
+                "documentId": document_id, "data": data, "permissions": [],
+            })
+            return True
+        except AppwriteError as exc:
+            if "409" in str(exc):
+                return False
+            raise
+
+    with sqlite3.connect(backup) as conn:
+        conn.row_factory = sqlite3.Row
+        users = conn.execute("SELECT id, email, password_hash, created_at FROM account_users").fetchall()
+        orders = conn.execute("SELECT id, user_id, email, stripe_session_id, amount_cents, status, leads_json, created_at FROM account_orders").fetchall()
+        identities = conn.execute("SELECT provider, subject, user_id, created_at FROM account_oauth_identities").fetchall()
+    for row in users:
+        copied = copy_document(_appwrite_users_collection_id(), str(row["id"]), {
+            "email": row["email"], "password_hash": row["password_hash"], "created_at": row["created_at"],
+        })
+        counts["users_copied" if copied else "users_existing"] += 1
+    for row in orders:
+        copied = copy_document(_appwrite_orders_collection_id(), str(row["id"]), {
+            "user_id": str(row["user_id"]), "email": row["email"] or "",
+            "stripe_session_id": row["stripe_session_id"], "amount_cents": int(row["amount_cents"]),
+            "status": row["status"], "leads_json": row["leads_json"] or "[]", "created_at": row["created_at"],
+        })
+        counts["orders_copied" if copied else "orders_existing"] += 1
+    for row in identities:
+        copied = copy_document(_appwrite_oauth_collection_id(), _safe_doc_id(f'{row["provider"]}:{row["subject"]}'), {
+            "provider": row["provider"], "subject": row["subject"],
+            "user_id": str(row["user_id"]), "created_at": row["created_at"],
+        })
+        counts["identities_copied" if copied else "identities_existing"] += 1
+    return counts
 
 
 def _postgres_init():
