@@ -4378,9 +4378,10 @@ def ingest_scrape_results():
     return jsonify(result)
 
 
-@app.route('/api/scrape-activity')
-def public_scrape_activity():
-    """Public counts only: no records, errors, or internal delivery metadata."""
+@app.route('/api/admin/scrape-activity')
+@admin_required
+def admin_scrape_activity():
+    """Counts for an eventual admin activity view; never exposed publicly."""
     cutoff = time.time() - 10 * 24 * 60 * 60
     labels = {row['ui_key']: f"{row['label']}, {row['state']}" for row in _COUNTY_SCHEDULE}
     runs = []
